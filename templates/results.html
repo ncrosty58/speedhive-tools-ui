@@ -34,9 +34,9 @@
                         <p class="text-muted mb-0"><i class="fa-regular fa-clock me-1"></i>{{ session._display_start or 'Time N/A' }}</p>
                     </div>
                     {% if cache_status %}
-                        <span class="badge-custom badge-neutral">
-                            <i class="fa-solid fa-clock-rotate-left"></i> Cached: {{ cache_status_label(cache_status) }}
-                        </span>
+                            <span class="badge-custom badge-neutral">
+                                <i class="fa-solid fa-database"></i> Stored: {{ store_status_label(cache_status) }}
+                            </span>
                     {% endif %}
                 </div>
             </div>

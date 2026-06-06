@@ -12,7 +12,7 @@ import zipfile
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from flask import Flask, Response, after_this_request, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "s
 
 from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
+from speedhive.storage import SpeedhiveStorage
 from speedhive.processing.process_lap_analysis import (
     extract_iso_date,
     parse_time_value,
@@ -40,13 +41,14 @@ client = SpeedhiveClient.create()
 
 APP_ROOT = Path(__file__).resolve().parent
 WEB_DATA_ROOT = Path(os.environ.get("SPEEDHIVE_WEB_DATA_DIR", APP_ROOT / "web_data"))
-CACHE_ROOT = WEB_DATA_ROOT / "cache"
+LEGACY_CACHE_ROOT = WEB_DATA_ROOT / "cache"
 DUMPS_ROOT = WEB_DATA_ROOT / "saved_dumps"
+DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", WEB_DATA_ROOT / "speedhive.db"))
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS", "3"))
 
-CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 DUMPS_ROOT.mkdir(parents=True, exist_ok=True)
+storage = SpeedhiveStorage(DB_PATH)
 
 # ---------------------------------------------------------------------------
 # Background refresh task registry
@@ -98,29 +100,28 @@ def _is_stop_requested(task_id: str) -> bool:
 
 def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int) -> None:
     """Run the org refresh in a background thread with progress updates."""
-    # Inline version of refresh_org_cache that reports progress and supports stop.
-    import json as _json
-    import shutil as _shutil
     from speedhive.exporters.export_org_cache import (
-        _utc_now_iso, _write_cache_entry, _write_json, _read_json,
-        _load_previous_event_ids, _load_previous_session_ids,
         _event_ids_from_rows, _sorted_event_ids_for_backfill,
-        _cleanup_numeric_child_dirs, _parse_iso_utc,
+        _parse_iso_utc,
     )
 
     try:
         _update_task(task_id, phase="Fetching org metadata")
-        cache_root = CACHE_ROOT
-        org_cache_dir = cache_root / "orgs" / str(org_id)
-        events_root = cache_root / "events"
-        sessions_root = cache_root / "sessions"
-
-        previous_state = _read_json(org_cache_dir / "refresh_state.json")
+        previous_state = storage.get_refresh_state(org_id).payload
         if not isinstance(previous_state, dict):
             previous_state = {}
 
-        previous_event_ids = _load_previous_event_ids(org_cache_dir)
-        previous_session_ids = _load_previous_session_ids(org_cache_dir)
+        previous_events_record = storage.get_events(org_id).payload
+        previous_event_ids = {
+            safe_int(event.get("id"), None)
+            for event in (previous_events_record or [])
+            if isinstance(event, dict) and safe_int(event.get("id"), None) is not None
+        }
+        previous_session_ids = {
+            safe_int(session_id, None)
+            for session_id in storage.load_session_payloads(org_id).keys()
+            if safe_int(session_id, None) is not None
+        }
         prev_full_at = previous_state.get("last_full_refresh_at")
         prev_incremental_at = previous_state.get("last_incremental_refresh_at")
 
@@ -139,9 +140,11 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
         if MAX_ORG_EVENTS is not None:
             events = events[:max(0, int(MAX_ORG_EVENTS))]
 
-        _write_cache_entry(org_cache_dir / "organization.json", organization)
-        _write_cache_entry(org_cache_dir / "championships.json", championships)
-        _write_cache_entry(org_cache_dir / "events.json", events)
+        refresh_saved_at = iso_utc(utc_now())
+        with storage.connect() as storage_conn:
+            storage.save_organization(org_id, organization, saved_at=refresh_saved_at, conn=storage_conn)
+            storage.save_championships(org_id, championships, saved_at=refresh_saved_at, conn=storage_conn)
+            storage.save_events(org_id, events, saved_at=refresh_saved_at, conn=storage_conn)
 
         current_event_ids = _event_ids_from_rows(events)
         current_event_id_set = set(current_event_ids)
@@ -188,17 +191,20 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
 
             event_detail = client.get_event(event_id, include_sessions=True) or {}
             sessions = client.get_sessions(event_id) or []
-            _write_cache_entry(events_root / str(event_id) / "event.json", event_detail)
-            _write_cache_entry(events_root / str(event_id) / "sessions.json", sessions)
+            with storage.connect() as storage_conn:
+                storage.save_event(event_id, org_id, event_detail, saved_at=refresh_saved_at, conn=storage_conn)
+                storage.save_event_sessions(event_id, org_id, sessions, saved_at=refresh_saved_at, conn=storage_conn)
             refreshed_events += 1
 
             session_list = [s for s in sessions if isinstance(s, dict) and _safe_int(s.get("id")) is not None]
             _update_task(
                 task_id,
                 events_done=refreshed_events,
-                sessions_total=_get_task(task_id).get("sessions_total", 0) + len(session_list),
+                sessions_total=len(session_list),
+                sessions_done=0,
             )
 
+            event_sessions_done = 0
             for session in session_list:
                 if _is_stop_requested(task_id):
                     _update_task(task_id, status="stopped", phase="Stopped", finished_at=iso_utc(utc_now()))
@@ -218,26 +224,32 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
                 announcements = client.get_announcements(sid) or []
                 lap_chart = client.get_lap_chart(sid) or []
 
-                session_dir = sessions_root / str(sid)
-                _write_cache_entry(session_dir / "session.json", session_detail)
-                _write_cache_entry(session_dir / "results.json", results)
-                _write_cache_entry(session_dir / "laps.json", laps)
-                _write_cache_entry(session_dir / "announcements.json", announcements)
-                _write_cache_entry(session_dir / "lap_chart.json", lap_chart)
+                with storage.connect() as storage_conn:
+                    storage.save_session(sid, event_id, org_id, session_detail, saved_at=refresh_saved_at, conn=storage_conn)
+                    storage.save_results(sid, event_id, org_id, results, saved_at=refresh_saved_at, conn=storage_conn)
+                    storage.save_laps(sid, event_id, org_id, laps, saved_at=refresh_saved_at, conn=storage_conn)
+                    storage.save_announcements(sid, event_id, org_id, announcements, saved_at=refresh_saved_at, conn=storage_conn)
+                    storage.save_lap_chart(sid, event_id, org_id, lap_chart, saved_at=refresh_saved_at, conn=storage_conn)
 
                 known_session_ids.add(sid)
                 refreshed_sessions += 1
-                _update_task(task_id, sessions_done=refreshed_sessions)
+                event_sessions_done += 1
+                _update_task(task_id, sessions_done=event_sessions_done)
 
         # Cleanup stale dirs on full refresh
         removed_event_dirs = 0
         removed_session_dirs = 0
         if mode == "full":
             _update_task(task_id, phase="Cleaning up old cache", current_item="")
-            removed_event_dirs = _cleanup_numeric_child_dirs(events_root, current_event_id_set)
-            removed_session_dirs = _cleanup_numeric_child_dirs(sessions_root, known_session_ids)
+            storage_removed_events, storage_removed_sessions = storage.prune_org(
+                org_id,
+                current_event_id_set,
+                known_session_ids,
+            )
+            removed_event_dirs += storage_removed_events
+            removed_session_dirs += storage_removed_sessions
 
-        refreshed_at = _utc_now_iso()
+        refreshed_at = iso_utc(utc_now())
         full_at = refreshed_at if mode == "full" else prev_full_at
         incremental_at = refreshed_at if mode == "incremental" else prev_incremental_at
         refresh_dt_candidates = [dt for dt in (_parse_iso_utc(full_at), _parse_iso_utc(incremental_at)) if dt]
@@ -265,7 +277,8 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
             "removed_event_dirs": removed_event_dirs,
             "removed_session_dirs": removed_session_dirs,
         }
-        _write_json(org_cache_dir / "refresh_state.json", refresh_state)
+        with storage.connect() as storage_conn:
+            storage.save_refresh_state(org_id, refresh_state, saved_at=refresh_saved_at, conn=storage_conn)
 
         _update_task(
             task_id,
@@ -318,11 +331,10 @@ def _country_name_from_value(value: Any) -> Optional[str]:
     return text or None
 
 def _org_display_name_from_cache(org_id: int) -> str:
-    """Return org name from cache only (no API call), with stable fallback."""
-    org_path = cache_entry_path("orgs", str(org_id), "organization.json")
-    payload, _ = read_cache_entry(org_path)
-    if isinstance(payload, dict):
-        name = first_non_empty(payload.get("name"), payload.get("organizationName"))
+    """Return org name from primary cache only, with stable fallback."""
+    db_payload = storage.get_organization(org_id).payload
+    if isinstance(db_payload, dict):
+        name = first_non_empty(db_payload.get("name"), db_payload.get("organizationName"))
         if name:
             return str(name)
     return f"Organization #{org_id}"
@@ -501,9 +513,6 @@ def parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
     except Exception:
         return None
 
-def cache_entry_path(*parts: str) -> Path:
-    return CACHE_ROOT.joinpath(*parts)
-
 def read_json_file(path: Path) -> Any:
     if not path.exists():
         return None
@@ -515,18 +524,6 @@ def read_json_file(path: Path) -> Any:
 def write_json_file(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-
-def read_cache_entry(path: Path) -> tuple[Any, Optional[datetime]]:
-    payload = read_json_file(path)
-    if not isinstance(payload, dict):
-        return payload, None
-    if "data" not in payload:
-        return payload, None
-    saved_at = parse_iso_utc(payload.get("saved_at"))
-    return payload.get("data"), saved_at
-
-def write_cache_entry(path: Path, data: Any) -> None:
-    write_json_file(path, {"saved_at": iso_utc(utc_now()), "data": data})
 
 def cache_age_seconds(saved_at: Optional[datetime]) -> Optional[float]:
     if not saved_at:
@@ -544,22 +541,94 @@ def cache_meta(saved_at: Optional[datetime], source: str, error: Optional[str] =
         "error": error,
     }
 
-def cache_fetch(path: Path, fetcher, force_refresh: bool = False) -> tuple[Any, Dict[str, Any]]:
-    cached, saved_at = read_cache_entry(path)
-    if cached is not None and not force_refresh:
-        return cached, cache_meta(saved_at, source="cache")
+def store_fetch(
+    fetcher: Callable[[], Any],
+    force_refresh: bool = False,
+    *,
+    db_reader: Optional[Callable[[], tuple[Any, Optional[datetime]]]] = None,
+    db_writer: Optional[Callable[[Any, Optional[datetime]], None]] = None,
+) -> tuple[Any, Dict[str, Any]]:
+    if not force_refresh and db_reader is not None:
+        db_cached, db_saved_at = db_reader()
+        if db_cached is not None:
+            return db_cached, cache_meta(db_saved_at, source="db")
 
     try:
         data = fetcher()
-        write_cache_entry(path, data)
-        _, new_saved_at = read_cache_entry(path)
+        new_saved_at = utc_now()
+        if db_writer is not None:
+            try:
+                db_writer(data, new_saved_at)
+            except Exception:
+                pass
         return data, cache_meta(new_saved_at, source="api")
-    except Exception as exc:
-        if cached is not None:
-            return cached, cache_meta(saved_at, source="cache-error", error=str(exc))
+    except Exception:
         raise
 
-def get_org_cache_status(org_id: int) -> Dict[str, Any]:
+
+def db_stored_record(getter: Callable[[], Any]) -> tuple[Any, Optional[datetime]]:
+    record = getter()
+    saved_at = parse_iso_utc(record.saved_at) if getattr(record, "saved_at", None) else None
+    return getattr(record, "payload", None), saved_at
+
+
+def read_from_store(getter: Callable[[], Any], *, empty_value: Any) -> tuple[Any, Dict[str, Any]]:
+    payload, saved_at = db_stored_record(getter)
+    if payload is None:
+        payload = empty_value
+    return payload, cache_meta(saved_at, source="db")
+
+
+def read_organization_from_store(org_id: int) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_organization(org_id), empty_value={})
+    return payload if isinstance(payload, dict) else {}, meta
+
+
+def read_championships_from_store(org_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_championships(org_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+
+def read_events_from_store(org_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_events(org_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+
+def read_event_from_store(event_id: int) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_event(event_id), empty_value={})
+    return payload if isinstance(payload, dict) else {}, meta
+
+
+def read_event_sessions_from_store(event_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_event_sessions(event_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+
+def read_session_from_store(session_id: int) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_session(session_id), empty_value={})
+    return payload if isinstance(payload, dict) else {}, meta
+
+
+def read_results_from_store(session_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_results(session_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+
+def read_announcements_from_store(session_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_announcements(session_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+
+def read_laps_from_store(session_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_laps(session_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+
+def read_lap_chart_from_store(session_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    payload, meta = read_from_store(lambda: storage.get_lap_chart(session_id), empty_value=[])
+    return payload if isinstance(payload, list) else [], meta
+
+def get_org_store_status(org_id: int) -> Dict[str, Any]:
     refresh_state = read_org_refresh_state(org_id)
     if refresh_state.get("last_refresh_at"):
         return {
@@ -573,20 +642,35 @@ def get_org_cache_status(org_id: int) -> Dict[str, Any]:
             "sessions_cached": refresh_state.get("sessions_cached"),
             "championships_cached": refresh_state.get("championships_cached"),
         }
-    path = cache_entry_path("orgs", str(org_id), "events.json")
-    _, saved_at = read_cache_entry(path)
+    _, saved_at = db_stored_record(lambda: storage.get_events(org_id))
     return cache_meta(saved_at, source="cache-status")
 
-def get_organization_cached(org_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    path = cache_entry_path("orgs", str(org_id), "organization.json")
-    data, meta = cache_fetch(path, lambda: client.get_organization(org_id) or {"id": org_id, "name": f"Organization #{org_id}"}, force_refresh=force_refresh)
+def get_organization_stored(org_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    data, meta = store_fetch(
+        lambda: client.get_organization(org_id) or {"id": org_id, "name": f"Organization #{org_id}"},
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_organization(org_id)),
+        db_writer=lambda payload, saved_at: storage.save_organization(
+            org_id,
+            payload if isinstance(payload, dict) else {"id": org_id, "name": f"Organization #{org_id}"},
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     if not data:
         data = {"id": org_id, "name": f"Organization #{org_id}"}
     return data, meta
 
-def get_championships_cached(org_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("orgs", str(org_id), "championships.json")
-    data, meta = cache_fetch(path, lambda: client.get_championships(org_id) or [], force_refresh=force_refresh)
+def get_championships_stored(org_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    data, meta = store_fetch(
+        lambda: client.get_championships(org_id) or [],
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_championships(org_id)),
+        db_writer=lambda payload, saved_at: storage.save_championships(
+            org_id,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
 def fetch_org_events(org_id: int) -> List[Dict[str, Any]]:
@@ -602,44 +686,130 @@ def fetch_org_events(org_id: int) -> List[Dict[str, Any]]:
         events = client.get_events(org_id, limit=MAX_ORG_EVENTS) or []
     return events
 
-def get_events_cached(org_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("orgs", str(org_id), "events.json")
-    data, meta = cache_fetch(path, lambda: fetch_org_events(org_id), force_refresh=force_refresh)
+def get_events_stored(org_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    data, meta = store_fetch(
+        lambda: fetch_org_events(org_id),
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_events(org_id)),
+        db_writer=lambda payload, saved_at: storage.save_events(
+            org_id,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
-def get_event_cached(event_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    path = cache_entry_path("events", str(event_id), "event.json")
-    data, meta = cache_fetch(path, lambda: client.get_event(event_id, include_sessions=True) or {}, force_refresh=force_refresh)
+def get_event_stored(event_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    data, meta = store_fetch(
+        lambda: client.get_event(event_id, include_sessions=True) or {},
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_event(event_id)),
+        db_writer=lambda payload, saved_at: storage.save_event(
+            event_id,
+            _infer_event_org_id(payload),
+            payload if isinstance(payload, dict) else {},
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, dict) else {}, meta
 
-def get_sessions_cached(event_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("events", str(event_id), "sessions.json")
-    data, meta = cache_fetch(path, lambda: client.get_sessions(event_id) or [], force_refresh=force_refresh)
+def get_sessions_stored(event_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    event_payload, _ = get_event_stored(event_id, force_refresh=False)
+    event_org_id = _infer_event_org_id(event_payload)
+    data, meta = store_fetch(
+        lambda: client.get_sessions(event_id) or [],
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_event_sessions(event_id)),
+        db_writer=lambda payload, saved_at: storage.save_event_sessions(
+            event_id,
+            event_org_id,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
-def get_session_cached(session_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    path = cache_entry_path("sessions", str(session_id), "session.json")
-    data, meta = cache_fetch(path, lambda: client.get_session(session_id) or {}, force_refresh=force_refresh)
+def get_session_stored(session_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    data, meta = store_fetch(
+        lambda: client.get_session(session_id) or {},
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_session(session_id)),
+        db_writer=lambda payload, saved_at: storage.save_session(
+            session_id,
+            _infer_session_event_id(payload),
+            None,
+            payload if isinstance(payload, dict) else {},
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, dict) else {}, meta
 
-def get_results_cached(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("sessions", str(session_id), "results.json")
-    data, meta = cache_fetch(path, lambda: client.get_results(session_id) or [], force_refresh=force_refresh)
+def get_results_stored(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    session_payload, _ = get_session_stored(session_id, force_refresh=False)
+    event_id = _infer_session_event_id(session_payload)
+    data, meta = store_fetch(
+        lambda: client.get_results(session_id) or [],
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_results(session_id)),
+        db_writer=lambda payload, saved_at: storage.save_results(
+            session_id,
+            event_id,
+            None,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
-def get_announcements_cached(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("sessions", str(session_id), "announcements.json")
-    data, meta = cache_fetch(path, lambda: client.get_announcements(session_id) or [], force_refresh=force_refresh)
+def get_announcements_stored(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    session_payload, _ = get_session_stored(session_id, force_refresh=False)
+    event_id = _infer_session_event_id(session_payload)
+    data, meta = store_fetch(
+        lambda: client.get_announcements(session_id) or [],
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_announcements(session_id)),
+        db_writer=lambda payload, saved_at: storage.save_announcements(
+            session_id,
+            event_id,
+            None,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
-def get_laps_cached(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("sessions", str(session_id), "laps.json")
-    data, meta = cache_fetch(path, lambda: client.get_laps(session_id) or [], force_refresh=force_refresh)
+def get_laps_stored(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    session_payload, _ = get_session_stored(session_id, force_refresh=False)
+    event_id = _infer_session_event_id(session_payload)
+    data, meta = store_fetch(
+        lambda: client.get_laps(session_id) or [],
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_laps(session_id)),
+        db_writer=lambda payload, saved_at: storage.save_laps(
+            session_id,
+            event_id,
+            None,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
-def get_lap_chart_cached(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    path = cache_entry_path("sessions", str(session_id), "lap_chart.json")
-    data, meta = cache_fetch(path, lambda: client.get_lap_chart(session_id) or [], force_refresh=force_refresh)
+def get_lap_chart_stored(session_id: int, force_refresh: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    session_payload, _ = get_session_stored(session_id, force_refresh=False)
+    event_id = _infer_session_event_id(session_payload)
+    data, meta = store_fetch(
+        lambda: client.get_lap_chart(session_id) or [],
+        force_refresh=force_refresh,
+        db_reader=lambda: db_stored_record(lambda: storage.get_lap_chart(session_id)),
+        db_writer=lambda payload, saved_at: storage.save_lap_chart(
+            session_id,
+            event_id,
+            None,
+            payload if isinstance(payload, list) else [],
+            saved_at=iso_utc(saved_at) if saved_at else None,
+        ),
+    )
     return data if isinstance(data, list) else [], meta
 
 
@@ -648,11 +818,44 @@ def write_ndjson_line(handle, payload: Dict[str, Any]) -> None:
     handle.write(json.dumps(payload, ensure_ascii=False, default=str))
     handle.write("\n")
 
-def org_refresh_state_path(org_id: int) -> Path:
-    return cache_entry_path("orgs", str(org_id), "refresh_state.json")
+
+def _infer_event_org_id(event_payload: Any) -> Optional[int]:
+    if not isinstance(event_payload, dict):
+        return None
+    organization = event_payload.get("organization")
+    if isinstance(organization, dict):
+        return safe_int(
+            first_non_empty(
+                organization.get("id"),
+                organization.get("organizationId"),
+                organization.get("orgId"),
+            ),
+            None,
+        )
+    return safe_int(
+        first_non_empty(
+            event_payload.get("organizationId"),
+            event_payload.get("orgId"),
+            event_payload.get("org_id"),
+        ),
+        None,
+    )
+
+
+def _infer_session_event_id(session_payload: Any) -> Optional[int]:
+    if not isinstance(session_payload, dict):
+        return None
+    return safe_int(
+        first_non_empty(
+            session_payload.get("eventId"),
+            session_payload.get("event_id"),
+        ),
+        None,
+    )
 
 def read_org_refresh_state(org_id: int) -> Dict[str, Any]:
-    payload = read_json_file(org_refresh_state_path(org_id))
+    db_payload = storage.get_refresh_state(org_id).payload
+    payload = db_payload
     if not isinstance(payload, dict):
         return {}
 
@@ -682,11 +885,25 @@ def read_org_refresh_state(org_id: int) -> Dict[str, Any]:
         "refreshed_sessions": safe_int(payload.get("refreshed_sessions"), 0),
     }
 
+
+def list_stored_orgs() -> List[Dict[str, Any]]:
+    org_map: Dict[int, Dict[str, Any]] = {}
+    for row in storage.list_organizations():
+        org_id_int = safe_int(row.get("org_id"), None)
+        if org_id_int is None:
+            continue
+        name = row.get("name") or f"Organization #{org_id_int}"
+        org_map[org_id_int] = {"id": org_id_int, "name": name}
+
+    org_list = list(org_map.values())
+    org_list.sort(key=lambda o: o["name"].lower())
+    return org_list
+
 def save_org_dump(org_id: int, force_refresh: bool = False, max_events: Optional[int] = None) -> Dict[str, Any]:
     dump_dir = DUMPS_ROOT / str(org_id)
     dump_dir.mkdir(parents=True, exist_ok=True)
 
-    events, _ = get_events_cached(org_id, force_refresh=force_refresh)
+    events, _ = get_events_stored(org_id, force_refresh=force_refresh)
     if max_events is not None:
         events = events[:max_events]
 
@@ -716,7 +933,7 @@ def save_org_dump(org_id: int, force_refresh: bool = False, max_events: Optional
             write_ndjson_line(events_fh, {**base_event, "raw": event})
             events_count += 1
 
-            sessions, _ = get_sessions_cached(int(event_id), force_refresh=force_refresh)
+            sessions, _ = get_sessions_stored(int(event_id), force_refresh=force_refresh)
             for session in sessions:
                 if not isinstance(session, dict):
                     continue
@@ -727,13 +944,13 @@ def save_org_dump(org_id: int, force_refresh: bool = False, max_events: Optional
                 write_ndjson_line(sessions_fh, {**base_event, "session_id": session_id_int, "raw": session})
                 sessions_count += 1
 
-                announcements, _ = get_announcements_cached(session_id_int, force_refresh=force_refresh)
+                announcements, _ = get_announcements_stored(session_id_int, force_refresh=force_refresh)
                 write_ndjson_line(anns_fh, {**base_event, "session_id": session_id_int, "announcements": announcements})
 
-                results, _ = get_results_cached(session_id_int, force_refresh=force_refresh)
+                results, _ = get_results_stored(session_id_int, force_refresh=force_refresh)
                 write_ndjson_line(results_fh, {**base_event, "session_id": session_id_int, "results": results})
 
-                laps, _ = get_laps_cached(session_id_int, force_refresh=force_refresh)
+                laps, _ = get_laps_stored(session_id_int, force_refresh=force_refresh)
                 write_ndjson_line(laps_fh, {**base_event, "session_id": session_id_int, "rows_count": len(laps), "rows": laps})
                 laps_records_count += 1
 
@@ -753,25 +970,26 @@ def format_saved_at_display(saved_at_value: Optional[str]) -> str:
         return "Never"
     return saved_dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-def cache_status_label(meta: Dict[str, Any]) -> str:
+def store_status_label(meta: Dict[str, Any]) -> str:
     saved_at = format_saved_at_display(meta.get("saved_at"))
     age_hours = meta.get("age_hours")
     if age_hours is None:
         return f"{saved_at} (not cached yet)"
     return f"{saved_at} ({age_hours:.1f}h old)"
 
-def scan_track_records_cached(
+def scan_track_records_from_synced_store(
     org_id: int,
     classification: str,
     start_date,
     end_date,
     limit_events: Optional[int],
-    force_refresh: bool = False,
 ) -> tuple[List[Dict[str, Any]], int, Optional[str], Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     events_scanned = 0
     error: Optional[str] = None
-    events, events_meta = get_events_cached(org_id, force_refresh=force_refresh)
+    events_payload, events_saved_at = db_stored_record(lambda: storage.get_events(org_id))
+    events = events_payload if isinstance(events_payload, list) else []
+    events_meta = cache_meta(events_saved_at, source="db") if events_saved_at else cache_meta(None, source="db")
 
     try:
         for event in events:
@@ -780,9 +998,9 @@ def scan_track_records_cached(
             if limit_events is not None and events_scanned >= limit_events:
                 break
 
-            eid = event.get("id")
+            eid = safe_int(event.get("id"), None)
             ename = event.get("name")
-            if not eid:
+            if eid is None:
                 continue
 
             e_date_str = extract_event_datetime(event)
@@ -792,16 +1010,18 @@ def scan_track_records_cached(
             if end_date and e_date and e_date > end_date:
                 continue
 
+            sessions_payload, _ = db_stored_record(lambda: storage.get_event_sessions(eid))
+            sessions = sessions_payload if isinstance(sessions_payload, list) else []
             events_scanned += 1
-            sessions, _ = get_sessions_cached(int(eid), force_refresh=force_refresh)
             for session in sessions:
                 if not isinstance(session, dict):
                     continue
-                sid = session.get("id")
+                sid = safe_int(session.get("id"), None)
                 sname = session.get("name")
-                if not sid:
+                if sid is None:
                     continue
-                announcements, _ = get_announcements_cached(int(sid), force_refresh=force_refresh)
+                announcements_payload, _ = db_stored_record(lambda: storage.get_announcements(sid))
+                announcements = announcements_payload if isinstance(announcements_payload, list) else []
                 for ann in announcements:
                     if not isinstance(ann, dict):
                         continue
@@ -811,7 +1031,7 @@ def scan_track_records_cached(
                     if not parsed:
                         continue
                     class_name = parsed.get("classification") or "Unknown"
-                    if classification and class_name.upper() != classification.upper():
+                    if classification and classification.upper() not in class_name.upper():
                         continue
                     ts_value = ts[:10] if isinstance(ts, str) and ts else "N/A"
                     records.append(
@@ -832,51 +1052,74 @@ def scan_track_records_cached(
     except Exception as exc:
         error = f"Unable to complete track record scan right now: {exc}"
 
-    records.sort(key=lambda r: ((r.get("classification") or "").upper(), r.get("lap_time_seconds") or float("inf")))
+    records.sort(key=lambda r: ((r.get("classification") or "").upper(), r.get("lap_time_seconds") or float('inf')))
     return records, events_scanned, error, events_meta
 
 # Inject datetime into templates globally
 @app.context_processor
-def inject_now():
+def inject_global_data():
+    org_list = list_stored_orgs()
+
+    global_org_id = request.args.get("org_id") or request.view_args.get("org_id") if request.view_args else None
+    if not global_org_id and request.path.startswith("/org/"):
+        parts = request.path.split("/")
+        if len(parts) > 2 and parts[2].isdigit():
+            global_org_id = parts[2]
+
     return {
+        "org_list": org_list,
+        "global_org_id": global_org_id,
         "datetime": datetime,
         "parse_time_value": parse_time_value,
         "format_saved_at_display": format_saved_at_display,
-        "cache_status_label": cache_status_label,
+        "store_status_label": store_status_label,
     }
 
 @app.route("/")
 def index():
-    org_list = []
-    orgs_dir = CACHE_ROOT / "orgs"
-    if orgs_dir.exists():
-        for p in orgs_dir.iterdir():
-            if p.is_dir() and p.name.isdigit():
-                org_id_int = int(p.name)
-                org_list.append({
-                    "id": org_id_int,
-                    "name": _org_display_name_from_cache(org_id_int)
-                })
-    org_list.sort(key=lambda o: o["name"].lower())
+    active_tab = "dashboard"
+    org_list = list_stored_orgs()
 
     selected_org_id = request.args.get("org_id")
     if not selected_org_id:
         if org_list:
-            p_ids = [o["id"] for o in org_list]
-            if 30476 in p_ids:
-                selected_org_id = 30476
-            else:
-                selected_org_id = org_list[0]["id"]
+            selected_org_id = org_list[0]["id"]
         else:
-            selected_org_id = 30476
+            selected_org_id = None
+
+    if selected_org_id is None:
+        return render_template(
+            "index.html",
+            notice=request.args.get("notice"),
+            error=request.args.get("error"),
+            web_data_root=str(WEB_DATA_ROOT),
+            org_list=org_list,
+            org=None,
+            selected_org_id=None,
+            events=[],
+            championships=[],
+            org_refresh_state=None,
+            cache_status=None,
+            dump_manifest=None,
+            start_date=None,
+            end_date=None,
+            incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
+            driver_query=None,
+            driver_matches=[],
+            driver_search_error=None,
+            max_events=25,
+            active_tab=active_tab,
+        )
 
     try:
         selected_org_id = int(selected_org_id)
     except Exception:
-        selected_org_id = 30476
+        return redirect(url_for("index"))
 
     # Load organization details if cached
-    org, _ = get_organization_cached(selected_org_id, force_refresh=False)
+    org, _ = read_organization_from_store(selected_org_id)
+    if not org:
+        org = client.get_organization(selected_org_id) or {"id": selected_org_id, "name": f"Organization #{selected_org_id}"}
     org_view = dict(org) if isinstance(org, dict) else {"id": selected_org_id, "name": f"Organization #{selected_org_id}"}
     
     org_city = first_non_empty(
@@ -907,7 +1150,7 @@ def index():
     start_date = parse_date_to_comparison(start_date_str)
     end_date = parse_date_to_comparison(end_date_str)
 
-    events_data, events_meta = get_events_cached(selected_org_id, force_refresh=False)
+    events_data, events_meta = read_events_from_store(selected_org_id)
     cache_status = events_meta
     sortable_events = []
     for event in events_data:
@@ -930,7 +1173,7 @@ def index():
     sortable_events.sort(key=lambda item: item[0], reverse=True)
     events = [event for _, event in sortable_events]
 
-    championships_data, _ = get_championships_cached(selected_org_id, force_refresh=False)
+    championships_data, _ = read_championships_from_store(selected_org_id)
     for champ in championships_data:
         if isinstance(champ, dict):
             championships.append(champ)
@@ -948,6 +1191,29 @@ def index():
     driver_search_error = None
     max_events = max(5, min(safe_int(request.args.get("max_events"), 15), MAX_ORG_EVENTS))
 
+    # Track records parameters (combined onto Dashboard)
+    classification = (request.args.get("classification") or "").strip()
+    limit_events_str = request.args.get("limit_events", "10")
+    limit_events = int(limit_events_str) if limit_events_str.isdigit() else 10
+    if limit_events == 0:
+        limit_events = None
+    records = []
+    records_error = None
+    events_scanned_count = 0
+    track_records_ready = bool(org_refresh_state.get("last_refresh_at"))
+
+    if selected_org_id and track_records_ready:
+        try:
+            records, events_scanned_count, records_error, _ = scan_track_records_from_synced_store(
+                org_id=selected_org_id,
+                classification=classification,
+                start_date=start_date,
+                end_date=end_date,
+                limit_events=limit_events,
+            )
+        except Exception as exc:
+            records_error = str(exc)
+
     if selected_org_id and driver_query:
         try:
             for event in events_data[:max_events]:
@@ -957,7 +1223,7 @@ def index():
                 if not event_id:
                     continue
                 event_name = event.get("name") or f"Event #{event_id}"
-                sessions, _ = get_sessions_cached(int(event_id), force_refresh=False)
+                sessions, _ = read_event_sessions_from_store(int(event_id))
                 for session in sessions:
                     if not isinstance(session, dict):
                         continue
@@ -965,7 +1231,7 @@ def index():
                     if not session_id:
                         continue
                     session_name = session.get("name") or f"Session #{session_id}"
-                    results, _ = get_results_cached(int(session_id), force_refresh=False)
+                    results, _ = read_results_from_store(int(session_id))
                     for result in results:
                         if not isinstance(result, dict):
                             continue
@@ -1027,7 +1293,23 @@ def index():
         driver_matches=driver_matches,
         driver_search_error=driver_search_error,
         max_events=max_events,
+        records=records,
+        track_records_ready=track_records_ready,
+        classification=classification,
+        limit_events=limit_events_str,
+        events_scanned_count=events_scanned_count,
+        records_error=records_error,
+        active_tab=active_tab,
     )
+
+@app.route("/track-records")
+def track_records_redirect():
+    redirect_args = {}
+    for key in ("org_id", "classification", "start_date", "end_date", "limit_events", "q", "max_events"):
+        value = request.args.get(key)
+        if value not in (None, ""):
+            redirect_args[key] = value
+    return redirect(url_for("index", **redirect_args))
 
 @app.route("/org-search")
 def org_search():
@@ -1084,12 +1366,12 @@ def refresh_org(org_id):
     try:
         summary = refresh_org_cache_bundle(
             client=client,
-            cache_root=CACHE_ROOT,
             org_id=org_id_int,
             mode=mode,
             max_events=MAX_ORG_EVENTS,
             recent_backfill_events=backfill_events if mode == "incremental" else 0,
             cleanup_on_full=True,
+            db_path=DB_PATH,
         )
         refreshed = format_saved_at_display(summary.get("last_refresh_at"))
         mode_label = "Full" if mode == "full" else "Incremental"
@@ -1138,6 +1420,72 @@ def refresh_org_start(org_id):
     return jsonify({"task_id": task_id, "org_id": org_id_int, "mode": mode})
 
 
+def clear_org_cache_files(org_id: int):
+    global storage
+    import shutil
+
+    def _registered_org_ids() -> set[int]:
+        return {
+            safe_int(row.get("org_id"), None)
+            for row in storage.list_organizations()
+            if safe_int(row.get("org_id"), None) is not None
+        }
+
+    def _wipe_dir_contents(root: Path) -> None:
+        if not root.exists():
+            return
+        for child in root.iterdir():
+            try:
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    dump_dir = DUMPS_ROOT / str(org_id)
+
+    db_path = DUMPS_ROOT / str(org_id) / f"laps_{org_id}.db"
+    if db_path.exists():
+        try:
+            db_path.unlink()
+        except Exception:
+            pass
+
+    if dump_dir.exists():
+        try:
+            shutil.rmtree(dump_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    with _refresh_tasks_lock:
+        stale_task_ids = [task_id for task_id, task in _refresh_tasks.items() if task.get("org_id") == org_id]
+        for task_id in stale_task_ids:
+            _refresh_tasks.pop(task_id, None)
+    storage.delete_org(org_id)
+
+    remaining_org_ids = _registered_org_ids()
+    if not remaining_org_ids:
+        try:
+            DB_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+        storage = SpeedhiveStorage(DB_PATH)
+        _wipe_dir_contents(LEGACY_CACHE_ROOT)
+        _wipe_dir_contents(DUMPS_ROOT)
+        return
+    _wipe_dir_contents(LEGACY_CACHE_ROOT)
+
+@app.route("/org/<org_id>/clear-cache", methods=["POST"])
+def clear_cache(org_id):
+    try:
+        org_id_int = int(org_id)
+        clear_org_cache_files(org_id_int)
+        return redirect(url_for("index", notice="Organization removed from the local store successfully."))
+    except Exception as exc:
+        return redirect(url_for("index", error=f"Failed to delete local data: {exc}"))
+
+
 @app.route("/refresh/status/<task_id>")
 def refresh_status(task_id):
     """Poll status of an async refresh task."""
@@ -1171,7 +1519,7 @@ def save_local(org_id):
         max_events = max(1, min(safe_int(max_events_val, 25), MAX_ORG_EVENTS)) if max_events_val else 25
         summary = save_org_dump(org_id_int, force_refresh=False, max_events=max_events)
         notice = (
-            f"Saved local dump to {summary['path']} with {summary['events_count']} events, "
+            f"Exported offline dump to {summary['path']} with {summary['events_count']} events, "
             f"{summary['sessions_count']} sessions, {summary['laps_records_count']} lap-record blocks."
         )
         return redirect(url_for("org_details", org_id=org_id_int, notice=notice))
@@ -1221,7 +1569,7 @@ def export_org_lap_records(org_id):
     max_events = max(1, min(safe_int(request.args.get("max_events"), 25), MAX_ORG_EVENTS))
 
     def generate():
-        events, _ = get_events_cached(org_id_int, force_refresh=False)
+        events, _ = read_events_from_store(org_id_int)
         for event in events[:max_events]:
             if not isinstance(event, dict):
                 continue
@@ -1230,12 +1578,12 @@ def export_org_lap_records(org_id):
                 continue
             event_name = event.get("name")
             base_event = {"org_id": org_id_int, "event_id": event_id, "event_name": event_name}
-            sessions, _ = get_sessions_cached(int(event_id), force_refresh=False)
+            sessions, _ = read_event_sessions_from_store(int(event_id))
             for session in sessions:
                 if not isinstance(session, dict) or not session.get("id"):
                     continue
                 sid = int(session["id"])
-                laps, _ = get_laps_cached(sid, force_refresh=False)
+                laps, _ = read_laps_from_store(sid)
                 payload = {**base_event, "session_id": sid, "rows_count": len(laps), "rows": laps}
                 yield json.dumps(payload, ensure_ascii=False, default=str) + "\n"
 
@@ -1246,7 +1594,7 @@ def export_org_lap_records(org_id):
 def event_info(event_id):
     try:
         event_id_int = int(event_id)
-        event, _ = get_event_cached(event_id_int, force_refresh=False)
+        event, _ = read_event_from_store(event_id_int)
         if not event:
             return render_template("event.html", error=f"Event #{event_id} not found", event_id=event_id), 404
 
@@ -1270,7 +1618,7 @@ def event_info(event_id):
             location.get("countryCode"),
         ) or "N/A"
 
-        sessions, sessions_meta = get_sessions_cached(event_id_int, force_refresh=False)
+        sessions, sessions_meta = read_event_sessions_from_store(event_id_int)
         sessions_view = []
         for session in sessions:
             if not isinstance(session, dict):
@@ -1301,11 +1649,11 @@ def event_info(event_id):
 def session_results(session_id):
     try:
         session_id_int = int(session_id)
-        session, session_meta = get_session_cached(session_id_int, force_refresh=False)
-        results, _ = get_results_cached(session_id_int, force_refresh=False)
-        announcements, _ = get_announcements_cached(session_id_int, force_refresh=False)
-        lap_chart, _ = get_lap_chart_cached(session_id_int, force_refresh=False)
-        all_laps, laps_meta = get_laps_cached(session_id_int, force_refresh=False)
+        session, session_meta = read_session_from_store(session_id_int)
+        results, _ = read_results_from_store(session_id_int)
+        announcements, _ = read_announcements_from_store(session_id_int)
+        lap_chart, _ = read_lap_chart_from_store(session_id_int)
+        all_laps, laps_meta = read_laps_from_store(session_id_int)
 
         session_view = dict(session) if isinstance(session, dict) else {}
         session_view["_display_start"] = format_datetime_display(
@@ -1363,7 +1711,7 @@ def session_results(session_id):
 def export_session_laps(session_id):
     try:
         session_id_int = int(session_id)
-        laps, _ = get_laps_cached(session_id_int, force_refresh=False)
+        laps, _ = read_laps_from_store(session_id_int)
         payload = {"session_id": session_id_int, "laps": laps}
         body = json.dumps(payload, indent=2, default=str)
         headers = {"Content-Disposition": f"attachment; filename=session_{session_id_int}_laps.json"}
@@ -1383,7 +1731,7 @@ def lap_times(session_id, driver_id):
                 lookup_mode = prefix
                 lookup_value = token
 
-        all_laps, _ = get_laps_cached(session_id_int, force_refresh=False)
+        all_laps, _ = read_laps_from_store(session_id_int)
         driver_laps = []
         for lap in all_laps:
             if not isinstance(lap, dict):
@@ -1402,7 +1750,7 @@ def lap_times(session_id, driver_id):
 
         driver_laps.sort(key=lambda x: safe_int(first_non_empty(x.get("lapNumber"), x.get("lap")), 0))
         driver_name = f"Competitor #{driver_id}"
-        results, _ = get_results_cached(session_id_int, force_refresh=False)
+        results, _ = read_results_from_store(session_id_int)
         for result in results:
             if not isinstance(result, dict):
                 continue
@@ -1459,68 +1807,12 @@ def lap_times(session_id, driver_id):
 def championship_details(championship_id):
     try:
         championship_id_int = int(championship_id)
-        path = cache_entry_path("championships", str(championship_id_int), "details.json")
-        championship, _ = cache_fetch(path, lambda: client.get_championship(championship_id_int) or {}, force_refresh=False)
+        championship = client.get_championship(championship_id_int) or {}
         if not championship:
             return render_template("championship.html", error=f"Championship #{championship_id} not found", championship_id=championship_id), 404
         return render_template("championship.html", championship=championship, championship_id=championship_id)
     except Exception as exc:
         return render_template("championship.html", error=str(exc), championship_id=championship_id), 500
-
-@app.route("/track-records")
-def track_records():
-    org_id = request.args.get("org_id")
-    if not org_id:
-        return redirect(url_for("index"))
-
-    classification = (request.args.get("classification") or "").strip()
-    start_date_str = request.args.get("start_date")
-    end_date_str = request.args.get("end_date")
-    limit_events_str = request.args.get("limit_events", "10")
-    try:
-        org_id_int = int(org_id)
-    except (TypeError, ValueError):
-        return render_template(
-            "track_records.html",
-            error="Invalid organization ID.",
-            org_id=org_id,
-            records=[],
-            classification=classification,
-            start_date=start_date_str,
-            end_date=end_date_str,
-            events_scanned_count=0,
-        )
-
-    start_date = parse_date_to_comparison(start_date_str)
-    end_date = parse_date_to_comparison(end_date_str)
-    limit_events = int(limit_events_str) if limit_events_str.isdigit() else 10
-    if limit_events == 0:
-        limit_events = None
-
-    org, _ = get_organization_cached(org_id_int, force_refresh=False)
-    org_name = org.get("name") if (org and isinstance(org, dict)) else f"Organization #{org_id_int}"
-
-    records, events_scanned, error, cache_status = scan_track_records_cached(
-        org_id=org_id_int,
-        classification=classification,
-        start_date=start_date,
-        end_date=end_date,
-        limit_events=limit_events,
-        force_refresh=False,
-    )
-
-    return render_template(
-        "track_records.html",
-        org_id=org_id,
-        org_name=org_name,
-        records=records,
-        classification=classification,
-        start_date=start_date_str,
-        end_date=end_date_str,
-        events_scanned_count=events_scanned,
-        error=error,
-        cache_status=cache_status,
-    )
 
 @app.route("/track-records/export.json")
 def export_track_records_json():
@@ -1540,13 +1832,12 @@ def export_track_records_json():
     limit_events = safe_int(request.args.get("limit_events"), 10)
     if limit_events == 0:
         limit_events = None
-    records, events_scanned, error, _ = scan_track_records_cached(
+    records, events_scanned, error, _ = scan_track_records_from_synced_store(
         org_id=org_id_int,
         classification=classification,
         start_date=start_date,
         end_date=end_date,
         limit_events=limit_events,
-        force_refresh=False,
     )
     payload = {
         "org_id": org_id_int,
@@ -1560,6 +1851,198 @@ def export_track_records_json():
     body = json.dumps(payload, indent=2, default=str)
     headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_track_records.json"}
     return Response(body, mimetype="application/json", headers=headers)
+
+@app.route("/org/<org_id>/stats")
+def org_stats(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    org, _ = read_organization_from_store(org_id_int)
+    if not org:
+        org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
+    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
+    
+    org_city = first_non_empty(
+        org_view.get("city"),
+        (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
+        (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
+    )
+    org_country = _country_name_from_value(
+        first_non_empty(
+            org_view.get("country"),
+            (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
+            (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
+        )
+    )
+    org_view["_display_location"] = ", ".join([p for p in (org_city, org_country) if p])
+
+    events_data, events_meta = read_events_from_store(org_id_int)
+    cache_status = events_meta
+
+    dump_dir = DUMPS_ROOT / str(org_id_int)
+    manifest_path = dump_dir / "manifest.json"
+    has_db_stats = storage.org_has_sessions(org_id_int)
+    has_dump_stats = manifest_path.exists()
+
+    if not has_db_stats and not has_dump_stats:
+        return render_template(
+            "org_stats.html",
+            org=org_view,
+            org_id=org_id_int,
+            org_name=org_view.get("name"),
+            manifest_exists=False,
+            active_tab="stats",
+            cache_status=cache_status,
+        )
+
+    try:
+        from speedhive.processing.process_lap_analysis import (
+            compute_laps_and_enriched,
+            compute_laps_and_enriched_from_storage,
+        )
+        from speedhive.analyzers.analyze_consistency import (
+            load_session_types,
+            load_session_types_from_storage,
+            aggregate_by_name,
+            cluster_names,
+        )
+
+        if has_db_stats:
+            _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int)
+            session_map = load_session_types_from_storage(storage, org_id_int)
+        else:
+            _, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int)
+            session_map = load_session_types(DUMPS_ROOT, org_id_int)
+        by_name = aggregate_by_name(enriched, session_map)
+        clustered = cluster_names(by_name, threshold=0.85)
+        
+        min_laps = int(request.args.get("min_laps", "20"))
+        
+        rows = [
+            {
+                "name": name,
+                "lap_count": data["lap_count"],
+                "mean": data["mean"],
+                "mean_display": format_seconds(data["mean"]),
+                "stdev": data["stdev"],
+                "stdev_display": f"{data['stdev']:.3f}s" if data["stdev"] else "N/A",
+                "cv": data["cv"],
+                "cv_display": f"{data['cv'] * 100:.2f}%" if data["cv"] is not None else "N/A",
+                "aliases": data.get("aliases", []),
+            }
+            for name, data in clustered.items()
+            if data.get("lap_count", 0) >= min_laps and data.get("cv") is not None
+        ]
+        
+        rows.sort(key=lambda r: r["cv"])
+        top_consistent = rows[:15]
+        least_consistent = sorted(rows, key=lambda r: r["cv"], reverse=True)[:15]
+        
+        total_drivers = len(clustered)
+        total_laps_analyzed = sum(d["lap_count"] for d in clustered.values())
+        
+        driver_search = (request.args.get("driver_search") or "").strip()
+        search_result = None
+        if driver_search:
+            from speedhive.analyzers.analyze_consistency import find_driver_percentile
+            res = find_driver_percentile(clustered, driver_search, min_laps=min_laps, threshold=0.85)
+            if res:
+                nearby_formatted = []
+                for name, laps, mean_v, stdev_v, cv in res["nearby"]:
+                    nearby_formatted.append({
+                        "name": name,
+                        "lap_count": laps,
+                        "mean_display": format_seconds(mean_v) if mean_v else "N/A",
+                        "stdev_display": f"{stdev_v:.3f}s" if stdev_v else "N/A",
+                        "cv_display": f"{cv * 100:.2f}%" if cv is not None else "N/A",
+                    })
+                search_result = {
+                    "matched": res["matched"],
+                    "score": res["score"],
+                    "rank": res["rank"],
+                    "total": res["total"],
+                    "percentile": round(res["percentile"], 1),
+                    "nearby": nearby_formatted,
+                }
+        
+        return render_template(
+            "org_stats.html",
+            org=org_view,
+            org_id=org_id_int,
+            org_name=org_view.get("name"),
+            manifest_exists=True,
+            top_consistent=top_consistent,
+            least_consistent=least_consistent,
+            total_drivers=total_drivers,
+            total_laps_analyzed=total_laps_analyzed,
+            min_laps=min_laps,
+            driver_search=driver_search,
+            search_result=search_result,
+            active_tab="stats",
+            cache_status=cache_status,
+        )
+    except Exception as exc:
+        return render_template(
+            "org_stats.html",
+            org=org_view,
+            org_id=org_id_int,
+            org_name=org_view.get("name"),
+            manifest_exists=True,
+            error=f"Failed to compute consistency statistics: {exc}",
+            active_tab="stats",
+            cache_status=cache_status,
+        )
+
+@app.route("/org/<org_id>/operations")
+def org_operations(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    org, _ = read_organization_from_store(org_id_int)
+    if not org:
+        org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
+    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
+    
+    org_city = first_non_empty(
+        org_view.get("city"),
+        (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
+        (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
+    )
+    org_country = _country_name_from_value(
+        first_non_empty(
+            org_view.get("country"),
+            (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
+            (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
+        )
+    )
+    org_view["_display_location"] = ", ".join([p for p in (org_city, org_country) if p])
+
+    org_refresh_state = read_org_refresh_state(org_id_int)
+    events_data, events_meta = read_events_from_store(org_id_int)
+    cache_status = events_meta
+    
+    dump_manifest = None
+    dump_dir = DUMPS_ROOT / str(org_id_int)
+    manifest_path = dump_dir / "manifest.json"
+    if manifest_path.exists():
+        dump_manifest = read_json_file(manifest_path)
+
+    return render_template(
+        "org_operations.html",
+        org=org_view,
+        org_id=org_id_int,
+        org_name=org_view.get("name"),
+        org_refresh_state=org_refresh_state,
+        dump_manifest=dump_manifest,
+        incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
+        active_tab="operations",
+        cache_status=cache_status,
+    )
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8854, debug=True)

@@ -1,0 +1,256 @@
+{% extends 'base.html' %}
+
+{% block title %}Consistency & Stats | {{ org.name }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Active Organization Header Card -->
+    <div class="col-12">
+        <div class="glass-card mb-2">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                <div>
+                    <div class="text-muted small">Active Workspace (ID: #{{ org.id }})</div>
+                    <h2 class="h3 fw-bold mb-1 text-gradient"><i class="fa-solid fa-sitemap me-2 text-info"></i>{{ org.name }}</h2>
+                    <p class="text-muted small mb-0"><i class="fa-solid fa-location-dot me-1"></i>{{ org._display_location or 'Location unknown' }}</p>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    {% if cache_status %}
+                        <span class="badge-custom badge-neutral">
+                            <i class="fa-solid fa-database"></i> Stored: {{ store_status_label(cache_status) }}
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Workspace Tabs -->
+            <ul class="nav nav-tabs custom-org-tabs">
+                <li class="nav-item">
+                    <a class="nav-link {% if active_tab == 'dashboard' %}active{% endif %}" href="/?org_id={{ org.id }}"><i class="fa-solid fa-gauge-high me-2 text-info"></i>Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if active_tab == 'stats' %}active{% endif %}" href="/org/{{ org.id }}/stats"><i class="fa-solid fa-chart-line me-2 text-success"></i>Consistency & Stats</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if active_tab == 'operations' %}active{% endif %}" href="/org/{{ org.id }}/operations"><i class="fa-solid fa-sliders me-2 text-danger"></i>Data Operations</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    {% if error %}
+        <div class="col-12">
+            <div class="alert alert-danger mb-0">
+                <i class="fa-solid fa-triangle-exclamation me-2"></i>{{ error }}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if not manifest_exists %}
+        <!-- Missing Offline Dump Card -->
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <i class="fa-solid fa-chart-pie text-success fs-1 mb-3 opacity-30"></i>
+                <h3>No Synced Session Data</h3>
+                <p class="text-muted max-w-md mx-auto mb-4">Consistency statistics need synced session and lap data for {{ org.name }}. Run a sync from Data Operations, then come back here.</p>
+
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">
+                    <i class="fa-solid fa-cloud-arrow-down me-1"></i> Open Data Operations
+                </a>
+            </div>
+        </div>
+    {% else %}
+        <!-- Stats Config & Counter Row -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="row align-items-center g-3">
+                    <div class="col-md-7">
+                        <div class="d-flex align-items-center gap-4 flex-wrap">
+                            <div>
+                                <span class="text-muted small d-block">Laps Analyzed</span>
+                                <span class="fs-4 fw-bold text-gradient"><i class="fa-solid fa-stopwatch me-1 text-info"></i>{{ total_laps_analyzed }}</span>
+                            </div>
+                            <div style="width: 1px; height: 35px; background: var(--border);"></div>
+                            <div>
+                                <span class="text-muted small d-block">Clustered Drivers</span>
+                                <span class="fs-4 fw-bold text-gradient"><i class="fa-solid fa-user-group me-1 text-success"></i>{{ total_drivers }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2 justify-content-md-end">
+                            <label for="min_laps" class="text-muted small text-nowrap fw-semibold">Min Laps Limit:</label>
+                            <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
+                                <option value="10" {% if min_laps == 10 %}selected{% endif %}>10 Laps</option>
+                                <option value="20" {% if min_laps == 20 %}selected{% endif %}>20 Laps (Default)</option>
+                                <option value="30" {% if min_laps == 30 %}selected{% endif %}>30 Laps</option>
+                                <option value="50" {% if min_laps == 50 %}selected{% endif %}>50 Laps</option>
+                                <option value="100" {% if min_laps == 100 %}selected{% endif %}>100 Laps</option>
+                            </select>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Driver Percentile Lookup -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="glass-card-header mb-3"><i class="fa-solid fa-user-tag text-info"></i> Driver Percentile & Rank Lookup</div>
+                <form method="get" action="/org/{{ org.id }}/stats" class="row g-3 align-items-end mb-4">
+                    <input type="hidden" name="min_laps" value="{{ min_laps }}">
+                    <div class="col-md-9">
+                        <label for="driver_search" class="form-label small text-muted mb-1">Search driver name (fuzzy match supported)</label>
+                        <input type="text" id="driver_search" name="driver_search" class="form-control form-control-custom" placeholder="e.g. Max Verstappen, Hamilton" value="{{ driver_search or '' }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn-custom w-100"><i class="fa-solid fa-magnifying-glass me-1"></i> Look Up Rank</button>
+                    </div>
+                </form>
+
+                {% if driver_search %}
+                    {% if search_result %}
+                        <div class="p-4 rounded bg-surface border border-secondary border-opacity-15">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="text-muted small">Driver Matched</div>
+                                    <h4 class="fw-bold text-gradient mb-0">{{ search_result.matched }}</h4>
+                                    <span class="text-muted small">(Fuzzy match score: {{ (search_result.score * 100)|round }}%)</span>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="text-muted small">Consistency Rank</div>
+                                    <h4 class="fw-bold text-info mb-0">{{ search_result.rank }} <span class="fs-6 text-muted">/ {{ search_result.total }}</span></h4>
+                                    <span class="text-muted small">In drivers meeting &ge; {{ min_laps }} laps</span>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="text-muted small">Percentile Ranking</div>
+                                    <h4 class="fw-bold text-success mb-0">{{ search_result.percentile }}% <span class="fs-6 fw-normal text-muted">consistent</span></h4>
+                                    <span class="text-muted small">More consistent than {{ search_result.percentile }}% of drivers</span>
+                                </div>
+                            </div>
+
+                            <div class="mt-4">
+                                <div class="text-muted small mb-2"><i class="fa-solid fa-users me-1 text-info"></i> Nearby Drivers List (±5 ranks):</div>
+                                <div class="table-custom-container">
+                                    <table class="table table-custom mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Rank</th>
+                                                <th>Driver Name</th>
+                                                <th>Laps</th>
+                                                <th>Avg Lap Time</th>
+                                                <th>Std Dev</th>
+                                                <th>CV (%)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for row in search_result.nearby %}
+                                                <tr {% if row.name == search_result.matched %}class="bg-brand bg-opacity-10 fw-bold border-brand" style="border-left: 3px solid var(--brand);"{% endif %}>
+                                                    <td>
+                                                        {% if row.name == search_result.matched %}
+                                                            <span class="text-brand"><i class="fa-solid fa-star me-1"></i> {{ loop.index0 + search_result.rank - 5 if search_result.rank > 5 else loop.index }}</span>
+                                                        {% else %}
+                                                            {{ loop.index0 + search_result.rank - 5 if search_result.rank > 5 else loop.index }}
+                                                        {% endif %}
+                                                    </td>
+                                                    <td {% if row.name == search_result.matched %}class="text-brand"{% else %}class="text-gradient"{% endif %}>{{ row.name }}</td>
+                                                    <td>{{ row.lap_count }}</td>
+                                                    <td>{{ row.mean_display }}</td>
+                                                    <td>{{ row.stdev_display }}</td>
+                                                    <td {% if row.name == search_result.matched %}class="text-brand"{% else %}class="text-info"{% endif %}>{{ row.cv_display }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning mb-0">
+                            <i class="fa-solid fa-user-slash me-2"></i> No drivers matching "{{ driver_search }}" were found. Please check spelling or try another query.
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Leaderboards Section -->
+        <div class="col-lg-6 col-12">
+            <div class="glass-card h-100">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="glass-card-header mb-0"><i class="fa-solid fa-gauge-simple-high text-success"></i> Top Most Consistent</div>
+                    <span class="badge-custom badge-neutral">Lowest Variance (CV)</span>
+                </div>
+                <p class="text-muted small">Drivers with the most stable, matching lap times over sessions (lowest Coefficient of Variation).</p>
+
+                {% if top_consistent %}
+                    <div class="table-custom-container">
+                        <table class="table table-custom">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Driver Name</th>
+                                    <th>Laps</th>
+                                    <th>Avg Lap</th>
+                                    <th>CV (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in top_consistent %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td class="fw-semibold text-gradient">{{ r.name }}</td>
+                                        <td>{{ r.lap_count }}</td>
+                                        <td>{{ r.mean_display }}</td>
+                                        <td class="text-success fw-bold">{{ r.cv_display }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">No driver meets the criteria.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-lg-6 col-12">
+            <div class="glass-card h-100">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="glass-card-header mb-0"><i class="fa-solid fa-circle-exclamation text-warning"></i> Least Consistent</div>
+                    <span class="badge-custom badge-neutral text-danger">Highest Variance (CV)</span>
+                </div>
+                <p class="text-muted small">Drivers with the most erratic or varying lap times over sessions (highest Coefficient of Variation).</p>
+
+                {% if least_consistent %}
+                    <div class="table-custom-container">
+                        <table class="table table-custom">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Driver Name</th>
+                                    <th>Laps</th>
+                                    <th>Avg Lap</th>
+                                    <th>CV (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in least_consistent %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td class="fw-semibold text-gradient">{{ r.name }}</td>
+                                        <td>{{ r.lap_count }}</td>
+                                        <td>{{ r.mean_display }}</td>
+                                        <td class="text-warning fw-bold">{{ r.cv_display }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">No driver meets the criteria.</div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -32,9 +32,9 @@
                         <h1 class="page-header mb-1"><i class="fa-solid fa-calendar-check text-info me-2"></i>{{ event.name }}</h1>
                     </div>
                     {% if cache_status %}
-                        <span class="badge-custom badge-neutral">
-                            <i class="fa-solid fa-clock-rotate-left"></i> Cached: {{ cache_status_label(cache_status) }}
-                        </span>
+                            <span class="badge-custom badge-neutral">
+                                <i class="fa-solid fa-database"></i> Stored: {{ store_status_label(cache_status) }}
+                            </span>
                     {% endif %}
                 </div>
                 
