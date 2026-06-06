@@ -210,30 +210,39 @@
                                     {% endif %}
                                 </div>
 
-                                <form method="get" action="/" class="d-flex flex-wrap gap-2 align-items-center mb-4">
+                                <form method="get" action="/" class="d-flex flex-column gap-2 mb-4">
                                     <input type="hidden" name="org_id" value="{{ org.id }}">
                                     {% if driver_query %}<input type="hidden" name="q" value="{{ driver_query }}">{% endif %}
-                                    <input type="text" id="classification" name="classification" class="form-control form-control-custom w-auto py-1 px-2" placeholder="Class filter (e.g. Rotax)" value="{{ classification or '' }}">
-                                    <input type="text" id="driver_filter" name="driver_filter" class="form-control form-control-custom w-auto py-1 px-2" placeholder="Driver filter (e.g. Nathan)" value="{{ driver_filter or '' }}">
-                                    
-                                    <label for="start_date" class="text-muted small fw-semibold ms-2">Filter Dates:</label>
-                                    <input type="date" id="start_date" name="start_date" class="form-control form-control-custom py-1 w-auto" value="{{ start_date or '' }}">
-                                    <span class="text-muted small">to</span>
-                                    <input type="date" id="end_date" name="end_date" class="form-control form-control-custom py-1 w-auto" value="{{ end_date or '' }}">
-                                    
-                                    <label for="limit_events" class="text-muted small fw-semibold ms-2">Scan Limit:</label>
-                                    <select id="limit_events" name="limit_events" class="form-select form-control-custom w-auto py-1 px-2">
-                                        <option value="10" {% if limit_events == 10 %}selected{% endif %}>10 Events</option>
-                                        <option value="25" {% if limit_events == 25 %}selected{% endif %}>25 Events</option>
-                                        <option value="50" {% if limit_events == 50 %}selected{% endif %}>50 Events</option>
-                                        <option value="100" {% if limit_events == 100 %}selected{% endif %}>100 Events</option>
-                                        <option value="0" {% if limit_events is none %}selected{% endif %}>All Events</option>
-                                    </select>
-                                    
-                                    <button type="submit" class="btn-custom py-1 px-3">Filter Records</button>
-                                    {% if classification or driver_filter or start_date or end_date %}
-                                        <a href="/?org_id={{ org.id }}{% if driver_query %}&amp;q={{ driver_query }}{% endif %}" class="btn-custom btn-custom-outline py-1 px-3">Clear</a>
-                                    {% endif %}
+
+                                    <!-- Row 1: class filter, dates, scan limit, buttons -->
+                                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                                        <input type="text" id="classification" name="classification" class="form-control form-control-custom w-auto py-1 px-2" placeholder="Class filter (e.g. Rotax)" value="{{ classification or '' }}">
+
+                                        <label for="start_date" class="text-muted small fw-semibold ms-1">Dates:</label>
+                                        <input type="date" id="start_date" name="start_date" class="form-control form-control-custom py-1 w-auto" value="{{ start_date or '' }}">
+                                        <span class="text-muted small">to</span>
+                                        <input type="date" id="end_date" name="end_date" class="form-control form-control-custom py-1 w-auto" value="{{ end_date or '' }}">
+
+                                        <label for="limit_events" class="text-muted small fw-semibold ms-1">Scan Limit:</label>
+                                        <select id="limit_events" name="limit_events" class="form-select form-control-custom w-auto py-1 px-2">
+                                            <option value="10" {% if limit_events == 10 %}selected{% endif %}>10 Events</option>
+                                            <option value="25" {% if limit_events == 25 %}selected{% endif %}>25 Events</option>
+                                            <option value="50" {% if limit_events == 50 %}selected{% endif %}>50 Events</option>
+                                            <option value="100" {% if limit_events == 100 %}selected{% endif %}>100 Events</option>
+                                            <option value="0" {% if limit_events is none %}selected{% endif %}>All Events</option>
+                                        </select>
+
+                                        <button type="submit" class="btn-custom py-1 px-3">Filter Records</button>
+                                        {% if classification or driver_filter or start_date or end_date %}
+                                            <a href="/?org_id={{ org.id }}{% if driver_query %}&amp;q={{ driver_query }}{% endif %}" class="btn-custom btn-custom-outline py-1 px-3">Clear</a>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Row 2: driver filter on its own line -->
+                                    <div class="d-flex align-items-center gap-2">
+                                        <label for="driver_filter" class="text-muted small fw-semibold text-nowrap">Driver Filter:</label>
+                                        <input type="text" id="driver_filter" name="driver_filter" class="form-control form-control-custom py-1 px-2" style="max-width: 320px;" placeholder="e.g. Nathan" value="{{ driver_filter or '' }}">
+                                    </div>
                                 </form>
 
                                 {% if records_error %}
