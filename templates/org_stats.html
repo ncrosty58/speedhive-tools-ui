@@ -14,42 +14,11 @@
         text-decoration: underline !important;
     }
 
-    /* Stats-page-specific mobile responsiveness */
     @media (max-width: 768px) {
-        .stats-filter-bar {
-            flex-direction: column;
-            align-items: stretch !important;
-            gap: 1rem !important;
-        }
-        .stats-summary-box {
-            justify-content: space-around;
-            width: 100%;
-        }
-        .stats-filters-box {
-            flex-direction: column;
-            align-items: stretch !important;
-            width: 100%;
-            gap: 0.75rem !important;
-        }
-        .stats-filters-box form {
-            width: 100% !important;
-            flex-direction: column;
-            align-items: stretch !important;
-            gap: 0.5rem !important;
-        }
-        .stats-filters-box select,
-        .stats-filters-box button {
-            width: 100% !important;
-        }
-        .stats-filters-box .form-check-inline {
-            margin-right: 0;
-            width: 100%;
-        }
-        #filter-form .d-flex {
-            flex-direction: column;
-            align-items: stretch !important;
-            width: 100%;
-            gap: 0.5rem !important;
+        .mobile-separator {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1.25rem;
+            margin-bottom: 0.5rem;
         }
     }
 </style>
@@ -89,31 +58,34 @@
         <!-- Stats summary & Filter bar (always shown once data is synced) -->
         <div class="col-12">
             <div class="glass-card">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 stats-filter-bar">
-                    <div class="d-flex align-items-center gap-4 stats-summary-box">
+                <div class="row g-3 align-items-center">
+                    <!-- Stats summary (Laps Analyzed / Drivers) -->
+                    <div class="col-12 col-md-auto d-flex align-items-center gap-3 border-md-end pe-md-4 mobile-separator justify-content-center justify-content-md-start">
                         {% if has_persisted_stats %}
                             <div>
                                 <span class="text-muted small d-block">Laps Analyzed</span>
-                                <span class="fs-5 fw-bold">{{ total_laps_analyzed }}</span>
+                                <span class="fs-5 fw-bold text-white">{{ total_laps_analyzed }}</span>
                             </div>
                             <div style="width: 1px; height: 30px; background: var(--border);"></div>
                             <div>
                                 <span class="text-muted small d-block">Drivers</span>
-                                <span class="fs-5 fw-bold">{{ total_drivers }}</span>
+                                <span class="fs-5 fw-bold text-white">{{ total_drivers }}</span>
                             </div>
                         {% else %}
                             <div class="d-flex align-items-center gap-2 text-muted small">
                                 <i class="fa-solid fa-circle-info text-brand"></i>
-                                No stats calculated yet — click <strong class="text-white mx-1">Generate</strong> to run the analysis.
+                                No stats calculated yet
                             </div>
                         {% endif %}
                     </div>
-                    <div class="d-flex align-items-center gap-3 stats-filters-box">
-                        <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-3" id="filter-form">
-                            <input type="hidden" name="min_laps" value="{{ min_laps }}">
-                            <span class="text-muted small text-nowrap fw-semibold">Session Types:</span>
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="form-check form-check-inline mb-0">
+
+                    <!-- Consolidated Filter Form -->
+                    <div class="col-12 col-md">
+                        <form method="get" action="/org/{{ org.id }}/stats" class="row g-3 align-items-center" id="filter-form">
+                            <!-- Session Types Checkboxes -->
+                            <div class="col-12 col-lg-auto d-flex align-items-center flex-wrap gap-2">
+                                <span class="text-muted small fw-semibold text-nowrap">Session Types:</span>
+                                <div class="form-check form-check-inline mb-0 ms-2">
                                     <input class="form-check-input" type="checkbox" name="session_types" id="st_race" value="race" {% if 'race' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
                                     <label class="form-check-label text-muted small fw-semibold mb-0" for="st_race">Race</label>
                                 </div>
@@ -123,39 +95,38 @@
                                 </div>
                                 <div class="form-check form-check-inline mb-0">
                                     <input class="form-check-input" type="checkbox" name="session_types" id="st_practice" value="practice" {% if 'practice' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice">Practice / Warmup</label>
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice">Practice</label>
                                 </div>
                             </div>
-                            
-                            <div style="width: 1px; height: 20px; background: var(--border);" class="d-none d-md-block"></div>
-                            
-                            <div class="form-check mb-0">
-                                <input class="form-check-input" type="checkbox" name="ignore_outliers" id="ignore_outliers" value="1" {% if ignore_outliers %}checked{% endif %} onchange="this.form.submit()">
-                                <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) using statistical IQR bounds">
-                                    <i class="fa-solid fa-filter text-brand me-1"></i>Ignore Outliers
-                                </label>
+
+                            <!-- Min Laps select dropdown -->
+                            {% if has_persisted_stats %}
+                                <div class="col-12 col-sm-auto d-flex align-items-center gap-2">
+                                    <label for="min_laps" class="text-muted small text-nowrap fw-semibold mb-0">Min Laps:</label>
+                                    <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-100 w-sm-auto" onchange="this.form.submit()">
+                                        <option value="10" {% if min_laps == 10 %}selected{% endif %}>10</option>
+                                        <option value="20" {% if min_laps == 20 %}selected{% endif %}>20 (Default)</option>
+                                        <option value="30" {% if min_laps == 30 %}selected{% endif %}>30</option>
+                                        <option value="50" {% if min_laps == 50 %}selected{% endif %}>50</option>
+                                        <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
+                                    </select>
+                                </div>
+                            {% endif %}
+
+                            <!-- Ignore Outliers Checkbox -->
+                            <div class="col-12 col-sm-auto">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" name="ignore_outliers" id="ignore_outliers" value="1" {% if ignore_outliers %}checked{% endif %} onchange="this.form.submit()">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) using statistical IQR bounds">
+                                        <i class="fa-solid fa-filter text-brand me-1"></i>Ignore Outliers
+                                    </label>
+                                </div>
                             </div>
                         </form>
+                    </div>
 
-                        {% if has_persisted_stats %}
-                            <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
-                                {% for st in session_types %}
-                                    <input type="hidden" name="session_types" value="{{ st }}">
-                                {% endfor %}
-                                {% if ignore_outliers %}
-                                    <input type="hidden" name="ignore_outliers" value="1">
-                                {% endif %}
-                                <label for="min_laps" class="text-muted small text-nowrap fw-semibold">Min Laps:</label>
-                                <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
-                                    <option value="10" {% if min_laps == 10 %}selected{% endif %}>10</option>
-                                    <option value="20" {% if min_laps == 20 %}selected{% endif %}>20 (Default)</option>
-                                    <option value="30" {% if min_laps == 30 %}selected{% endif %}>30</option>
-                                    <option value="50" {% if min_laps == 50 %}selected{% endif %}>50</option>
-                                    <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
-                                </select>
-                            </form>
-                        {% endif %}
-
+                    <!-- Recalculate/Generate button -->
+                    <div class="col-12 col-md-auto ms-md-auto">
                         <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="recalc-stats-form">
                             {% for st in session_types %}
                                 <input type="hidden" name="session_types" value="{{ st }}">
@@ -163,7 +134,7 @@
                             {% if ignore_outliers %}
                                 <input type="hidden" name="ignore_outliers" value="1">
                             {% endif %}
-                            <button type="submit" class="btn-custom py-1 px-3 {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
+                            <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
                                 <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
                                 {% if has_persisted_stats %}Recalculate{% else %}Generate Stats{% endif %}
                             </button>
