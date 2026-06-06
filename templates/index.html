@@ -176,39 +176,23 @@
                         <span class="js-btn-label"><i class="fa-solid fa-rotate"></i> Sync (Full)</span>
                         <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
                     </button>
-                    <div class="dropdown d-inline-block">
-                        <button class="btn-custom-outline dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fa-solid fa-ellipsis"></i> Actions
+                    <a class="btn-custom-outline" href="/track-records?org_id={{ org.id }}">
+                        <i class="fa-solid fa-stopwatch text-info"></i> Records
+                    </a>
+                    <form method="post" action="/org/{{ org.id }}/save-local" class="js-org-action-form d-inline" data-action-label="Saving Local Data">
+                        <input type="hidden" name="max_events" value="25">
+                        <button class="btn-custom-outline" type="submit">
+                            <i class="fa-solid fa-file-export text-warning"></i> Save Local
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                            <li>
-                                <a class="dropdown-item" href="/track-records?org_id={{ org.id }}">
-                                    <i class="fa-solid fa-stopwatch text-info me-2"></i>Track Records Scan
-                                </a>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <form method="post" action="/org/{{ org.id }}/save-local" class="js-org-action-form" data-action-label="Saving Local Data">
-                                    <input type="hidden" name="max_events" value="25">
-                                    <button class="dropdown-item" type="submit">
-                                        <i class="fa-solid fa-file-export text-warning me-2"></i>Save Local Data
-                                    </button>
-                                </form>
-                            </li>
-                            {% if dump_manifest %}
-                            <li>
-                                <a class="dropdown-item" href="/org/{{ org.id }}/download-local-dump.zip">
-                                    <i class="fa-solid fa-file-zipper text-success me-2"></i>Download Dump Zip
-                                </a>
-                            </li>
-                            {% endif %}
-                            <li>
-                                <a class="dropdown-item" href="/org/{{ org.id }}/export-lap-records.ndjson?max_events=25">
-                                    <i class="fa-solid fa-file-arrow-down text-info me-2"></i>Export Lap NDJSON
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
+                    </form>
+                    {% if dump_manifest %}
+                    <a class="btn-custom-outline" href="/org/{{ org.id }}/download-local-dump.zip">
+                        <i class="fa-solid fa-file-zipper text-success"></i> Download Zip
+                    </a>
+                    {% endif %}
+                    <a class="btn-custom-outline" href="/org/{{ org.id }}/export-lap-records.ndjson?max_events=25">
+                        <i class="fa-solid fa-file-arrow-down text-info"></i> Export NDJSON
+                    </a>
                 </div>
             </div>
 
@@ -340,59 +324,60 @@
 
     <!-- Events Catalog -->
     <div class="col-12">
-        <div class="glass-card">
-            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-                <div class="glass-card-header mb-0"><i class="fa-solid fa-calendar-days text-info"></i> Events Catalog</div>
-                <span class="badge-custom badge-neutral">{{ events|length }} Cataloged</span>
+        <div class="accordion-custom">
+            <div class="accordion-custom-header" onclick="document.getElementById('events-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                <span><i class="fa-solid fa-calendar-days text-info me-2"></i>Events Catalog ({{ events|length }} Cataloged)</span>
+                <i class="fa-solid fa-chevron-up chevron-icon text-muted"></i>
             </div>
-            
-            <form method="get" action="/" class="row g-3 mb-4 bg-surface-2 p-3 rounded border border-secondary border-opacity-10">
-                <input type="hidden" name="org_id" value="{{ org.id }}">
-                {% if driver_query %}
-                    <input type="hidden" name="q" value="{{ driver_query }}">
-                {% endif %}
-                <div class="col-md-5">
-                    <label class="form-label small text-muted">Filter Start Date</label>
-                    <input type="date" class="form-control form-control-custom w-100" name="start_date" value="{{ start_date or '' }}">
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label small text-muted">Filter End Date</label>
-                    <input type="date" class="form-control form-control-custom w-100" name="end_date" value="{{ end_date or '' }}">
-                </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button class="btn-custom w-100" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
-                </div>
-            </form>
+            <div id="events-collapse" class="accordion-custom-body">
+                <form method="get" action="/" class="row g-3 mb-4 bg-surface-2 p-3 rounded border border-secondary border-opacity-10">
+                    <input type="hidden" name="org_id" value="{{ org.id }}">
+                    {% if driver_query %}
+                        <input type="hidden" name="q" value="{{ driver_query }}">
+                    {% endif %}
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted">Filter Start Date</label>
+                        <input type="date" class="form-control form-control-custom w-100" name="start_date" value="{{ start_date or '' }}">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted">Filter End Date</label>
+                        <input type="date" class="form-control form-control-custom w-100" name="end_date" value="{{ end_date or '' }}">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn-custom w-100" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
+                    </div>
+                </form>
 
-            {% if events %}
-                <div class="table-custom-container">
-                    <table class="table table-custom">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Event Name</th>
-                                <th class="text-end">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for event in events %}
+                {% if events %}
+                    <div class="table-custom-container" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-custom">
+                            <thead>
                                 <tr>
-                                    <td class="text-secondary">{{ event._display_date or event.startDate or 'N/A' }}</td>
-                                    <td class="fw-semibold text-gradient">{{ event.name }}</td>
-                                    <td class="text-end">
-                                        <a href="/event/{{ event.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-folder-open"></i> Open</a>
-                                    </td>
+                                    <th>Date</th>
+                                    <th>Event Name</th>
+                                    <th class="text-end">Action</th>
                                 </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <div class="text-center py-4 text-muted">
-                    <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
-                    No events found matching the specified filters.
-                </div>
-            {% endif %}
+                            </thead>
+                            <tbody>
+                                {% for event in events %}
+                                    <tr>
+                                        <td class="text-secondary">{{ event._display_date or event.startDate or 'N/A' }}</td>
+                                        <td class="fw-semibold text-gradient">{{ event.name }}</td>
+                                        <td class="text-end">
+                                            <a href="/event/{{ event.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-folder-open"></i> Open</a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
+                        No events found matching the specified filters.
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 
