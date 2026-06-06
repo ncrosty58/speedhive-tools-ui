@@ -14,7 +14,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from flask import Flask, Response, after_this_request, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, Response, after_this_request, jsonify, redirect, render_template, request, send_file, url_for, session
 
 # Insert local speedhive-tools src folder to sys.path so we can import speedhive directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "src"))
@@ -35,6 +35,7 @@ from speedhive.processing.process_lap_analysis import (
 )
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
 
 # Initialize the Speedhive client
 client = SpeedhiveClient.create()
@@ -49,6 +50,16 @@ DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_
 
 DUMPS_ROOT.mkdir(parents=True, exist_ok=True)
 storage = SpeedhiveStorage(DB_PATH)
+
+with storage.connect() as conn:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS org_stats ("
+        "org_id INTEGER PRIMARY KEY, "
+        "payload TEXT, "
+        "calculated_at TEXT"
+        ")"
+    )
+    conn.commit()
 
 # ---------------------------------------------------------------------------
 # Background refresh task registry
@@ -1063,16 +1074,84 @@ def scan_track_records_from_synced_store(
     records.sort(key=lambda r: ((r.get("classification") or "").upper(), r.get("lap_time_seconds") or float('inf')))
     return records, events_scanned, error, events_meta
 
-# Inject datetime into templates globally
 @app.context_processor
 def inject_global_data():
     org_list = list_stored_orgs()
 
-    global_org_id = request.args.get("org_id") or request.view_args.get("org_id") if request.view_args else None
+    global_org_id = request.args.get("org_id") or (request.view_args.get("org_id") if request.view_args else None)
     if not global_org_id and request.path.startswith("/org/"):
         parts = request.path.split("/")
         if len(parts) > 2 and parts[2].isdigit():
             global_org_id = parts[2]
+            
+    # Resolve from session_id
+    if not global_org_id:
+        session_id = request.view_args.get("session_id") if request.view_args else None
+        if not session_id and "/session/" in request.path:
+            parts = request.path.split("/")
+            for p in parts:
+                if p.isdigit():
+                    session_id = p
+                    break
+        if session_id:
+            try:
+                with storage.connect() as conn:
+                    row = conn.execute("SELECT org_id FROM sessions WHERE session_id = ?", (int(session_id),)).fetchone()
+                    if row and row[0]:
+                        global_org_id = str(row[0])
+            except Exception:
+                pass
+
+    # Resolve from event_id
+    if not global_org_id:
+        event_id = request.view_args.get("event_id") if request.view_args else None
+        if not event_id and "/event/" in request.path:
+            parts = request.path.split("/")
+            for p in parts:
+                if p.isdigit():
+                    event_id = p
+                    break
+        if event_id:
+            try:
+                with storage.connect() as conn:
+                    row = conn.execute("SELECT org_id FROM events WHERE event_id = ?", (int(event_id),)).fetchone()
+                    if row and row[0]:
+                        global_org_id = str(row[0])
+            except Exception:
+                pass
+
+    # Resolve from championship_id
+    if not global_org_id:
+        championship_id = request.view_args.get("championship_id") if request.view_args else None
+        if not championship_id and "/championship/" in request.path:
+            parts = request.path.split("/")
+            for p in parts:
+                if p.isdigit():
+                    championship_id = p
+                    break
+        if championship_id:
+            try:
+                import json
+                with storage.connect() as conn:
+                    cursor = conn.execute("SELECT org_id, payload FROM org_championships")
+                    for org_id_val, payload_str in cursor.fetchall():
+                        try:
+                            champs = json.loads(payload_str)
+                            if isinstance(champs, list):
+                                for ch in champs:
+                                    if str(ch.get("id")) == str(championship_id):
+                                        global_org_id = str(org_id_val)
+                                        break
+                        except Exception:
+                            pass
+                        if global_org_id:
+                            break
+            except Exception:
+                pass
+
+    if not global_org_id and request.path == "/":
+        if org_list:
+            global_org_id = org_list[0]["id"]
 
     return {
         "org_list": org_list,
@@ -1201,14 +1280,22 @@ def index():
 
     # Track records parameters (combined onto Dashboard)
     classification = (request.args.get("classification") or "").strip()
-    limit_events_str = request.args.get("limit_events", "10")
-    limit_events = int(limit_events_str) if limit_events_str.isdigit() else 10
+    
+    limit_events_str = request.args.get("limit_events")
+    if limit_events_str is not None:
+        session["limit_events"] = limit_events_str
+    else:
+        limit_events_str = session.get("limit_events", "0")
+        
+    limit_events = int(limit_events_str) if limit_events_str.isdigit() else 0
     if limit_events == 0:
         limit_events = None
     records = []
     records_error = None
     events_scanned_count = 0
     track_records_ready = bool(org_refresh_state.get("last_refresh_at"))
+
+    driver_filter = (request.args.get("driver_filter") or "").strip()
 
     if selected_org_id and track_records_ready:
         try:
@@ -1219,6 +1306,12 @@ def index():
                 end_date=end_date,
                 limit_events=limit_events,
             )
+            if driver_filter and records:
+                norm_filter = normalize_search_text(driver_filter)
+                records = [
+                    r for r in records
+                    if norm_filter in normalize_search_text(r.get("driver") or "")
+                ]
         except Exception as exc:
             records_error = str(exc)
 
@@ -1232,13 +1325,13 @@ def index():
                     continue
                 event_name = event.get("name") or f"Event #{event_id}"
                 sessions, _ = read_event_sessions_from_store(int(event_id))
-                for session in sessions:
-                    if not isinstance(session, dict):
+                for sess in sessions:
+                    if not isinstance(sess, dict):
                         continue
-                    session_id = session.get("id")
+                    session_id = sess.get("id")
                     if not session_id:
                         continue
-                    session_name = session.get("name") or f"Session #{session_id}"
+                    session_name = sess.get("name") or f"Session #{session_id}"
                     results, _ = read_results_from_store(int(session_id))
                     for result in results:
                         if not isinstance(result, dict):
@@ -1304,7 +1397,8 @@ def index():
         records=records,
         track_records_ready=track_records_ready,
         classification=classification,
-        limit_events=limit_events_str,
+        driver_filter=driver_filter,
+        limit_events=limit_events,
         events_scanned_count=events_scanned_count,
         records_error=records_error,
         active_tab=active_tab,
@@ -1313,7 +1407,7 @@ def index():
 @app.route("/track-records")
 def track_records_redirect():
     redirect_args = {}
-    for key in ("org_id", "classification", "start_date", "end_date", "limit_events", "q", "max_events"):
+    for key in ("org_id", "classification", "driver_filter", "start_date", "end_date", "limit_events", "q", "max_events"):
         value = request.args.get(key)
         if value not in (None, ""):
             redirect_args[key] = value
@@ -1777,6 +1871,29 @@ def lap_times(session_id, driver_id):
                 if str(lap.get("position")) == lookup_value:
                     driver_laps.append(lap)
 
+        if not driver_laps and lookup_mode in ("cid", "sn"):
+            results, _ = read_results_from_store(session_id_int)
+            resolved_position = None
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                if lookup_mode == "cid":
+                    r_comp_id = first_non_empty(result.get("competitorId"), result.get("id"), (result.get("competitor") or {}).get("id"))
+                    if r_comp_id is not None and str(r_comp_id) == lookup_value:
+                        resolved_position = first_non_empty(result.get("position"), result.get("pos"))
+                        break
+                elif lookup_mode == "sn":
+                    r_start_number = first_non_empty(result.get("startNumber"), result.get("transponder"))
+                    if r_start_number is not None and str(r_start_number) == lookup_value:
+                        resolved_position = first_non_empty(result.get("position"), result.get("pos"))
+                        break
+            if resolved_position is not None:
+                for lap in all_laps:
+                    if not isinstance(lap, dict):
+                        continue
+                    if str(lap.get("position")) == str(resolved_position):
+                        driver_laps.append(lap)
+
         driver_laps.sort(key=lambda x: safe_int(first_non_empty(x.get("lapNumber"), x.get("lap")), 0))
         driver_name = f"Competitor #{driver_id}"
         results, _ = read_results_from_store(session_id_int)
@@ -1854,6 +1971,7 @@ def export_track_records_json():
         return redirect(url_for("index", error="Invalid org_id for export."))
 
     classification = (request.args.get("classification") or "").strip()
+    driver_filter = (request.args.get("driver_filter") or "").strip()
     start_date_str = request.args.get("start_date")
     end_date_str = request.args.get("end_date")
     start_date = parse_date_to_comparison(start_date_str)
@@ -1868,9 +1986,16 @@ def export_track_records_json():
         end_date=end_date,
         limit_events=limit_events,
     )
+    if driver_filter and records:
+        norm_filter = normalize_search_text(driver_filter)
+        records = [
+            r for r in records
+            if norm_filter in normalize_search_text(r.get("driver") or "")
+        ]
     payload = {
         "org_id": org_id_int,
         "classification": classification or None,
+        "driver_filter": driver_filter or None,
         "start_date": start_date_str or None,
         "end_date": end_date_str or None,
         "events_scanned": events_scanned,
@@ -1926,27 +2051,34 @@ def org_stats(org_id):
             cache_status=cache_status,
         )
 
+    # Check if stats are already calculated and stored in SQLite org_stats table
+    clustered = None
+    calculated_at = None
     try:
-        from speedhive.processing.process_lap_analysis import (
-            compute_laps_and_enriched,
-            compute_laps_and_enriched_from_storage,
-        )
-        from speedhive.analyzers.analyze_consistency import (
-            load_session_types,
-            load_session_types_from_storage,
-            aggregate_by_name,
-            cluster_names,
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ?",
+                (org_id_int,)
+            ).fetchone()
+        if row:
+            clustered = json.loads(row["payload"])
+            calculated_at = row["calculated_at"]
+    except Exception as e:
+        app.logger.warning(f"Error loading stats from DB for org {org_id_int}: {e}")
+
+    if not clustered:
+        return render_template(
+            "org_stats.html",
+            org=org_view,
+            org_id=org_id_int,
+            org_name=org_view.get("name"),
+            manifest_exists=True,
+            has_persisted_stats=False,
+            active_tab="stats",
+            cache_status=cache_status,
         )
 
-        if has_db_stats:
-            _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int)
-            session_map = load_session_types_from_storage(storage, org_id_int)
-        else:
-            _, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int)
-            session_map = load_session_types(DUMPS_ROOT, org_id_int)
-        by_name = aggregate_by_name(enriched, session_map)
-        clustered = cluster_names(by_name, threshold=0.85)
-        
+    try:
         min_laps = int(request.args.get("min_laps", "20"))
         
         rows = [
@@ -2002,6 +2134,8 @@ def org_stats(org_id):
             org_id=org_id_int,
             org_name=org_view.get("name"),
             manifest_exists=True,
+            has_persisted_stats=True,
+            calculated_at=calculated_at,
             top_consistent=top_consistent,
             least_consistent=least_consistent,
             total_drivers=total_drivers,
@@ -2019,10 +2153,66 @@ def org_stats(org_id):
             org_id=org_id_int,
             org_name=org_view.get("name"),
             manifest_exists=True,
-            error=f"Failed to compute consistency statistics: {exc}",
+            error=f"Failed to load consistency statistics: {exc}",
             active_tab="stats",
             cache_status=cache_status,
         )
+
+@app.route("/org/<org_id>/stats/generate", methods=["POST"])
+def generate_org_stats(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    has_db_stats = storage.org_has_sessions(org_id_int)
+    dump_dir = DUMPS_ROOT / str(org_id_int)
+    has_dump_stats = (dump_dir / "manifest.json").exists()
+
+    if not has_db_stats and not has_dump_stats:
+        return redirect(url_for("org_stats", org_id=org_id_int, error="No synced session data available to analyze."))
+
+    try:
+        from speedhive.processing.process_lap_analysis import (
+            compute_laps_and_enriched,
+            compute_laps_and_enriched_from_storage,
+        )
+        from speedhive.analyzers.analyze_consistency import (
+            load_session_types,
+            load_session_types_from_storage,
+            aggregate_by_name,
+            cluster_names,
+        )
+
+        if has_db_stats:
+            _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int)
+            session_map = load_session_types_from_storage(storage, org_id_int)
+        else:
+            _, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int)
+            session_map = load_session_types(DUMPS_ROOT, org_id_int)
+        by_name = aggregate_by_name(enriched, session_map)
+        clustered = cluster_names(by_name, threshold=0.85)
+
+        calculated_at = iso_utc(utc_now())
+        payload_str = json.dumps(clustered, default=str)
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO org_stats (org_id, payload, calculated_at) VALUES (?, ?, ?)",
+                (org_id_int, payload_str, calculated_at)
+            )
+            conn.commit()
+
+        # Prune older file cache if present
+        cache_file = WEB_DATA_ROOT / f"org_{org_id_int}_stats_cache.json"
+        if cache_file.exists():
+            try:
+                cache_file.unlink()
+            except Exception:
+                pass
+    except Exception as exc:
+        return redirect(url_for("org_stats", org_id=org_id_int, error=f"Analysis failed: {exc}"))
+
+    return redirect(url_for("org_stats", org_id=org_id_int))
 
 @app.route("/org/<org_id>/operations")
 def org_operations(org_id):
