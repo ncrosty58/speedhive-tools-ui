@@ -1,0 +1,3 @@
+[submodule "speedhive-tools"]
+	path = speedhive-tools
+	url = https://github.com/ncrosty58/speedhive-tools.git
