@@ -98,6 +98,14 @@ def _is_stop_requested(task_id: str) -> bool:
         return bool(task and task.get("stop_requested"))
 
 
+def _get_running_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
+    with _refresh_tasks_lock:
+        for task in _refresh_tasks.values():
+            if task.get("org_id") == org_id and task.get("status") == "running":
+                return dict(task)
+    return None
+
+
 def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int) -> None:
     """Run the org refresh in a background thread with progress updates."""
     from speedhive.exporters.export_org_cache import (
@@ -1353,6 +1361,14 @@ def refresh_org(org_id):
 
     # If the request wants JSON (from fetch() in the new UI), start async task
     if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+        running_task = _get_running_task_for_org(org_id_int)
+        if running_task:
+            return jsonify({
+                "task_id": running_task["task_id"],
+                "org_id": org_id_int,
+                "mode": running_task["mode"],
+                "already_running": True
+            })
         task_id = _new_task(org_id_int, mode)
         t = threading.Thread(
             target=_run_refresh_task,
@@ -1363,6 +1379,10 @@ def refresh_org(org_id):
         return jsonify({"task_id": task_id, "org_id": org_id_int, "mode": mode})
 
     # Legacy synchronous path (fallback for no-JS)
+    running_task = _get_running_task_for_org(org_id_int)
+    if running_task:
+        return redirect(url_for("org_details", org_id=org_id_int, notice="A refresh is already running for this organization."))
+
     try:
         summary = refresh_org_cache_bundle(
             client=client,
@@ -1409,6 +1429,15 @@ def refresh_org_start(org_id):
             25,
         ),
     )
+
+    running_task = _get_running_task_for_org(org_id_int)
+    if running_task:
+        return jsonify({
+            "task_id": running_task["task_id"],
+            "org_id": org_id_int,
+            "mode": running_task["mode"],
+            "already_running": True
+        })
 
     task_id = _new_task(org_id_int, mode)
     t = threading.Thread(
@@ -2031,6 +2060,9 @@ def org_operations(org_id):
     if manifest_path.exists():
         dump_manifest = read_json_file(manifest_path)
 
+    running_task = _get_running_task_for_org(org_id_int)
+    running_task_id = running_task["task_id"] if running_task else None
+
     return render_template(
         "org_operations.html",
         org=org_view,
@@ -2041,6 +2073,7 @@ def org_operations(org_id):
         incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
         active_tab="operations",
         cache_status=cache_status,
+        running_task_id=running_task_id,
     )
 
 

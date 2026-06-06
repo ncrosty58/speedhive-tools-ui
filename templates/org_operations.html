@@ -190,7 +190,7 @@
         const modeLabel    = document.getElementById("refresh-mode-label");
         const statusIcon   = document.getElementById("refresh-status-icon");
 
-        let currentTaskId = null;
+        let currentTaskId = "{{ running_task_id or '' }}" || null;
         let pollInterval  = null;
         let isStopping    = false;
 
@@ -361,6 +361,13 @@
             fetch("/refresh/stop/" + currentTaskId, { method: "POST" })
                 .catch(function (err) { console.warn("Stop error:", err); });
         });
+
+        if (currentTaskId) {
+            setRefreshButtonsDisabled(true);
+            statusBar.style.display = "block";
+            pollInterval = setInterval(pollTaskStatus, 1200);
+            pollTaskStatus();
+        }
     });
 </script>
 {% endblock %}
