@@ -393,6 +393,76 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* Mobile Responsiveness styling updates */
+        .table-custom-container {
+            overflow-x: auto;
+        }
+
+        @media (max-width: 768px) {
+            .navbar-nav {
+                width: 100%;
+                margin-top: 0.5rem;
+                align-items: stretch !important;
+                gap: 0.5rem !important;
+            }
+            .navbar-nav .nav-item {
+                width: 100%;
+            }
+            .navbar-nav select {
+                width: 100% !important;
+                margin-bottom: 0.25rem;
+            }
+            .nav-link-custom {
+                text-align: center;
+                padding: 0.6rem !important;
+                background: var(--bg-surface-2) !important;
+                border: 1px solid var(--border);
+            }
+            .glass-card {
+                padding: 1rem;
+            }
+            .d-flex.align-items-center.gap-4 {
+                gap: 1rem !important;
+                flex-wrap: wrap;
+            }
+            .d-flex.align-items-center.gap-3 {
+                flex-wrap: wrap;
+                width: 100%;
+            }
+            .d-flex.align-items-center.gap-3 > form,
+            .d-flex.align-items-center.gap-3 > div {
+                width: 100%;
+            }
+            .d-flex.align-items-center.gap-3 select {
+                width: 100% !important;
+            }
+            .d-flex.align-items-center.gap-3 form {
+                flex-wrap: wrap;
+                gap: 0.5rem !important;
+            }
+            .d-flex.align-items-center.gap-3 label {
+                width: 100%;
+            }
+            .btn-custom, .btn-custom-outline {
+                width: 100%;
+                justify-content: center;
+            }
+            #filter-form {
+                width: 100%;
+                flex-direction: column;
+                align-items: flex-start !important;
+            }
+            #filter-form > div {
+                flex-direction: column;
+                align-items: flex-start !important;
+                width: 100%;
+                gap: 0.5rem !important;
+            }
+            #filter-form .form-check {
+                width: 100%;
+            }
+        }
     </style>
 
     {% block extra_css %}{% endblock %}

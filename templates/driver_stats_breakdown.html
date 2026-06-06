@@ -22,7 +22,7 @@
 
     <!-- Back Button -->
     <div class="col-12">
-        <a href="/org/{{ org.id }}/stats?min_laps={{ min_laps }}{% for st in session_types %}&session_types={{ st }}{% endfor %}" class="btn-custom btn-custom-outline py-1 px-3 d-inline-flex align-items-center">
+        <a href="/org/{{ org.id }}/stats?min_laps={{ min_laps }}{% for st in session_types %}&session_types={{ st }}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="btn-custom btn-custom-outline py-1 px-3 d-inline-flex align-items-center">
             <i class="fa-solid fa-arrow-left me-2"></i> Back to Stats
         </a>
     </div>
@@ -130,9 +130,9 @@
                             <div class="row g-2">
                                 {% for lap in session.laps %}
                                     <div class="col-6 col-sm-4 col-md-3 col-lg-2">
-                                        <div class="p-2 rounded text-center {% if lap.is_best %}bg-brand bg-opacity-15 border border-brand border-opacity-40{% else %}bg-surface border border-secondary border-opacity-10{% endif %}">
-                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Lap {{ lap.number }}</span>
-                                            <span class="fw-mono fw-semibold small {% if lap.is_best %}text-brand{% else %}text-white{% endif %}">{{ lap.display }}</span>
+                                        <div class="p-2 rounded text-center {% if lap.is_outlier %}bg-danger bg-opacity-5 border border-danger border-opacity-20 text-muted opacity-50{% elif lap.is_best %}bg-brand bg-opacity-15 border border-brand border-opacity-40{% else %}bg-surface border border-secondary border-opacity-10{% endif %}" {% if lap.is_outlier %}title="Outlier ignored from stats"{% endif %}>
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Lap {{ lap.number }} {% if lap.is_outlier %}(Outlier){% endif %}</span>
+                                            <span class="fw-mono fw-semibold small {% if lap.is_outlier %}text-decoration-line-through text-muted{% elif lap.is_best %}text-brand{% else %}text-white{% endif %}">{{ lap.display }}</span>
                                         </div>
                                     </div>
                                 {% endfor %}

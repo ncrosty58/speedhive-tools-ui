@@ -74,9 +74,9 @@
                         </thead>
                         <tbody>
                             {% for lap in laps %}
-                                <tr>
-                                    <td class="text-secondary fw-semibold">#{{ lap.lapNumber or lap.lap or loop.index }}</td>
-                                    <td class="fw-semibold text-gradient">{{ lap.lapTime or lap.lap_time or 'N/A' }}</td>
+                                <tr {% if lap.is_outlier %}class="opacity-50 text-muted" title="Outlier ignored from stats"{% endif %}>
+                                    <td class="text-secondary fw-semibold">#{{ lap.lapNumber or lap.lap or loop.index }} {% if lap.is_outlier %}(Outlier){% endif %}</td>
+                                    <td class="fw-semibold text-gradient {% if lap.is_outlier %}text-decoration-line-through text-muted{% endif %}">{{ lap.lapTime or lap.lap_time or 'N/A' }}</td>
                                     <td class="text-secondary">{{ lap.speed or '—' }}</td>
                                     <td class="text-secondary">
                                         {% if lap.sectorTimes or lap.sector_times %}
