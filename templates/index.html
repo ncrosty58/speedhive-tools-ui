@@ -77,11 +77,11 @@
                     <div class="col-lg-3 col-md-6">
                         <label for="limit_events" class="form-label small text-muted mb-1 fw-semibold">Events Scan Limit</label>
                         <select id="limit_events" name="limit_events" class="form-select form-control-custom">
-                            <option value="10" {% if limit_events|string == '10' or limit_events is none %}selected{% endif %}>Last 10 Events</option>
-                            <option value="25" {% if limit_events|string == '25' %}selected{% endif %}>Last 25 Events</option>
-                            <option value="50" {% if limit_events|string == '50' %}selected{% endif %}>Last 50 Events</option>
-                            <option value="100" {% if limit_events|string == '100' %}selected{% endif %}>Last 100 Events</option>
-                            <option value="0" {% if limit_events|string == '0' %}selected{% endif %}>All Events</option>
+                            <option value="10" {% if limit_events == '10' or limit_events is none %}selected{% endif %}>Last 10 Events</option>
+                            <option value="25" {% if limit_events == '25' %}selected{% endif %}>Last 25 Events</option>
+                            <option value="50" {% if limit_events == '50' %}selected{% endif %}>Last 50 Events</option>
+                            <option value="100" {% if limit_events == '100' %}selected{% endif %}>Last 100 Events</option>
+                            <option value="0" {% if limit_events == '0' %}selected{% endif %}>All Events</option>
                         </select>
                     </div>
                     <div class="col-lg-2 col-md-6 d-grid">
