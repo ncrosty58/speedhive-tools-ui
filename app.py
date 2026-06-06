@@ -20,8 +20,8 @@ from flask import Flask, Response, after_this_request, jsonify, redirect, render
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "src"))
 
 from speedhive.wrapper import SpeedhiveClient
-from speedhive.exporters.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
-from speedhive.processing.lap_analysis import (
+from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
+from speedhive.processing.process_lap_analysis import (
     extract_iso_date,
     parse_time_value,
     parse_track_record_text,
@@ -101,7 +101,7 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
     # Inline version of refresh_org_cache that reports progress and supports stop.
     import json as _json
     import shutil as _shutil
-    from speedhive.exporters.refresh_org_cache import (
+    from speedhive.exporters.export_org_cache import (
         _utc_now_iso, _write_cache_entry, _write_json, _read_json,
         _load_previous_event_ids, _load_previous_session_ids,
         _event_ids_from_rows, _sorted_event_ids_for_backfill,
@@ -147,7 +147,7 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
         current_event_id_set = set(current_event_ids)
         new_event_ids = sorted(current_event_id_set - previous_event_ids)
 
-        from speedhive.exporters.refresh_org_cache import _safe_int
+        from speedhive.exporters.export_org_cache import _safe_int
         refresh_event_ids: set
         if mode == "full":
             refresh_event_ids = set(current_event_id_set)
@@ -847,41 +847,110 @@ def inject_now():
 
 @app.route("/")
 def index():
-    featured_org_id = 30476
-    featured_org_refresh = read_org_refresh_state(featured_org_id)
-    featured_org_name = _org_display_name_from_cache(featured_org_id)
-    return render_template(
-        "index.html",
-        notice=request.args.get("notice"),
-        error=request.args.get("error"),
-        web_data_root=str(WEB_DATA_ROOT),
-        featured_org_id=featured_org_id,
-        featured_org_name=featured_org_name,
-        featured_org_refresh=featured_org_refresh,
+    org_list = []
+    orgs_dir = CACHE_ROOT / "orgs"
+    if orgs_dir.exists():
+        for p in orgs_dir.iterdir():
+            if p.is_dir() and p.name.isdigit():
+                org_id_int = int(p.name)
+                org_list.append({
+                    "id": org_id_int,
+                    "name": _org_display_name_from_cache(org_id_int)
+                })
+    org_list.sort(key=lambda o: o["name"].lower())
+
+    selected_org_id = request.args.get("org_id")
+    if not selected_org_id:
+        if org_list:
+            p_ids = [o["id"] for o in org_list]
+            if 30476 in p_ids:
+                selected_org_id = 30476
+            else:
+                selected_org_id = org_list[0]["id"]
+        else:
+            selected_org_id = 30476
+
+    try:
+        selected_org_id = int(selected_org_id)
+    except Exception:
+        selected_org_id = 30476
+
+    # Load organization details if cached
+    org, _ = get_organization_cached(selected_org_id, force_refresh=False)
+    org_view = dict(org) if isinstance(org, dict) else {"id": selected_org_id, "name": f"Organization #{selected_org_id}"}
+    
+    org_city = first_non_empty(
+        org_view.get("city"),
+        (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
+        (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
     )
+    org_country = _country_name_from_value(
+        first_non_empty(
+            org_view.get("country"),
+            (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
+            (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
+        )
+    )
+    org_view["_display_city"] = org_city
+    org_view["_display_country"] = org_country
+    location_parts = [p for p in (org_city, org_country) if p]
+    org_view["_display_location"] = ", ".join(location_parts)
 
-@app.route("/org-search")
-def org_search():
-    org_id = request.args.get("org_id")
-    if org_id:
-        return redirect(url_for("org_details", org_id=org_id))
-    return redirect(url_for("index"))
-
-@app.route("/driver-search")
-def driver_search():
-    org_id = (request.args.get("org_id") or "").strip()
-    query = (request.args.get("q") or "").strip()
-    max_events = max(5, min(safe_int(request.args.get("max_events"), 15), MAX_ORG_EVENTS))
-    matches: List[Dict[str, Any]] = []
-    error = None
+    events = []
+    championships = []
+    org_refresh_state = read_org_refresh_state(selected_org_id)
     cache_status = None
 
-    if org_id and query:
+    # Date filtering for events list
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
+    start_date = parse_date_to_comparison(start_date_str)
+    end_date = parse_date_to_comparison(end_date_str)
+
+    events_data, events_meta = get_events_cached(selected_org_id, force_refresh=False)
+    cache_status = events_meta
+    sortable_events = []
+    for event in events_data:
+        if not isinstance(event, dict):
+            continue
+        event_id = event.get("id")
+        if not event_id:
+            continue
+        e_date_str = extract_event_datetime(event)
+        e_date = parse_date_to_comparison(e_date_str)
+        if start_date and e_date and e_date < start_date:
+            continue
+        if end_date and e_date and e_date > end_date:
+            continue
+        
+        event_view = dict(event)
+        event_view["_display_date"] = format_datetime_display(e_date_str, include_time=False) or "N/A"
+        sortable_events.append((e_date or datetime(1970, 1, 1).date(), event_view))
+    
+    sortable_events.sort(key=lambda item: item[0], reverse=True)
+    events = [event for _, event in sortable_events]
+
+    championships_data, _ = get_championships_cached(selected_org_id, force_refresh=False)
+    for champ in championships_data:
+        if isinstance(champ, dict):
+            championships.append(champ)
+
+    # Get local dump manifest
+    dump_manifest = None
+    dump_dir = DUMPS_ROOT / str(selected_org_id)
+    manifest_path = dump_dir / "manifest.json"
+    if manifest_path.exists():
+        dump_manifest = read_json_file(manifest_path)
+
+    # Driver search inline
+    driver_query = (request.args.get("q") or "").strip()
+    driver_matches = []
+    driver_search_error = None
+    max_events = max(5, min(safe_int(request.args.get("max_events"), 15), MAX_ORG_EVENTS))
+
+    if selected_org_id and driver_query:
         try:
-            org_id_int = int(org_id)
-            events, events_meta = get_events_cached(org_id_int, force_refresh=False)
-            cache_status = events_meta
-            for event in events[:max_events]:
+            for event in events_data[:max_events]:
                 if not isinstance(event, dict):
                     continue
                 event_id = event.get("id")
@@ -907,11 +976,11 @@ def driver_search():
                             (result.get("driver") or {}).get("name"),
                             result.get("participantName"),
                         ) or ""
-                        score = name_match_score(query, driver_name)
-                        if score < 0.45 and normalize_search_text(query) not in normalize_search_text(driver_name):
+                        score = name_match_score(driver_query, driver_name)
+                        if score < 0.45 and normalize_search_text(driver_query) not in normalize_search_text(driver_name):
                             continue
                         normalized = normalize_result_row(result, available_comp_ids=None, available_start_numbers=None)
-                        matches.append(
+                        driver_matches.append(
                             {
                                 "driver_name": driver_name,
                                 "score": round(score, 3),
@@ -926,103 +995,60 @@ def driver_search():
                                 "session_name": session_name,
                             }
                         )
-            query_norm = normalize_search_text(query)
-            matches.sort(
+            query_norm = normalize_search_text(driver_query)
+            driver_matches.sort(
                 key=lambda row: (
                     0 if query_norm in normalize_search_text(row.get("driver_name") or "") else 1,
                     -float(row.get("score") or 0),
                     safe_int(row.get("position"), default=9999),
                 )
             )
-            matches = matches[:120]
+            driver_matches = driver_matches[:120]
         except Exception as exc:
-            error = str(exc)
+            driver_search_error = str(exc)
 
     return render_template(
-        "driver_search.html",
-        org_id=org_id,
-        query=query,
-        max_events=max_events,
-        matches=matches,
-        error=error,
+        "index.html",
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
+        web_data_root=str(WEB_DATA_ROOT),
+        org_list=org_list,
+        org=org_view,
+        selected_org_id=selected_org_id,
+        events=events,
+        championships=championships,
+        org_refresh_state=org_refresh_state,
         cache_status=cache_status,
+        dump_manifest=dump_manifest,
+        start_date=start_date_str,
+        end_date=end_date_str,
+        incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
+        driver_query=driver_query,
+        driver_matches=driver_matches,
+        driver_search_error=driver_search_error,
+        max_events=max_events,
     )
+
+@app.route("/org-search")
+def org_search():
+    org_id = request.args.get("org_id")
+    if org_id:
+        return redirect(url_for("index", org_id=org_id))
+    return redirect(url_for("index"))
 
 @app.route("/org/<org_id>")
 def org_details(org_id):
-    try:
-        org_id_int = int(org_id)
-        org, _ = get_organization_cached(org_id_int, force_refresh=False)
-        org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-        org_city = first_non_empty(
-            org_view.get("city"),
-            (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
-            (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
-        )
-        org_country = _country_name_from_value(
-            first_non_empty(
-                org_view.get("country"),
-                (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
-                (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
-            )
-        )
-        org_view["_display_city"] = org_city
-        org_view["_display_country"] = org_country
-        org_view["_display_location"] = (
-            f"{org_city}, {org_country}" if org_city and org_country else (org_city or org_country or "Location unknown")
-        )
-        championships, _ = get_championships_cached(org_id_int, force_refresh=False)
-        all_events, events_meta = get_events_cached(org_id_int, force_refresh=False)
+    return redirect(url_for("index", org_id=org_id, **request.args))
 
-        start_date_str = request.args.get("start_date")
-        end_date_str = request.args.get("end_date")
-        start_date = parse_date_to_comparison(start_date_str)
-        end_date = parse_date_to_comparison(end_date_str)
-
-        filtered_events = []
-        sortable_events = []
-        for event in all_events:
-            if not isinstance(event, dict):
-                continue
-            e_date_str = extract_event_datetime(event)
-            e_date = parse_date_to_comparison(e_date_str)
-            if start_date and e_date and e_date < start_date:
-                continue
-            if end_date and e_date and e_date > end_date:
-                continue
-            event_view = dict(event)
-            event_view["_display_date"] = format_datetime_display(e_date_str, include_time=False) or "N/A"
-            sortable_events.append((e_date or datetime(1970, 1, 1).date(), event_view))
-        sortable_events.sort(key=lambda item: item[0], reverse=True)
-        filtered_events = [event for _, event in sortable_events]
-
-        dump_manifest = read_json_file(DUMPS_ROOT / str(org_id_int) / "manifest.json") or {}
-        return render_template(
-            "org.html",
-            org=org_view,
-            events=filtered_events,
-            championships=championships,
-            start_date=start_date_str,
-            end_date=end_date_str,
-            cache_status=events_meta,
-            org_refresh_state=read_org_refresh_state(org_id_int),
-            dump_manifest=dump_manifest,
-            incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
-            notice=request.args.get("notice"),
-            error=request.args.get("error"),
-        )
-    except Exception as exc:
-        return render_template(
-            "org.html",
-            error=str(exc),
-            org={"id": org_id, "name": f"Organization #{org_id}"},
-            events=[],
-            championships=[],
-            cache_status=get_org_cache_status(safe_int(org_id, 0)),
-            org_refresh_state=read_org_refresh_state(safe_int(org_id, 0)),
-            dump_manifest={},
-            incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
-        ), 500
+@app.route("/driver-search")
+def driver_search():
+    org_id = request.args.get("org_id")
+    q = request.args.get("q")
+    if org_id and q:
+        return redirect(url_for("index", **request.args))
+    if org_id:
+        return redirect(url_for("index", org_id=org_id))
+    return redirect(url_for("index"))
 
 @app.route("/org/<org_id>/refresh", methods=["POST"])
 def refresh_org(org_id):

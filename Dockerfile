@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 8854
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8854", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8854", "--workers", "3", "--worker-class", "gthread", "--threads", "4", "--timeout", "180", "--graceful-timeout", "30", "--access-logfile", "-", "--error-logfile", "-", "app:app"]

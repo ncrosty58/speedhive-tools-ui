@@ -1,6 +1,9 @@
-version: '3.8'
 services:
   web:
     build: .
+    environment:
+      - SPEEDHIVE_WEB_DATA_DIR=/app/web_data
     ports:
       - "8854:8854"
+    volumes:
+      - ./web_data:/app/web_data
