@@ -2109,6 +2109,7 @@ def org_stats(org_id):
             org_name=org_view.get("name"),
             manifest_exists=True,
             has_persisted_stats=False,
+            min_laps=20,
             active_tab="stats",
             cache_status=cache_status,
             session_types=session_types_list,
@@ -2116,7 +2117,7 @@ def org_stats(org_id):
         )
 
     try:
-        min_laps = int(request.args.get("min_laps", "20"))
+        min_laps = int(request.args.get("min_laps") or "20")
         
         rows = [
             {
@@ -2308,7 +2309,7 @@ def driver_stats_breakdown(org_id, driver_name):
     session_types_str = ",".join(session_types_list)
     
     try:
-        min_laps = int(request.args.get("min_laps", "20"))
+        min_laps = int(request.args.get("min_laps") or "20")
     except ValueError:
         min_laps = 20
 
