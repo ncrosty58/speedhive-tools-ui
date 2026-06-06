@@ -52,11 +52,22 @@ DUMPS_ROOT.mkdir(parents=True, exist_ok=True)
 storage = SpeedhiveStorage(DB_PATH)
 
 with storage.connect() as conn:
+    try:
+        cursor = conn.execute("PRAGMA table_info(org_stats)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if cols and "session_type" not in cols:
+            conn.execute("DROP TABLE org_stats")
+            conn.commit()
+    except Exception:
+        pass
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS org_stats ("
-        "org_id INTEGER PRIMARY KEY, "
+        "org_id INTEGER, "
+        "session_type TEXT, "
         "payload TEXT, "
-        "calculated_at TEXT"
+        "calculated_at TEXT, "
+        "PRIMARY KEY (org_id, session_type)"
         ")"
     )
     conn.commit()
@@ -2013,6 +2024,10 @@ def org_stats(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
+    session_type = request.args.get("session_type", "race")
+    if session_type not in ("race", "qualifying", "practice", "all"):
+        session_type = "race"
+
     org, _ = read_organization_from_store(org_id_int)
     if not org:
         org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
@@ -2049,6 +2064,7 @@ def org_stats(org_id):
             manifest_exists=False,
             active_tab="stats",
             cache_status=cache_status,
+            session_type=session_type,
         )
 
     # Check if stats are already calculated and stored in SQLite org_stats table
@@ -2057,8 +2073,8 @@ def org_stats(org_id):
     try:
         with storage.connect() as conn:
             row = conn.execute(
-                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ?",
-                (org_id_int,)
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+                (org_id_int, session_type)
             ).fetchone()
         if row:
             clustered = json.loads(row["payload"])
@@ -2076,6 +2092,7 @@ def org_stats(org_id):
             has_persisted_stats=False,
             active_tab="stats",
             cache_status=cache_status,
+            session_type=session_type,
         )
 
     try:
@@ -2145,6 +2162,7 @@ def org_stats(org_id):
             search_result=search_result,
             active_tab="stats",
             cache_status=cache_status,
+            session_type=session_type,
         )
     except Exception as exc:
         return render_template(
@@ -2156,6 +2174,7 @@ def org_stats(org_id):
             error=f"Failed to load consistency statistics: {exc}",
             active_tab="stats",
             cache_status=cache_status,
+            session_type=session_type,
         )
 
 @app.route("/org/<org_id>/stats/generate", methods=["POST"])
@@ -2169,8 +2188,12 @@ def generate_org_stats(org_id):
     dump_dir = DUMPS_ROOT / str(org_id_int)
     has_dump_stats = (dump_dir / "manifest.json").exists()
 
+    session_type = request.form.get("session_type") or request.args.get("session_type") or "race"
+    if session_type not in ("race", "qualifying", "practice", "all"):
+        session_type = "race"
+
     if not has_db_stats and not has_dump_stats:
-        return redirect(url_for("org_stats", org_id=org_id_int, error="No synced session data available to analyze."))
+        return redirect(url_for("org_stats", org_id=org_id_int, session_type=session_type, error="No synced session data available to analyze."))
 
     try:
         from speedhive.processing.process_lap_analysis import (
@@ -2190,15 +2213,15 @@ def generate_org_stats(org_id):
         else:
             _, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int)
             session_map = load_session_types(DUMPS_ROOT, org_id_int)
-        by_name = aggregate_by_name(enriched, session_map)
+        by_name = aggregate_by_name(enriched, session_map, session_type=session_type)
         clustered = cluster_names(by_name, threshold=0.85)
 
         calculated_at = iso_utc(utc_now())
         payload_str = json.dumps(clustered, default=str)
         with storage.connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO org_stats (org_id, payload, calculated_at) VALUES (?, ?, ?)",
-                (org_id_int, payload_str, calculated_at)
+                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+                (org_id_int, session_type, payload_str, calculated_at)
             )
             conn.commit()
 
@@ -2210,9 +2233,9 @@ def generate_org_stats(org_id):
             except Exception:
                 pass
     except Exception as exc:
-        return redirect(url_for("org_stats", org_id=org_id_int, error=f"Analysis failed: {exc}"))
+        return redirect(url_for("org_stats", org_id=org_id_int, session_type=session_type, error=f"Analysis failed: {exc}"))
 
-    return redirect(url_for("org_stats", org_id=org_id_int))
+    return redirect(url_for("org_stats", org_id=org_id_int, session_type=session_type))
 
 @app.route("/org/<org_id>/operations")
 def org_operations(org_id):
