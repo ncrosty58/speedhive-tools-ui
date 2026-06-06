@@ -3,6 +3,21 @@
 {% block title %}Driver Breakdown | {{ driver_name }}{% endblock %}
 
 {% block content %}
+<style>
+    @media (max-width: 576px) {
+        .session-header-stats {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr);
+            width: 100%;
+            gap: 0.5rem !important;
+            text-align: center !important;
+        }
+        .session-header-stats > div {
+            text-align: center !important;
+            padding: 0 !important;
+        }
+    }
+</style>
 <div class="row g-4">
     <!-- Header & Tabs -->
     <div class="col-12 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
@@ -53,26 +68,26 @@
                 <div class="col-md-6">
                     <div class="p-3 rounded bg-surface border border-secondary border-opacity-10">
                         <div class="row g-3 text-center">
-                            <div class="col-3 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block">Total Laps</span>
+                            <div class="col-6 col-sm-3 border-end border-secondary border-opacity-10 mb-2 mb-sm-0">
+                                <span class="text-muted small d-block" style="font-size: 0.75rem;">Total Laps</span>
                                 <span class="fs-5 fw-bold text-white">
                                     {% if overall_stats %}{{ overall_stats.lap_count }}{% else %}-{% endif %}
                                 </span>
                             </div>
-                            <div class="col-3 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block">Avg Lap</span>
+                            <div class="col-6 col-sm-3 border-sm-end border-secondary border-opacity-10 mb-2 mb-sm-0">
+                                <span class="text-muted small d-block" style="font-size: 0.75rem;">Avg Lap</span>
                                 <span class="fs-5 fw-bold text-white">
                                     {% if overall_stats and overall_stats.mean_display %}{{ overall_stats.mean_display }}{% else %}-{% endif %}
                                 </span>
                             </div>
-                            <div class="col-3 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block">Std Dev</span>
+                            <div class="col-6 col-sm-3 border-end border-secondary border-opacity-10">
+                                <span class="text-muted small d-block" style="font-size: 0.75rem;">Std Dev</span>
                                 <span class="fs-5 fw-bold text-white">
                                     {% if overall_stats and overall_stats.stdev_display %}{{ overall_stats.stdev_display }}{% else %}-{% endif %}
                                 </span>
                             </div>
-                            <div class="col-3">
-                                <span class="text-muted small d-block text-brand">CV (%)</span>
+                            <div class="col-6 col-sm-3">
+                                <span class="text-muted small d-block text-brand" style="font-size: 0.75rem;">CV (%)</span>
                                 <span class="fs-5 fw-bold text-brand">
                                     {% if overall_stats and overall_stats.cv_display %}{{ overall_stats.cv_display }}{% else %}-{% endif %}
                                 </span>
@@ -101,22 +116,22 @@
                                 <span class="text-muted small">{{ session.class_name }} &bull; {{ session.date_display }}</span>
                             </div>
                             
-                            <div class="d-flex align-items-center gap-3 flex-wrap">
+                            <div class="d-flex align-items-center gap-3 flex-wrap session-header-stats w-100 w-md-auto mt-2 mt-md-0">
                                 <div class="text-end px-2">
                                     <span class="text-muted small d-block">Laps</span>
                                     <span class="fw-bold text-white">{{ session.lap_count }}</span>
                                 </div>
-                                <div style="width: 1px; height: 25px; background: var(--border);"></div>
+                                <div class="d-none d-sm-block" style="width: 1px; height: 25px; background: var(--border);"></div>
                                 <div class="text-end px-2">
                                     <span class="text-muted small d-block">Avg Lap</span>
                                     <span class="fw-bold text-white">{{ session.mean_display }}</span>
                                 </div>
-                                <div style="width: 1px; height: 25px; background: var(--border);"></div>
+                                <div class="d-none d-sm-block" style="width: 1px; height: 25px; background: var(--border);"></div>
                                 <div class="text-end px-2">
                                     <span class="text-muted small d-block">Std Dev</span>
                                     <span class="fw-bold text-white">{{ session.stdev_display }}</span>
                                 </div>
-                                <div style="width: 1px; height: 25px; background: var(--border);"></div>
+                                <div class="d-none d-sm-block" style="width: 1px; height: 25px; background: var(--border);"></div>
                                 <div class="text-end px-2">
                                     <span class="text-muted small d-block text-brand">CV</span>
                                     <span class="fw-bold text-brand">{{ session.cv_display }}</span>
@@ -131,7 +146,7 @@
                                 {% for lap in session.laps %}
                                     <div class="col-6 col-sm-4 col-md-3 col-lg-2">
                                         <div class="p-2 rounded text-center {% if lap.is_outlier %}bg-danger bg-opacity-5 border border-danger border-opacity-20 text-muted opacity-50{% elif lap.is_best %}bg-brand bg-opacity-15 border border-brand border-opacity-40{% else %}bg-surface border border-secondary border-opacity-10{% endif %}" {% if lap.is_outlier %}title="Outlier ignored from stats"{% endif %}>
-                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Lap {{ lap.number }} {% if lap.is_outlier %}(Outlier){% endif %}</span>
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Lap {{ lap.number }}{% if lap.is_outlier %}<span class="d-none d-sm-inline"> (Outlier)</span>{% endif %}</span>
                                             <span class="fw-mono fw-semibold small {% if lap.is_outlier %}text-decoration-line-through text-muted{% elif lap.is_best %}text-brand{% else %}text-white{% endif %}">{{ lap.display }}</span>
                                         </div>
                                     </div>
