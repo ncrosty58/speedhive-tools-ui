@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sessions</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+</head>
+<body>
+<div class="container mt-3">
+    <a href="{{ url_for('event_info', event_id=event_id) }}" class="btn btn-secondary mb-2">&larr; Back to Event</a>
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% else %}
+        <h2>Sessions for Event {{ event_id }}</h2>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Start Time</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for session in sessions %}
+                <tr>
+                    <td>{{ session.id }}</td>
+                    <td>{{ session.name }}</td>
+                    <td>{{ session.type }}</td>
+                    <td>{{ session.start_time }}</td>
+                    <td>
+                        <a href="{{ url_for('session_results', session_id=session.id) }}" class="btn btn-sm btn-info">Results</a>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>
+</body>
+</html>
