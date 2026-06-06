@@ -35,9 +35,9 @@
             --warning: #f59e0b;
             --warning-soft: rgba(245, 158, 11, 0.08);
             
-            --radius-lg: 16px;
-            --radius-md: 12px;
-            --radius-sm: 8px;
+            --radius-lg: 4px;
+            --radius-md: 3px;
+            --radius-sm: 2px;
             
             --font-body: 'Inter', sans-serif;
             --font-display: 'Outfit', sans-serif;
@@ -252,7 +252,7 @@
         .table-custom-container {
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            background: rgba(12, 17, 34, 0.4);
+            background: rgba(8, 12, 22, 0.5);
             overflow: hidden;
         }
 
@@ -260,29 +260,35 @@
             margin: 0;
             background: transparent;
             width: 100%;
+            --bs-table-bg: transparent !important;
+            --bs-table-color: #cbd5e1 !important;
+            --bs-table-border-color: var(--border) !important;
+            --bs-table-hover-bg: rgba(255, 255, 255, 0.02) !important;
+            --bs-table-striped-bg: rgba(255, 255, 255, 0.01) !important;
         }
 
         .table-custom th {
-            background: rgba(20, 27, 50, 0.5);
-            color: var(--text-muted);
+            background: rgba(16, 24, 48, 0.8) !important;
+            color: #64748b !important;
             border-bottom: 1px solid var(--border);
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             text-transform: uppercase;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.08em;
             font-weight: 700;
-            padding: 1rem;
+            padding: 0.75rem 1rem;
         }
 
         .table-custom td {
             border-bottom: 1px solid var(--border);
-            color: var(--text-main);
-            font-size: 0.95rem;
-            padding: 1rem;
+            color: #cbd5e1 !important;
+            font-size: 0.9rem;
+            padding: 0.75rem 1rem;
             vertical-align: middle;
         }
 
         .table-custom tbody tr:hover td {
-            background: rgba(255, 255, 255, 0.02);
+            background: rgba(255, 255, 255, 0.02) !important;
+            color: var(--text-main) !important;
         }
 
         .meta-list {

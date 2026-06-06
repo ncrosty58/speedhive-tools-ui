@@ -1497,6 +1497,9 @@ def track_records():
     if limit_events == 0:
         limit_events = None
 
+    org, _ = get_organization_cached(org_id_int, force_refresh=False)
+    org_name = org.get("name") if (org and isinstance(org, dict)) else f"Organization #{org_id_int}"
+
     records, events_scanned, error, cache_status = scan_track_records_cached(
         org_id=org_id_int,
         classification=classification,
@@ -1509,6 +1512,7 @@ def track_records():
     return render_template(
         "track_records.html",
         org_id=org_id,
+        org_name=org_name,
         records=records,
         classification=classification,
         start_date=start_date_str,

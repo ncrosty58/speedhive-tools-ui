@@ -9,7 +9,7 @@
             <a href="/">Dashboard</a>
             <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
             {% if org_id %}
-                <a href="/org/{{ org_id }}">Organization #{{ org_id }}</a>
+                <a href="/org/{{ org_id }}">{{ org_name }}</a>
             {% else %}
                 <span>Organization</span>
             {% endif %}
@@ -25,7 +25,7 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <div class="text-muted small">Track Records Scan</div>
-                    <h1 class="page-header mb-1"><i class="fa-solid fa-trophy text-warning me-2"></i>Organization #{{ org_id }}</h1>
+                    <h1 class="page-header mb-1"><i class="fa-solid fa-trophy text-warning me-2"></i>{{ org_name }}</h1>
                 </div>
                 {% if cache_status %}
                     <span class="badge-custom badge-neutral">
