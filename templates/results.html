@@ -1,45 +1,211 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Session Results</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-</head>
-<body>
-<div class="container mt-3">
-    <a href="/" class="btn btn-secondary mb-2">&larr; Back to Home</a>
+{% extends 'base.html' %}
+
+{% block title %}Session {{ session_id }} | Speedhive Center{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="breadcrumb-custom mb-0">
+            <a href="/">Dashboard</a>
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            {% if session and session.eventId %}
+                <a href="/event/{{ session.eventId }}">Event #{{ session.eventId }}</a>
+            {% else %}
+                <span>Event</span>
+            {% endif %}
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            <span>{{ session.name or 'Session' }}</span>
+        </div>
+        <a href="/session/{{ session_id }}/export-laps.json" class="btn-custom-outline"><i class="fa-solid fa-file-arrow-down"></i> Export Laps JSON</a>
+    </div>
+
     {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
+        <div class="col-12">
+            <div class="alert alert-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>{{ error }}</div>
+        </div>
     {% else %}
-        <h2>Results for Session {{ session_id }}</h2>
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Pos</th>
-                    <th>Driver</th>
-                    <th>Car</th>
-                    <th>Total Time</th>
-                    <th>Best Lap</th>
-                    <th>Laps</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for r in results %}
-                <tr>
-                    <td>{{ r.position }}</td>
-                    <td>
-                        <a href="{{ url_for('driver_details', driver_id=r.driver_id) }}">{{ r.driver_name }}</a>
-                    </td>
-                    <td>{{ r.car }}</td>
-                    <td>{{ r.total_time }}</td>
-                    <td>{{ r.best_lap_time }}</td>
-                    <td>{{ r.laps }}</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        <!-- Session header card -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <div class="text-muted small">Session #{{ session_id }}</div>
+                        <h1 class="page-header mb-1"><i class="fa-solid fa-flag-checkered text-info me-2"></i>{{ session.name or 'Session Results' }}</h1>
+                        <p class="text-muted mb-0"><i class="fa-regular fa-clock me-1"></i>{{ session._display_start or 'Time N/A' }}</p>
+                    </div>
+                    {% if cache_status %}
+                        <span class="badge-custom badge-neutral">
+                            <i class="fa-solid fa-clock-rotate-left"></i> Cached: {{ cache_status_label(cache_status) }}
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs card -->
+        <div class="col-12">
+            <div class="glass-card">
+                <ul class="nav nav-tabs mb-4" id="sessionTab" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#results" type="button">
+                            <i class="fa-solid fa-ranking-star me-2"></i>Classification
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#announcements" type="button">
+                            <i class="fa-solid fa-bullhorn me-2"></i>Announcements
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#lapchart" type="button">
+                            <i class="fa-solid fa-chart-area me-2"></i>Lap Chart
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Classification Tab -->
+                    <div class="tab-pane fade show active" id="results">
+                        {% if results %}
+                            <div class="row g-2 mb-4 bg-surface-2 p-3 rounded border border-secondary border-opacity-10 align-items-center">
+                                <div class="col-md-5">
+                                    <input id="driverFilterInput" class="form-control form-control-custom w-100" placeholder="Filter driver name...">
+                                </div>
+                                <div class="col-md-7 text-secondary small">
+                                    <i class="fa-solid fa-filter me-1"></i> Showing <span id="visibleRows" class="fw-semibold text-info">{{ results|length }}</span> of {{ results|length }} entries
+                                </div>
+                            </div>
+                            
+                            <div class="table-custom-container">
+                                <table class="table table-custom" id="resultsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Pos</th>
+                                            <th>Driver Name</th>
+                                            <th>Car / Class</th>
+                                            <th>Total / Gap</th>
+                                            <th>Best Lap</th>
+                                            <th>Laps</th>
+                                            <th class="text-end">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for r in results %}
+                                            <tr class="result-row" data-driver="{{ (r.driver_name or '')|lower }}">
+                                                <td class="fw-bold text-info">P{{ r.position }}</td>
+                                                <td class="fw-semibold">{{ r.driver_name }}</td>
+                                                <td class="text-secondary">{{ r.car_class or '—' }}</td>
+                                                <td>{{ r.total_time_display or '—' }}</td>
+                                                <td class="text-info">{{ r.best_lap_display or '—' }}</td>
+                                                <td>{{ r.laps_display or '0' }}</td>
+                                                <td class="text-end">
+                                                    {% if r.lap_driver_id %}
+                                                        <a href="/session/{{ session_id }}/driver/{{ r.lap_driver_id }}/laps" class="btn-custom py-1 px-3 fs-7"><i class="fa-solid fa-list-ol"></i> {{ r.action_label or 'View Laps' }}</a>
+                                                    {% else %}
+                                                        <span class="text-muted small">No trace available</span>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-user-slash fs-2 mb-2 d-block opacity-40"></i>
+                                No classification results found for this session.
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Announcements Tab -->
+                    <div class="tab-pane fade" id="announcements">
+                        {% if announcements %}
+                            <div class="d-flex flex-column gap-3">
+                                {% for ann in announcements %}
+                                    <div class="p-3 rounded bg-surface-2 border border-secondary border-opacity-10">
+                                        <div class="small text-secondary mb-1"><i class="fa-regular fa-clock me-1"></i>{{ ann.timestamp or ann.time or 'N/A' }}</div>
+                                        <div class="fw-semibold text-gradient">{{ ann.text or ann.message or '' }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-volume-mute fs-2 mb-2 d-block opacity-40"></i>
+                                No announcements available for this session.
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Lap Chart Tab -->
+                    <div class="tab-pane fade" id="lapchart">
+                        {% if lap_chart %}
+                            <p class="text-muted small mb-3"><i class="fa-solid fa-info-circle text-info me-1"></i>Position sequence per lap (Top 5 + overflow trace).</p>
+                            <div class="table-custom-container">
+                                <table class="table table-custom">
+                                    <thead>
+                                        <tr>
+                                            <th>Lap</th>
+                                            <th>Leader</th>
+                                            <th>Pos 2</th>
+                                            <th>Pos 3</th>
+                                            <th>Pos 4</th>
+                                            <th>Pos 5</th>
+                                            <th>Pack Traces</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for lap_data in lap_chart %}
+                                            {% set positions = lap_data.positions or lap_data.competitorIds or [] %}
+                                            <tr>
+                                                <td class="fw-semibold">Lap {{ lap_data.lapNumber or lap_data.lap or loop.index }}</td>
+                                                {% for p in positions[:5] %}
+                                                    <td><span class="badge-custom badge-neutral {% if loop.index == 1 %}badge-race{% endif %}">{{ p }}</span></td>
+                                                {% endfor %}
+                                                {% if positions|length < 5 %}
+                                                    {% for i in range(5 - positions|length) %}
+                                                        <td class="text-secondary">-</td>
+                                                    {% endfor %}
+                                                {% endif %}
+                                                <td class="text-secondary">{% if positions|length > 5 %}{{ positions[5:] | join(', ') }}{% else %}-{% endif %}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-chart-line fs-2 mb-2 d-block opacity-40"></i>
+                                No lap chart data available for this session.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
     {% endif %}
 </div>
-</body>
-</html>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const input = document.getElementById("driverFilterInput");
+        const rows = Array.from(document.querySelectorAll(".result-row"));
+        const visibleRows = document.getElementById("visibleRows");
+        if (!input || !rows.length || !visibleRows) return;
+
+        input.addEventListener("input", function () {
+            const q = input.value.trim().toLowerCase();
+            let visible = 0;
+            rows.forEach((row) => {
+                const name = row.getAttribute("data-driver") || "";
+                const show = !q || name.includes(q);
+                row.style.display = show ? "" : "none";
+                if (show) visible += 1;
+            });
+            visibleRows.textContent = String(visible);
+        });
+    });
+</script>
+{% endblock %}

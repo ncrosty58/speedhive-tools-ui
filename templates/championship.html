@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block title %}Championship Details | Speedhive Center{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12">
+        <div class="breadcrumb-custom">
+            <a href="/">Dashboard</a>
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            {% if championship.organizationId %}
+                <a href="/org/{{ championship.organizationId }}">Organization #{{ championship.organizationId }}</a>
+            {% else %}
+                <span>Organization</span>
+            {% endif %}
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            <span>Championship Details</span>
+        </div>
+    </div>
+
+    {% if error %}
+        <div class="col-12">
+            <div class="alert alert-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>{{ error }}</div>
+        </div>
+    {% else %}
+        <!-- Header Card -->
+        <div class="col-12">
+            <div class="glass-card">
+                <span class="badge-custom badge-race mb-2">Championship #{{ championship.id }}</span>
+                <h1 class="page-header mb-1"><i class="fa-solid fa-trophy text-warning me-2"></i>{{ championship.name }}</h1>
+                {% if championship.year %}
+                    <p class="text-muted mb-0"><i class="fa-regular fa-calendar me-1"></i> Season / Year: {{ championship.year }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Standings and Rounds -->
+        <div class="col-lg-8">
+            <div class="glass-card h-100">
+                <div class="glass-card-header"><i class="fa-solid fa-ranking-star text-info"></i> Championship Standings</div>
+                
+                {% if championship.standings or championship.competitors %}
+                    {% set competitors = championship.standings or championship.competitors or [] %}
+                    <div class="table-custom-container">
+                        <table class="table table-custom">
+                            <thead>
+                                <tr>
+                                    <th>Pos</th>
+                                    <th>Competitor Name</th>
+                                    <th>Class / Group</th>
+                                    <th class="text-end">Total Points</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for comp in competitors %}
+                                    <tr>
+                                        <td class="fw-bold text-info">#{{ comp.position or loop.index }}</td>
+                                        <td class="fw-semibold">{{ comp.name or comp.competitorName or 'Unknown Competitor' }}</td>
+                                        <td class="text-secondary">{{ comp.class or comp.className or 'N/A' }}</td>
+                                        <td class="text-end text-gradient fw-bold fs-5">{{ comp.points or 0 }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5 text-muted">
+                        <i class="fa-solid fa-ranking-star fs-2 mb-3 d-block opacity-40"></i>
+                        No competitor standings available for this championship.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="glass-card h-100">
+                <div class="glass-card-header"><i class="fa-solid fa-calendar-check text-info"></i> Rounds List</div>
+                
+                {% if championship.rounds or championship.events %}
+                    {% set rounds = championship.rounds or championship.events or [] %}
+                    <ul class="meta-list">
+                        {% for round in rounds %}
+                            <li>
+                                <div>
+                                    <div class="fw-semibold">Round {{ round.roundNumber or round.round or loop.index }}</div>
+                                    {% if round.name or round.eventName %}
+                                        <div class="text-muted small mt-1"><i class="fa-solid fa-circle-play text-secondary me-1" style="font-size: 0.7rem;"></i>{{ round.name or round.eventName }}</div>
+                                    {% endif %}
+                                </div>
+                                {% if round.eventId or round.id %}
+                                    <a href="/event/{{ round.eventId or round.id }}" class="btn-custom-outline py-1 px-3 fs-7 ms-2">
+                                        <i class="fa-solid fa-chevron-right"></i>
+                                    </a>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="fa-solid fa-calendar-times fs-2 mb-2 d-block opacity-40"></i>
+                        No event rounds recorded.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

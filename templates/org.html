@@ -1,0 +1,529 @@
+{% extends 'base.html' %}
+
+{% block title %}Organization {{ org.name or org.id }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .org-actions-bar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .org-actions-bar form {
+        margin: 0;
+    }
+
+    /* Import progress bar card */
+    #refresh-status-bar {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(20, 27, 50, 0.4);
+        padding: 1.25rem;
+        margin-top: 1.25rem;
+        display: none;
+    }
+
+    #refresh-status-bar.active {
+        display: block;
+    }
+
+    .refresh-status-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.85rem;
+        flex-wrap: wrap;
+    }
+
+    .refresh-status-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-main);
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .refresh-status-phase {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--brand);
+        white-space: nowrap;
+    }
+
+    .refresh-status-item {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+        margin-top: 0.25rem;
+    }
+
+    .refresh-stop-btn {
+        border: 1px solid var(--danger);
+        background: transparent;
+        color: var(--danger);
+        border-radius: var(--radius-md);
+        padding: 0.45rem 1rem;
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: var(--transition);
+    }
+
+    .refresh-stop-btn:hover {
+        background: var(--danger);
+        color: #fff;
+    }
+
+    .refresh-stop-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .refresh-counters {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin-top: 0.6rem;
+        flex-wrap: wrap;
+    }
+
+    .refresh-counter-item {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .refresh-counter-item strong {
+        color: var(--text-main);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12">
+        <div class="breadcrumb-custom">
+            <a href="/">Dashboard</a>
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            <span>{{ org.name }}</span>
+        </div>
+    </div>
+
+    <!-- Metadata Card -->
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+                <div>
+                    <div class="text-muted small">Organization #{{ org.id }}</div>
+                    <h1 class="page-header mb-1"><i class="fa-solid fa-sitemap me-2 text-info"></i>{{ org.name }}</h1>
+                    <p class="text-muted mb-0"><i class="fa-solid fa-location-dot me-1"></i>{{ org._display_location or 'Location unknown' }}</p>
+                </div>
+                <div class="org-actions-bar gap-2">
+                    <button class="btn-custom js-refresh-btn"
+                            data-org-id="{{ org.id }}"
+                            data-mode="incremental"
+                            data-backfill="{{ incremental_backfill_events or 3 }}"
+                            id="btn-incremental-refresh"
+                            type="button">
+                        <span class="js-btn-label"><i class="fa-solid fa-cloud-arrow-down"></i> Sync (Incremental)</span>
+                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
+                    </button>
+                    <button class="btn-custom-outline js-refresh-btn"
+                            data-org-id="{{ org.id }}"
+                            data-mode="full"
+                            data-backfill="0"
+                            id="btn-full-refresh"
+                            type="button">
+                        <span class="js-btn-label"><i class="fa-solid fa-rotate"></i> Sync (Full)</span>
+                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
+                    </button>
+                    <div class="dropdown d-inline-block">
+                        <button class="btn-custom-outline dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item" href="/track-records?org_id={{ org.id }}">
+                                    <i class="fa-solid fa-stopwatch text-info"></i>Track Records Scan
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form method="post" action="/org/{{ org.id }}/save-local" class="js-org-action-form" data-action-label="Saving Local Data">
+                                    <input type="hidden" name="max_events" value="25">
+                                    <button class="dropdown-item" type="submit">
+                                        <i class="fa-solid fa-file-export text-warning"></i>Save Local Data
+                                    </button>
+                                </form>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="/org/{{ org.id }}/download-local-dump.zip">
+                                    <i class="fa-solid fa-file-zipper text-success"></i>Download Dump Zip
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="/org/{{ org.id }}/export-lap-records.ndjson?max_events=25">
+                                    <i class="fa-solid fa-file-arrow-down text-info"></i>Export Lap NDJSON
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Live Refresh Status Bar --- #}
+            <div id="refresh-status-bar">
+                <div class="refresh-status-header">
+                    <div class="refresh-status-info">
+                        <i class="fa-solid fa-circle-notch fa-spin text-info" id="refresh-status-icon"></i>
+                        <div>
+                            <div><span class="refresh-status-phase" id="refresh-status-phase">Starting…</span></div>
+                            <div class="refresh-status-item" id="refresh-status-item"></div>
+                        </div>
+                    </div>
+                    <button class="refresh-stop-btn" id="refresh-stop-btn" type="button">
+                        <i class="fa-solid fa-stop"></i> Stop
+                    </button>
+                </div>
+                <div class="progress" role="progressbar" aria-label="Sync progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="refresh-progress-bar" style="width: 0%"></div>
+                </div>
+                <div class="refresh-counters">
+                    <div class="refresh-counter-item"><i class="fa-solid fa-calendar"></i> Events: <strong id="refresh-events-counter">—</strong></div>
+                    <div class="refresh-counter-item"><i class="fa-solid fa-flag-checkered"></i> Sessions: <strong id="refresh-sessions-counter">—</strong></div>
+                    <div class="refresh-counter-item" id="refresh-mode-label" style="color: var(--brand);"></div>
+                </div>
+            </div>
+
+            {# --- Save/export progress banner --- #}
+            <div id="org-action-progress" class="notice-banner d-none mt-3 mb-0">
+                <i class="fa-solid fa-circle-notch fa-spin text-info"></i>
+                <span id="org-action-label">Working...</span>
+            </div>
+
+            <div class="mt-4 p-3 rounded bg-surface-2 border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center">
+                {% if org_refresh_state and org_refresh_state.last_refresh_at %}
+                    <span class="status-pill fresh">
+                        <i class="fa-solid fa-check-circle"></i> Last Sync: {{ format_saved_at_display(org_refresh_state.last_refresh_at) }} ({{ (org_refresh_state.last_refresh_mode or 'unknown')|upper }})
+                    </span>
+                {% else %}
+                    <span class="status-pill stale"><i class="fa-solid fa-circle-xmark"></i> Not Cached</span>
+                {% endif %}
+                {% if org_refresh_state %}
+                    <span class="status-pill">
+                        <i class="fa-solid fa-server"></i> {{ org_refresh_state.events_cached }} Events &bull; {{ org_refresh_state.sessions_cached }} Sessions &bull; {{ org_refresh_state.championships_cached }} Champs
+                    </span>
+                {% endif %}
+                {% if cache_status %}
+                    <span class="status-pill"><i class="fa-solid fa-clock"></i> Cache Age: {{ cache_status_label(cache_status) }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Events Card -->
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                <div class="glass-card-header mb-0"><i class="fa-solid fa-calendar-days text-info"></i> Events Catalog</div>
+                <span class="badge-custom badge-neutral">{{ events|length }} Cataloged</span>
+            </div>
+            
+            <form method="get" action="/org/{{ org.id }}" class="row g-3 mb-4 bg-surface-2 p-3 rounded border border-secondary border-opacity-10">
+                <div class="col-md-5">
+                    <label class="form-label small text-muted">Filter Start Date</label>
+                    <input type="date" class="form-control form-control-custom w-100" name="start_date" value="{{ start_date or '' }}">
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small text-muted">Filter End Date</label>
+                    <input type="date" class="form-control form-control-custom w-100" name="end_date" value="{{ end_date or '' }}">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn-custom w-100" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
+                </div>
+            </form>
+
+            {% if events %}
+                <div class="table-custom-container">
+                    <table class="table table-custom">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Event Name</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for event in events %}
+                                <tr>
+                                    <td class="text-secondary">{{ event._display_date or event.startDate or 'N/A' }}</td>
+                                    <td class="fw-semibold text-gradient">{{ event.name }}</td>
+                                    <td class="text-end">
+                                        <a href="/event/{{ event.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-folder-open"></i> Open</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
+                    No events found matching the specified filters.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Collapsible Championships Panel -->
+    <div class="col-12">
+        <div class="accordion-custom">
+            <div class="accordion-custom-header" onclick="document.getElementById('champ-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                <span><i class="fa-solid fa-trophy text-warning me-2"></i>Championships Catalog ({{ championships|length }})</span>
+                <i class="fa-solid fa-chevron-down chevron-icon text-muted"></i>
+            </div>
+            <div id="champ-collapse" class="accordion-custom-body d-none">
+                {% if championships %}
+                    <ul class="meta-list">
+                        {% for champ in championships %}
+                            <li class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <a href="/championship/{{ champ.id }}" class="fw-semibold text-info text-decoration-none">{{ champ.name }}</a>
+                                    {% if champ.year %}
+                                        <span class="badge-custom badge-neutral ms-2">{{ champ.year }}</span>
+                                    {% endif %}
+                                </div>
+                                <a href="/championship/{{ champ.id }}" class="btn-custom-outline py-1 px-3"><i class="fa-solid fa-eye"></i> View</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted mb-0 text-center py-2">No championship data found in cache.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const legacyForms = Array.from(document.querySelectorAll(".js-org-action-form"));
+        const banner = document.getElementById("org-action-progress");
+        const bannerLabel = document.getElementById("org-action-label");
+
+        legacyForms.forEach(function (form) {
+            form.addEventListener("submit", function () {
+                const button = form.querySelector("button[type='submit']");
+                const lbl = button ? button.querySelector(".js-btn-label") : null;
+                const spin = button ? button.querySelector(".js-btn-loading") : null;
+                const actionLabel = form.getAttribute("data-action-label") || "Working";
+
+                legacyForms.forEach(function (f) {
+                    const b = f.querySelector("button[type='submit']");
+                    if (b) b.disabled = true;
+                });
+                if (lbl) lbl.classList.add("d-none");
+                if (spin) spin.classList.remove("d-none");
+                if (banner) banner.classList.remove("d-none");
+                if (bannerLabel) bannerLabel.textContent = actionLabel;
+            });
+        });
+
+        // ---------------------------------------------------------------
+        // Async refresh with live status bar
+        // ---------------------------------------------------------------
+        const statusBar    = document.getElementById("refresh-status-bar");
+        const phaseEl      = document.getElementById("refresh-status-phase");
+        const itemEl       = document.getElementById("refresh-status-item");
+        const progressBar  = document.getElementById("refresh-progress-bar");
+        const stopBtn      = document.getElementById("refresh-stop-btn");
+        const eventsCount  = document.getElementById("refresh-events-counter");
+        const sessionsCount = document.getElementById("refresh-sessions-counter");
+        const modeLabel    = document.getElementById("refresh-mode-label");
+        const statusIcon   = document.getElementById("refresh-status-icon");
+
+        let currentTaskId = null;
+        let pollInterval  = null;
+        let isStopping    = false;
+
+        function setRefreshButtonsDisabled(disabled) {
+            document.querySelectorAll(".js-refresh-btn").forEach(function (btn) {
+                btn.disabled = disabled;
+                const lbl  = btn.querySelector(".js-btn-label");
+                const spin = btn.querySelector(".js-btn-loading");
+                if (disabled) {
+                    if (lbl) lbl.classList.add("d-none");
+                    if (spin) spin.classList.remove("d-none");
+                } else {
+                    if (lbl) lbl.classList.remove("d-none");
+                    if (spin) spin.classList.add("d-none");
+                }
+            });
+        }
+
+        function calcProgress(task) {
+            const et = task.events_total || 0;
+            const ed = task.events_done || 0;
+            const st = task.sessions_total || 0;
+            const sd = task.sessions_done || 0;
+            const p = (et > 0)
+                ? (0.20 * (ed / et) + (st > 0 ? 0.80 * (sd / st) : 0))
+                : 0;
+            return Math.min(Math.floor(p * 100), 99);
+        }
+
+        function updateStatusUI(task) {
+            const statusMap = {
+                running: { icon: "fa-circle-notch fa-spin", bar: "" },
+                done:    { icon: "fa-circle-check",    bar: "bg-success" },
+                stopped: { icon: "fa-stop-circle",     bar: "bg-warning" },
+                error:   { icon: "fa-circle-exclamation", bar: "bg-danger" },
+            };
+            const s = statusMap[task.status] || statusMap.running;
+
+            statusIcon.className = "fa-solid " + s.icon + " text-info";
+            phaseEl.textContent = task.phase || "Working…";
+            itemEl.textContent = task.current_item || "";
+
+            eventsCount.textContent = task.events_total
+                ? (task.events_done + " / " + task.events_total)
+                : (task.events_done || "—");
+            sessionsCount.textContent = task.sessions_total
+                ? (task.sessions_done + " / " + task.sessions_total)
+                : (task.sessions_done || "—");
+
+            const mode = (task.mode || "").charAt(0).toUpperCase() + (task.mode || "").slice(1);
+            modeLabel.textContent = mode + " sync";
+
+            if (task.status === "done") {
+                progressBar.style.width = "100%";
+                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated", "bg-warning", "bg-danger");
+                progressBar.classList.add("bg-success");
+            } else if (task.status === "stopped") {
+                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated");
+                progressBar.classList.add("bg-warning");
+                progressBar.style.width = Math.max(calcProgress(task), 10) + "%";
+            } else if (task.status === "error") {
+                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated");
+                progressBar.classList.add("bg-danger");
+                progressBar.style.width = Math.max(calcProgress(task), 10) + "%";
+            } else {
+                progressBar.style.width = Math.max(calcProgress(task), 2) + "%";
+            }
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        function onRefreshFinished(task) {
+            stopPolling();
+            setRefreshButtonsDisabled(false);
+            stopBtn.disabled = false;
+            stopBtn.textContent = "";
+            stopBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop';
+            isStopping = false;
+            updateStatusUI(task);
+
+            if (task.status === "done") {
+                phaseEl.textContent = "Complete — reloading…";
+                setTimeout(function () {
+                    window.location.reload();
+                }, 1800);
+            }
+        }
+
+        function pollTaskStatus() {
+            if (!currentTaskId) return;
+            fetch("/refresh/status/" + currentTaskId)
+                .then(function (r) { return r.json(); })
+                .then(function (task) {
+                    updateStatusUI(task);
+                    if (task.status !== "running") {
+                        onRefreshFinished(task);
+                    }
+                })
+                .catch(function (err) {
+                    console.warn("Status poll error:", err);
+                });
+        }
+
+        function startRefresh(orgId, mode, backfill) {
+            setRefreshButtonsDisabled(true);
+            statusBar.classList.add("active");
+            stopBtn.disabled = false;
+            isStopping = false;
+
+            progressBar.style.width = "2%";
+            progressBar.classList.remove("bg-success", "bg-warning", "bg-danger");
+            progressBar.classList.add("progress-bar-striped", "progress-bar-animated");
+            phaseEl.textContent = "Starting…";
+            itemEl.textContent = "";
+            eventsCount.textContent = "—";
+            sessionsCount.textContent = "—";
+            modeLabel.textContent = "";
+
+            fetch("/org/" + orgId + "/refresh/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: mode, backfill_events: parseInt(backfill, 10) }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error) {
+                        phaseEl.textContent = "Error: " + data.error;
+                        setRefreshButtonsDisabled(false);
+                        return;
+                    }
+                    currentTaskId = data.task_id;
+                    pollInterval = setInterval(pollTaskStatus, 1200);
+                    pollTaskStatus();
+                })
+                .catch(function (err) {
+                    phaseEl.textContent = "Failed to start refresh.";
+                    itemEl.textContent = String(err);
+                    setRefreshButtonsDisabled(false);
+                });
+        }
+
+        document.querySelectorAll(".js-refresh-btn").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                const orgId   = btn.getAttribute("data-org-id");
+                const mode    = btn.getAttribute("data-mode");
+                const backfill = btn.getAttribute("data-backfill") || "0";
+                startRefresh(orgId, mode, backfill);
+            });
+        });
+
+        stopBtn.addEventListener("click", function () {
+            if (!currentTaskId || isStopping) return;
+            isStopping = true;
+            stopBtn.disabled = true;
+            stopBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Stopping…';
+            fetch("/refresh/stop/" + currentTaskId, { method: "POST" })
+                .catch(function (err) { console.warn("Stop error:", err); });
+        });
+    });
+</script>
+{% endblock %}
