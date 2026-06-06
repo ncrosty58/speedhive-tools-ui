@@ -46,65 +46,28 @@
                 <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
             </div>
         </div>
-    {% elif not has_persisted_stats %}
-        <!-- Stats need to be generated -->
-        <div class="col-12">
-            <div class="glass-card text-center py-5">
-                <h3 class="h5 fw-bold mb-2">Driver Consistency Analysis</h3>
-                <p class="text-muted small mb-4">Analyze all synced sessions to calculate driver averages, standard deviation, and consistency indices.</p>
-                <div class="d-flex flex-column align-items-center gap-3 mb-2">
-                    <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-3 flex-wrap justify-content-center">
-                        <span class="text-muted small fw-semibold">Session Types:</span>
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="form-check mb-0">
-                                <input class="form-check-input" type="checkbox" name="session_types" id="st_race_init" value="race" {% if 'race' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                <label class="form-check-label text-muted small fw-semibold mb-0" for="st_race_init">Race</label>
-                            </div>
-                            <div class="form-check mb-0">
-                                <input class="form-check-input" type="checkbox" name="session_types" id="st_qualifying_init" value="qualifying" {% if 'qualifying' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                <label class="form-check-label text-muted small fw-semibold mb-0" for="st_qualifying_init">Qualifying</label>
-                            </div>
-                            <div class="form-check mb-0">
-                                <input class="form-check-input" type="checkbox" name="session_types" id="st_practice_init" value="practice" {% if 'practice' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice_init">Practice / Warmup</label>
-                            </div>
-                        </div>
-                    </form>
-                    
-                    <form action="/org/{{ org.id }}/stats/generate" method="post" id="run-stats-form">
-                        {% for st in session_types %}
-                            <input type="hidden" name="session_types" value="{{ st }}">
-                        {% endfor %}
-                        <button class="btn-custom py-2 px-4" type="submit" id="run-stats-btn">
-                            <i class="fa-solid fa-play me-2"></i>Run Consistency Analysis
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-        
-        <script>
-            document.getElementById('run-stats-form').addEventListener('submit', function() {
-                const btn = document.getElementById('run-stats-btn');
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Running Analysis (Takes ~3s)...';
-            });
-        </script>
-    {% else %}
-        <!-- Stats summary & Filter bar -->
+    {% elif manifest_exists %}
+        <!-- Stats summary & Filter bar (always shown once data is synced) -->
         <div class="col-12">
             <div class="glass-card">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                     <div class="d-flex align-items-center gap-4">
-                        <div>
-                            <span class="text-muted small d-block">Laps Analyzed</span>
-                            <span class="fs-5 fw-bold">{{ total_laps_analyzed }}</span>
-                        </div>
-                        <div style="width: 1px; height: 30px; background: var(--border);"></div>
-                        <div>
-                            <span class="text-muted small d-block">Drivers</span>
-                            <span class="fs-5 fw-bold">{{ total_drivers }}</span>
-                        </div>
+                        {% if has_persisted_stats %}
+                            <div>
+                                <span class="text-muted small d-block">Laps Analyzed</span>
+                                <span class="fs-5 fw-bold">{{ total_laps_analyzed }}</span>
+                            </div>
+                            <div style="width: 1px; height: 30px; background: var(--border);"></div>
+                            <div>
+                                <span class="text-muted small d-block">Drivers</span>
+                                <span class="fs-5 fw-bold">{{ total_drivers }}</span>
+                            </div>
+                        {% else %}
+                            <div class="d-flex align-items-center gap-2 text-muted small">
+                                <i class="fa-solid fa-circle-info text-brand"></i>
+                                No stats calculated yet — click <strong class="text-white mx-1">Generate</strong> to run the analysis.
+                            </div>
+                        {% endif %}
                     </div>
                     <div class="d-flex align-items-center gap-3">
                         <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-3" id="filter-form">
@@ -126,26 +89,29 @@
                             </div>
                         </form>
 
-                        <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
-                            {% for st in session_types %}
-                                <input type="hidden" name="session_types" value="{{ st }}">
-                            {% endfor %}
-                            <label for="min_laps" class="text-muted small text-nowrap fw-semibold">Min Laps:</label>
-                            <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
-                                <option value="10" {% if min_laps == 10 %}selected{% endif %}>10</option>
-                                <option value="20" {% if min_laps == 20 %}selected{% endif %}>20 (Default)</option>
-                                <option value="30" {% if min_laps == 30 %}selected{% endif %}>30</option>
-                                <option value="50" {% if min_laps == 50 %}selected{% endif %}>50</option>
-                                <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
-                            </select>
-                        </form>
+                        {% if has_persisted_stats %}
+                            <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
+                                {% for st in session_types %}
+                                    <input type="hidden" name="session_types" value="{{ st }}">
+                                {% endfor %}
+                                <label for="min_laps" class="text-muted small text-nowrap fw-semibold">Min Laps:</label>
+                                <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
+                                    <option value="10" {% if min_laps == 10 %}selected{% endif %}>10</option>
+                                    <option value="20" {% if min_laps == 20 %}selected{% endif %}>20 (Default)</option>
+                                    <option value="30" {% if min_laps == 30 %}selected{% endif %}>30</option>
+                                    <option value="50" {% if min_laps == 50 %}selected{% endif %}>50</option>
+                                    <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
+                                </select>
+                            </form>
+                        {% endif %}
 
                         <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="recalc-stats-form">
                             {% for st in session_types %}
                                 <input type="hidden" name="session_types" value="{{ st }}">
                             {% endfor %}
-                            <button type="submit" class="btn-custom py-1 px-3 btn-custom-outline" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'N/A' }}">
-                                <i class="fa-solid fa-arrows-rotate me-1"></i> Recalculate
+                            <button type="submit" class="btn-custom py-1 px-3 {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
+                                <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
+                                {% if has_persisted_stats %}Recalculate{% else %}Generate Stats{% endif %}
                             </button>
                         </form>
                     </div>
