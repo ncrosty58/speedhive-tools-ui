@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Operations Center | Speedhive{% endblock %}
+{% block title %}{% if org and org.name %}Dashboard | {{ org.name }}{% else %}Speedhive Dashboard{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -15,606 +15,324 @@
     .org-actions-bar form {
         margin: 0;
     }
-
-    #refresh-status-bar {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        background: rgba(20, 27, 50, 0.4);
-        padding: 1.25rem;
-        margin-top: 1.25rem;
-        display: none;
-    }
-
-    #refresh-status-bar.active {
-        display: block;
-    }
-
-    .refresh-status-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-bottom: 0.85rem;
-        flex-wrap: wrap;
-    }
-
-    .refresh-status-info {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: var(--text-main);
-        flex: 1 1 auto;
-        min-width: 0;
-    }
-
-    .refresh-status-phase {
-        font-size: 0.85rem;
-        font-weight: 700;
-        color: var(--brand);
-        white-space: nowrap;
-    }
-
-    .refresh-status-item {
-        font-size: 0.82rem;
-        color: var(--text-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: 100%;
-        margin-top: 0.25rem;
-    }
-
-    .refresh-stop-btn {
-        border: 1px solid var(--danger);
-        background: transparent;
-        color: var(--danger);
-        border-radius: var(--radius-md);
-        padding: 0.45rem 1rem;
-        font-size: 0.85rem;
-        font-weight: 700;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        white-space: nowrap;
-        flex-shrink: 0;
-        transition: var(--transition);
-    }
-
-    .refresh-stop-btn:hover {
-        background: var(--danger);
-        color: #fff;
-    }
-
-    .refresh-stop-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .refresh-counters {
-        display: flex;
-        gap: 1rem;
-        font-size: 0.82rem;
-        color: var(--text-muted);
-        margin-top: 0.6rem;
-        flex-wrap: wrap;
-    }
-
-    .refresh-counter-item {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-    }
-
-    .refresh-counter-item strong {
-        color: var(--text-main);
-    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="row g-4">
-    <!-- Header/Control Section -->
-    <div class="col-12 mb-2">
-        <h1 class="page-header"><i class="fa-solid fa-gauge-high me-2 text-info"></i>Operations Control</h1>
-        <p class="text-muted mb-0">Select an organization to manage cached racing dumps, search transponders, and sync offline snapshots.</p>
-    </div>
+    {% if org and org.name %}
+        <!-- Active Organization Details -->
+        <div class="col-12">
+            <div class="glass-card mb-2">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                    <div>
+                        <div class="text-muted small">Active Workspace (ID: #{{ org.id }})</div>
+                        <h2 class="h3 fw-bold mb-1 text-gradient"><i class="fa-solid fa-sitemap me-2 text-info"></i>{{ org.name }}</h2>
+                        <p class="text-muted small mb-0"><i class="fa-solid fa-location-dot me-1"></i>{{ org._display_location or 'Location unknown' }}</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if cache_status %}
+                            <span class="badge-custom badge-neutral">
+                                <i class="fa-solid fa-database"></i> Stored: {{ store_status_label(cache_status) }}
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
 
-    <!-- Org Dropdown Select Card -->
-    <div class="col-12">
-        <div class="glass-card">
-            <div class="row align-items-center g-3">
-                <div class="col-md-7">
-                    <label for="org-select" class="form-label small text-muted mb-1 fw-semibold">Active Organization</label>
-                    <select id="org-select" class="form-select form-control-custom" onchange="if(this.value) { window.location.href = '/?org_id=' + this.value; }">
-                        {% for o in org_list %}
-                            <option value="{{ o.id }}" {% if o.id == selected_org_id %}selected{% endif %}>{{ o.name }} (#{{ o.id }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-5">
-                    <form action="/org-search" method="get">
-                        <label for="manual-org-id" class="form-label small text-muted mb-1 fw-semibold">Load Custom ID</label>
-                        <div class="input-group">
-                            <input type="number" id="manual-org-id" name="org_id" class="form-control form-control-custom" placeholder="Enter Speedhive Org ID..." required>
-                            <button class="btn-custom" type="submit">Load</button>
-                        </div>
-                    </form>
-                </div>
+                <!-- Shared Organization Tabs -->
+                <ul class="nav nav-tabs custom-org-tabs">
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'dashboard' %}active{% endif %}" href="/?org_id={{ org.id }}{% if classification %}&classification={{ classification }}{% endif %}{% if start_date %}&start_date={{ start_date }}{% endif %}{% if end_date %}&end_date={{ end_date }}{% endif %}{% if limit_events %}&limit_events={{ limit_events }}{% endif %}"><i class="fa-solid fa-gauge-high me-2 text-info"></i>Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'stats' %}active{% endif %}" href="/org/{{ org.id }}/stats"><i class="fa-solid fa-chart-line me-2 text-success"></i>Consistency & Stats</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'operations' %}active{% endif %}" href="/org/{{ org.id }}/operations"><i class="fa-solid fa-sliders me-2 text-danger"></i>Data Operations</a>
+                    </li>
+                </ul>
             </div>
         </div>
-    </div>
 
-    <!-- Active Organization Details -->
-    {% if org %}
-    <div class="col-12">
-        <div class="glass-card">
-            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
-                <div>
-                    <div class="text-muted small">ID: #{{ org.id }}</div>
-                    <h2 class="h3 fw-bold mb-1 text-gradient"><i class="fa-solid fa-sitemap me-2 text-info"></i>{{ org.name }}</h2>
-                    <p class="text-muted small mb-0"><i class="fa-solid fa-location-dot me-1"></i>{{ org._display_location or 'Location unknown' }}</p>
-                </div>
-                <div class="org-actions-bar gap-2">
-                    <button class="btn-custom js-refresh-btn"
-                            data-org-id="{{ org.id }}"
-                            data-mode="incremental"
-                            data-backfill="{{ incremental_backfill_events or 3 }}"
-                            id="btn-incremental-refresh"
-                            type="button">
-                        <span class="js-btn-label"><i class="fa-solid fa-cloud-arrow-down"></i> Sync (Incremental)</span>
-                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
-                    </button>
-                    <button class="btn-custom-outline js-refresh-btn"
-                            data-org-id="{{ org.id }}"
-                            data-mode="full"
-                            data-backfill="0"
-                            id="btn-full-refresh"
-                            type="button">
-                        <span class="js-btn-label"><i class="fa-solid fa-rotate"></i> Sync (Full)</span>
-                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
-                    </button>
-                    <a class="btn-custom-outline" href="/track-records?org_id={{ org.id }}">
-                        <i class="fa-solid fa-stopwatch text-info"></i> Records
-                    </a>
-                    <form method="post" action="/org/{{ org.id }}/save-local" class="js-org-action-form d-inline" data-action-label="Saving Local Data">
-                        <input type="hidden" name="max_events" value="25">
-                        <button class="btn-custom-outline" type="submit">
-                            <i class="fa-solid fa-file-export text-warning"></i> Save Local
-                        </button>
-                    </form>
-                    {% if dump_manifest %}
-                    <a class="btn-custom-outline" href="/org/{{ org.id }}/download-local-dump.zip">
-                        <i class="fa-solid fa-file-zipper text-success"></i> Download Zip
-                    </a>
-                    {% endif %}
-                    <a class="btn-custom-outline" href="/org/{{ org.id }}/export-lap-records.ndjson?max_events=25">
-                        <i class="fa-solid fa-file-arrow-down text-info"></i> Export NDJSON
-                    </a>
-                </div>
-            </div>
-
-            {# --- Live Sync Progress --- #}
-            <div id="refresh-status-bar" class="mt-3">
-                <div class="refresh-status-header">
-                    <div class="refresh-status-info">
-                        <i class="fa-solid fa-circle-notch fa-spin text-info" id="refresh-status-icon"></i>
-                        <div>
-                            <div><span class="refresh-status-phase" id="refresh-status-phase">Starting…</span></div>
-                            <div class="refresh-status-item" id="refresh-status-item"></div>
-                        </div>
-                    </div>
-                    <button class="refresh-stop-btn" id="refresh-stop-btn" type="button">
-                        <i class="fa-solid fa-stop"></i> Stop
-                    </button>
-                </div>
-                <div class="progress" role="progressbar" aria-label="Sync progress">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="refresh-progress-bar" style="width: 0%"></div>
-                </div>
-                <div class="refresh-counters">
-                    <div class="refresh-counter-item"><i class="fa-solid fa-calendar"></i> Events: <strong id="refresh-events-counter">—</strong></div>
-                    <div class="refresh-counter-item"><i class="fa-solid fa-flag-checkered"></i> Sessions: <strong id="refresh-sessions-counter">—</strong></div>
-                    <div class="refresh-counter-item" id="refresh-mode-label" style="color: var(--brand);"></div>
-                </div>
-            </div>
-
-            {# --- Action progress banner --- #}
-            <div id="org-action-progress" class="notice-banner d-none mt-3 mb-0">
-                <i class="fa-solid fa-circle-notch fa-spin text-info"></i>
-                <span id="org-action-label">Working...</span>
-            </div>
-
-            <div class="mt-4 p-3 rounded bg-surface-2 border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center">
-                {% if org_refresh_state and org_refresh_state.last_refresh_at %}
-                    <span class="status-pill fresh">
-                        <i class="fa-solid fa-check-circle"></i> Last Sync: {{ format_saved_at_display(org_refresh_state.last_refresh_at) }} ({{ (org_refresh_state.last_refresh_mode or 'unknown')|upper }})
-                    </span>
-                {% else %}
-                    <span class="status-pill stale"><i class="fa-solid fa-circle-xmark"></i> Not Cached</span>
-                {% endif %}
-                {% if org_refresh_state %}
-                    <span class="status-pill">
-                        <i class="fa-solid fa-server"></i> {{ org_refresh_state.events_cached }} Events &bull; {{ org_refresh_state.sessions_cached }} Sessions &bull; {{ org_refresh_state.championships_cached }} Champs
-                    </span>
-                {% endif %}
-                {% if cache_status %}
-                    <span class="status-pill"><i class="fa-solid fa-clock"></i> Cache Age: {{ cache_status_label(cache_status) }}</span>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Inline Driver Search -->
-    <div class="col-12">
-        <div class="glass-card">
-            <div class="glass-card-header mb-2">
-                <i class="fa-solid fa-user-astronaut text-info"></i>Driver Finder
-            </div>
-            <p class="text-muted small">Locate racers across cached sessions using fuzzy name matching.</p>
-            <form action="/" method="get" class="row g-2">
-                <input type="hidden" name="org_id" value="{{ org.id }}">
-                <div class="col-8 col-sm-9 col-md-10">
-                    <input type="text" name="q" value="{{ driver_query or '' }}" class="form-control form-control-custom w-100" placeholder="Search driver in this organization..." required>
-                </div>
-                <div class="col-4 col-sm-3 col-md-2">
-                    <button class="btn-custom w-100" type="submit" style="background: var(--accent); border-color: var(--accent); color: #fff;">
-                        <i class="fa-solid fa-magnifying-glass me-1"></i>Search
-                    </button>
-                </div>
-            </form>
-
-            {% if driver_query %}
-                <hr class="border-secondary border-opacity-20 my-4">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div class="fw-semibold text-gradient fs-5"><i class="fa-solid fa-list text-info me-2"></i>Search Matches</div>
-                    <span class="badge-custom badge-neutral">{{ driver_matches|length }} matched</span>
-                </div>
-                {% if driver_matches %}
-                    <div class="table-custom-container">
-                        <table class="table table-custom">
-                            <thead>
-                                <tr>
-                                    <th>Driver Name</th>
-                                    <th>Score</th>
-                                    <th>Event Name</th>
-                                    <th>Session Name</th>
-                                    <th>Position</th>
-                                    <th>Class</th>
-                                    <th>Best Lap</th>
-                                    <th>Laps</th>
-                                    <th class="text-end">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in driver_matches %}
-                                    <tr>
-                                        <td class="fw-semibold text-gradient">{{ row.driver_name }}</td>
-                                        <td class="text-info fw-semibold">{{ row.score }}</td>
-                                        <td><a href="/event/{{ row.event_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-calendar-day me-1"></i> {{ row.event_name }}</a></td>
-                                        <td><a href="/session/{{ row.session_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-flag-checkered me-1"></i> {{ row.session_name }}</a></td>
-                                        <td class="fw-bold">P{{ row.position }}</td>
-                                        <td class="text-secondary">{{ row.car_class }}</td>
-                                        <td class="text-info">{{ row.best_lap }}</td>
-                                        <td>{{ row.laps }}</td>
-                                        <td class="text-end">
-                                            {% if row.lap_driver_id %}
-                                                <a class="btn-custom py-1 px-3 fs-7" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">
-                                                    <i class="fa-solid fa-clock-rotate-left"></i> Trace
-                                                </a>
-                                            {% else %}
-                                                <span class="text-muted small">No Trace</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="text-center py-4 text-muted">
-                        <i class="fa-solid fa-user-slash fs-2 mb-2 d-block opacity-40"></i>
-                        No matches found for "{{ driver_query }}". Ensure organization cache is refreshed and try again.
-                    </div>
-                {% endif %}
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- Events Catalog -->
-    <div class="col-12">
-        <div class="accordion-custom">
-            <div class="accordion-custom-header" onclick="document.getElementById('events-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
-                <span><i class="fa-solid fa-calendar-days text-info me-2"></i>Events Catalog ({{ events|length }} Cataloged)</span>
-                <i class="fa-solid fa-chevron-up chevron-icon text-muted"></i>
-            </div>
-            <div id="events-collapse" class="accordion-custom-body">
-                <form method="get" action="/" class="row g-3 mb-4 bg-surface-2 p-3 rounded border border-secondary border-opacity-10">
+        <!-- Global Dashboard Filter -->
+        <div class="col-12">
+            <div class="glass-card">
+                <form method="get" action="/" class="row g-3 align-items-end">
                     <input type="hidden" name="org_id" value="{{ org.id }}">
                     {% if driver_query %}
                         <input type="hidden" name="q" value="{{ driver_query }}">
                     {% endif %}
-                    <div class="col-md-5">
-                        <label class="form-label small text-muted">Filter Start Date</label>
-                        <input type="date" class="form-control form-control-custom w-100" name="start_date" value="{{ start_date or '' }}">
+                    <div class="col-lg-3 col-md-6">
+                        <label for="classification" class="form-label small text-muted mb-1 fw-semibold">Class Filter</label>
+                        <input type="text" id="classification" name="classification" class="form-control form-control-custom" placeholder="e.g. F4, Pro" value="{{ classification or '' }}">
                     </div>
-                    <div class="col-md-5">
-                        <label class="form-label small text-muted">Filter End Date</label>
-                        <input type="date" class="form-control form-control-custom w-100" name="end_date" value="{{ end_date or '' }}">
+                    <div class="col-lg-2 col-md-6">
+                        <label for="start_date" class="form-label small text-muted mb-1 fw-semibold">Start Date</label>
+                        <input type="date" id="start_date" name="start_date" class="form-control form-control-custom" value="{{ start_date or '' }}">
                     </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <button class="btn-custom w-100" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
+                    <div class="col-lg-2 col-md-6">
+                        <label for="end_date" class="form-label small text-muted mb-1 fw-semibold">End Date</label>
+                        <input type="date" id="end_date" name="end_date" class="form-control form-control-custom" value="{{ end_date or '' }}">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <label for="limit_events" class="form-label small text-muted mb-1 fw-semibold">Events Scan Limit</label>
+                        <select id="limit_events" name="limit_events" class="form-select form-control-custom">
+                            <option value="10" {% if limit_events == '10' or not limit_events %}selected{% endif %}>Last 10 Events</option>
+                            <option value="25" {% if limit_events == '25' %}selected{% endif %}>Last 25 Events</option>
+                            <option value="50" {% if limit_events == '50' %}selected{% endif %}>Last 50 Events</option>
+                            <option value="100" {% if limit_events == '100' %}selected{% endif %}>Last 100 Events</option>
+                            <option value="0" {% if limit_events == '0' %}selected{% endif %}>All Events</option>
+                        </select>
+                    </div>
+                    <div class="col-lg-2 col-md-6 d-grid">
+                        <button type="submit" class="btn-custom"><i class="fa-solid fa-filter me-1"></i> Apply Filters</button>
                     </div>
                 </form>
+            </div>
+        </div>
 
-                {% if events %}
-                    <div class="table-custom-container" style="max-height: 400px; overflow-y: auto;">
-                        <table class="table table-custom">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Event Name</th>
-                                    <th class="text-end">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for event in events %}
+        <!-- Lap Records Catalog -->
+        <div class="col-12">
+            <div class="accordion-custom">
+                <div class="accordion-custom-header" onclick="document.getElementById('lap-records-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                    <span><i class="fa-solid fa-trophy text-warning me-2"></i>Track Records{% if track_records_ready %} ({{ records|length }} found){% endif %}</span>
+                    <div class="d-flex align-items-center gap-2" onclick="event.stopPropagation();">
+                        {% if records %}
+                        <a href="/track-records/export.json?org_id={{ org.id }}&classification={{ classification or '' }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&limit_events={{ limit_events or '10' }}" class="btn-custom-outline py-1 px-2 small fs-7"><i class="fa-solid fa-file-arrow-down"></i> Export JSON</a>
+                        {% endif %}
+                        <i class="fa-solid fa-chevron-up chevron-icon text-muted ms-2"></i>
+                    </div>
+                </div>
+                <div id="lap-records-collapse" class="accordion-custom-body">
+                    {% if records_error %}
+                        <div class="alert alert-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>{{ records_error }}</div>
+                    {% endif %}
+
+                    {% if track_records_ready and records %}
+                        <div class="table-custom-container" style="max-height: 450px; overflow-y: auto;">
+                            <table class="table table-custom">
+                                <thead>
                                     <tr>
-                                        <td class="text-secondary">{{ event._display_date or event.startDate or 'N/A' }}</td>
-                                        <td class="fw-semibold text-gradient">{{ event.name }}</td>
-                                        <td class="text-end">
-                                            <a href="/event/{{ event.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-folder-open"></i> Open</a>
-                                        </td>
+                                        <th>Driver Name</th>
+                                        <th>Class</th>
+                                        <th>Record Lap Time</th>
+                                        <th>Event Name</th>
+                                        <th>Session Name</th>
+                                        <th>Date / Stamp</th>
                                     </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="text-center py-4 text-muted">
-                        <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
-                        No events found matching the specified filters.
-                    </div>
-                {% endif %}
+                                </thead>
+                                <tbody>
+                                    {% for r in records %}
+                                        <tr style="border-bottom: 0;">
+                                            <td class="fw-semibold text-gradient">{{ r.driver }}</td>
+                                            <td><span class="badge-custom badge-neutral">{{ r.classification }}</span></td>
+                                            <td class="text-info fw-bold">{{ r.lap_time }}</td>
+                                            <td><a href="/event/{{ r.event_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-calendar-day me-1"></i> {{ r.event_name }}</a></td>
+                                            <td><a href="/session/{{ r.session_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-flag-checkered me-1"></i> {{ r.session_name }}</a></td>
+                                            <td class="text-secondary">{{ r.timestamp or 'N/A' }}</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid var(--border);">
+                                            <td colspan="6" class="pb-3 pt-0">
+                                                <div class="px-3 py-2 rounded bg-surface-2 border border-secondary border-opacity-5 small text-secondary">
+                                                    <i class="fa-solid fa-quote-left text-muted me-2" style="font-size: 0.75rem;"></i>{{ r.text }}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% elif track_records_ready %}
+                        <div class="text-center py-4 text-muted">
+                            <i class="fa-solid fa-trophy fs-2 mb-2 d-block opacity-40"></i>
+                            No lap records matching the selected filters were found.
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted">
+                            <i class="fa-solid fa-trophy fs-2 mb-2 d-block opacity-40"></i>
+                            Track records are shown from synced organization data. Run a sync from Data Operations to populate this section.
+                        </div>
+                    {% endif %}
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Collapsible Championships Panel -->
-    <div class="col-12">
-        <div class="accordion-custom">
-            <div class="accordion-custom-header" onclick="document.getElementById('champ-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
-                <span><i class="fa-solid fa-trophy text-warning me-2"></i>Championships Catalog ({{ championships|length }})</span>
-                <i class="fa-solid fa-chevron-down chevron-icon text-muted"></i>
-            </div>
-            <div id="champ-collapse" class="accordion-custom-body d-none">
-                {% if championships %}
-                    <ul class="meta-list">
-                        {% for champ in championships %}
-                            <li class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <a href="/championship/{{ champ.id }}" class="fw-semibold text-info text-decoration-none">{{ champ.name }}</a>
-                                    {% if champ.year %}
-                                        <span class="badge-custom badge-neutral ms-2">{{ champ.year }}</span>
-                                    {% endif %}
-                                </div>
-                                <a href="/championship/{{ champ.id }}" class="btn-custom-outline py-1 px-3"><i class="fa-solid fa-eye"></i> View</a>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="text-muted mb-0 text-center py-2">No championship data found in cache.</p>
-                {% endif %}
+        <!-- Driver Finder -->
+        <div class="col-12">
+            <div class="accordion-custom">
+                <div class="accordion-custom-header" onclick="document.getElementById('driver-finder-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                    <span><i class="fa-solid fa-user-astronaut text-info me-2"></i>Driver Finder</span>
+                    <i class="fa-solid fa-chevron-up chevron-icon text-muted"></i>
+                </div>
+                <div id="driver-finder-collapse" class="accordion-custom-body">
+                    <p class="text-muted small">Locate racers across cached sessions using fuzzy name matching.</p>
+                    <form action="/" method="get" class="row g-2 mb-3">
+                        <input type="hidden" name="org_id" value="{{ org.id }}">
+                        <div class="col-8 col-sm-9 col-md-10">
+                            <input type="text" name="q" value="{{ driver_query or '' }}" class="form-control form-control-custom w-100" placeholder="Search driver in this organization..." required>
+                        </div>
+                        <div class="col-4 col-sm-3 col-md-2">
+                            <button class="btn-custom w-100" type="submit" style="background: var(--accent); border-color: var(--accent); color: #fff;">
+                                <i class="fa-solid fa-magnifying-glass me-1"></i>Search
+                            </button>
+                        </div>
+                    </form>
+
+                    {% if driver_query %}
+                        <hr class="border-secondary border-opacity-20 my-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div class="fw-semibold text-gradient fs-5"><i class="fa-solid fa-list text-info me-2"></i>Search Matches</div>
+                            <span class="badge-custom badge-neutral">{{ driver_matches|length }} matched</span>
+                        </div>
+                        {% if driver_matches %}
+                            <div class="table-custom-container">
+                                <table class="table table-custom">
+                                    <thead>
+                                        <tr>
+                                            <th>Driver Name</th>
+                                            <th>Score</th>
+                                            <th>Event Name</th>
+                                            <th>Session Name</th>
+                                            <th>Position</th>
+                                            <th>Class</th>
+                                            <th>Best Lap</th>
+                                            <th>Laps</th>
+                                            <th class="text-end">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in driver_matches %}
+                                            <tr>
+                                                <td class="fw-semibold text-gradient">{{ row.driver_name }}</td>
+                                                <td class="text-info fw-semibold">{{ row.score }}</td>
+                                                <td><a href="/event/{{ row.event_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-calendar-day me-1"></i> {{ row.event_name }}</a></td>
+                                                <td><a href="/session/{{ row.session_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-flag-checkered me-1"></i> {{ row.session_name }}</a></td>
+                                                <td class="fw-bold">P{{ row.position }}</td>
+                                                <td class="text-secondary">{{ row.car_class }}</td>
+                                                <td class="text-info">{{ row.best_lap }}</td>
+                                                <td>{{ row.laps }}</td>
+                                                <td class="text-end">
+                                                    {% if row.lap_driver_id %}
+                                                        <a class="btn-custom py-1 px-3 fs-7" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">
+                                                            <i class="fa-solid fa-clock-rotate-left"></i> Trace
+                                                        </a>
+                                                    {% else %}
+                                                        <span class="text-muted small">No Trace</span>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-user-slash fs-2 mb-2 d-block opacity-40"></i>
+                                No matches found for "{{ driver_query }}". Ensure organization cache is refreshed and try again.
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
             </div>
         </div>
-    </div>
+
+        <!-- Events Catalog -->
+        <div class="col-12">
+            <div class="accordion-custom">
+                <div class="accordion-custom-header" onclick="document.getElementById('events-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                    <span><i class="fa-solid fa-calendar-days text-info me-2"></i>Event Summaries Loaded ({{ events|length }})</span>
+                    <i class="fa-solid fa-chevron-up chevron-icon text-muted"></i>
+                </div>
+                <div id="events-collapse" class="accordion-custom-body">
+                    {% if events %}
+                        <div class="table-custom-container" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-custom">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Event Name</th>
+                                        <th class="text-end">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in events %}
+                                        <tr>
+                                            <td class="text-secondary">{{ event._display_date or event.startDate or 'N/A' }}</td>
+                                            <td class="fw-semibold text-gradient">{{ event.name }}</td>
+                                            <td class="text-end">
+                                                <a href="/event/{{ event.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-folder-open"></i> Open</a>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted">
+                            <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
+                            No events found matching the specified filters.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Collapsible Championships Panel -->
+        <div class="col-12">
+            <div class="accordion-custom">
+                <div class="accordion-custom-header" onclick="document.getElementById('champ-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                    <span><i class="fa-solid fa-trophy text-warning me-2"></i>Championships Catalog ({{ championships|length }})</span>
+                    <i class="fa-solid fa-chevron-down chevron-icon text-muted"></i>
+                </div>
+                <div id="champ-collapse" class="accordion-custom-body d-none">
+                    {% if championships %}
+                        <ul class="meta-list">
+                            {% for champ in championships %}
+                                <li class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <a href="/championship/{{ champ.id }}" class="fw-semibold text-info text-decoration-none">{{ champ.name }}</a>
+                                        {% if champ.year %}
+                                            <span class="badge-custom badge-neutral ms-2">{{ champ.year }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <a href="/championship/{{ champ.id }}" class="btn-custom-outline py-1 px-3"><i class="fa-solid fa-eye"></i> View</a>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted mb-0 text-center py-2">No championship data found in cache.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <!-- Welcome Card if no active organization -->
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <div class="mb-4">
+                    <i class="fa-solid fa-bolt text-info fs-1 p-4 rounded-circle" style="background: rgba(6, 182, 212, 0.08); width: 80px; height: 80px; display: inline-flex; align-items: center; justify-content: center;"></i>
+                </div>
+                <h2 class="fw-bold mb-2">Welcome to Speedhive Center</h2>
+                <p class="text-muted max-w-md mx-auto mb-4">Select an organization from the top dropdown list to view the racing dashboard, filter events, scan track records, and analyze driver consistency stats.</p>
+                
+                <div class="d-flex justify-content-center mt-3">
+                    <div class="glass-card text-start p-4" style="max-width: 480px; width: 100%;">
+                        <form action="/org-search" method="get" data-loading-message="Loading organization..." data-loading-detail="Fetching organization info and cached event data. First load can take 10-30 seconds.">
+                            <label for="manual-org-id" class="form-label small text-muted mb-2 fw-semibold"><i class="fa-solid fa-magnifying-glass me-1"></i> Or load a specific Speedhive Org ID manually:</label>
+                            <div class="input-group">
+                                <input type="number" id="manual-org-id" name="org_id" class="form-control form-control-custom" placeholder="e.g. 30476, 26685" required>
+                                <button class="btn-custom" type="submit">Load Organization</button>
+                            </div>
+                            <div class="small text-muted mt-2">First load can take a bit while event and session data is gathered.</div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
     {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const legacyForms = Array.from(document.querySelectorAll(".js-org-action-form"));
-        const banner = document.getElementById("org-action-progress");
-        const bannerLabel = document.getElementById("org-action-label");
-
-        legacyForms.forEach(function (form) {
-            form.addEventListener("submit", function () {
-                const button = form.querySelector("button[type='submit']");
-                const lbl = button ? button.querySelector(".js-btn-label") : null;
-                const spin = button ? button.querySelector(".js-btn-loading") : null;
-                const actionLabel = form.getAttribute("data-action-label") || "Working";
-
-                legacyForms.forEach(function (f) {
-                    const b = f.querySelector("button[type='submit']");
-                    if (b) b.disabled = true;
-                });
-                if (lbl) lbl.classList.add("d-none");
-                if (spin) spin.classList.remove("d-none");
-                if (banner) banner.classList.remove("d-none");
-                if (bannerLabel) bannerLabel.textContent = actionLabel;
-            });
-        });
-
-        // ---------------------------------------------------------------
-        // Async refresh with live status bar
-        // ---------------------------------------------------------------
-        const statusBar    = document.getElementById("refresh-status-bar");
-        const phaseEl      = document.getElementById("refresh-status-phase");
-        const itemEl       = document.getElementById("refresh-status-item");
-        const progressBar  = document.getElementById("refresh-progress-bar");
-        const stopBtn      = document.getElementById("refresh-stop-btn");
-        const eventsCount  = document.getElementById("refresh-events-counter");
-        const sessionsCount = document.getElementById("refresh-sessions-counter");
-        const modeLabel    = document.getElementById("refresh-mode-label");
-        const statusIcon   = document.getElementById("refresh-status-icon");
-
-        let currentTaskId = null;
-        let pollInterval  = null;
-        let isStopping    = false;
-
-        function setRefreshButtonsDisabled(disabled) {
-            document.querySelectorAll(".js-refresh-btn").forEach(function (btn) {
-                btn.disabled = disabled;
-                const lbl  = btn.querySelector(".js-btn-label");
-                const spin = btn.querySelector(".js-btn-loading");
-                if (disabled) {
-                    if (lbl) lbl.classList.add("d-none");
-                    if (spin) spin.classList.remove("d-none");
-                } else {
-                    if (lbl) lbl.classList.remove("d-none");
-                    if (spin) spin.classList.add("d-none");
-                }
-            });
-        }
-
-        function calcProgress(task) {
-            const et = task.events_total || 0;
-            const ed = task.events_done || 0;
-            const st = task.sessions_total || 0;
-            const sd = task.sessions_done || 0;
-            const p = (et > 0)
-                ? (0.20 * (ed / et) + (st > 0 ? 0.80 * (sd / st) : 0))
-                : 0;
-            return Math.min(Math.floor(p * 100), 99);
-        }
-
-        function updateStatusUI(task) {
-            const statusMap = {
-                running: { icon: "fa-circle-notch fa-spin", bar: "" },
-                done:    { icon: "fa-circle-check",    bar: "bg-success" },
-                stopped: { icon: "fa-stop-circle",     bar: "bg-warning" },
-                error:   { icon: "fa-circle-exclamation", bar: "bg-danger" },
-            };
-            const s = statusMap[task.status] || statusMap.running;
-
-            statusIcon.className = "fa-solid " + s.icon + " text-info";
-            phaseEl.textContent = task.phase || "Working…";
-            itemEl.textContent = task.current_item || "";
-
-            eventsCount.textContent = task.events_total
-                ? (task.events_done + " / " + task.events_total)
-                : (task.events_done || "—");
-            sessionsCount.textContent = task.sessions_total
-                ? (task.sessions_done + " / " + task.sessions_total)
-                : (task.sessions_done || "—");
-
-            const mode = (task.mode || "").charAt(0).toUpperCase() + (task.mode || "").slice(1);
-            modeLabel.textContent = mode + " sync";
-
-            if (task.status === "done") {
-                progressBar.style.width = "100%";
-                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated", "bg-warning", "bg-danger");
-                progressBar.classList.add("bg-success");
-            } else if (task.status === "stopped") {
-                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated");
-                progressBar.classList.add("bg-warning");
-                progressBar.style.width = Math.max(calcProgress(task), 10) + "%";
-            } else if (task.status === "error") {
-                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated");
-                progressBar.classList.add("bg-danger");
-                progressBar.style.width = Math.max(calcProgress(task), 10) + "%";
-            } else {
-                progressBar.style.width = Math.max(calcProgress(task), 2) + "%";
-            }
-        }
-
-        function stopPolling() {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
-        }
-
-        function onRefreshFinished(task) {
-            stopPolling();
-            setRefreshButtonsDisabled(false);
-            stopBtn.disabled = false;
-            stopBtn.textContent = "";
-            stopBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop';
-            isStopping = false;
-            updateStatusUI(task);
-
-            if (task.status === "done") {
-                phaseEl.textContent = "Complete — reloading…";
-                setTimeout(function () {
-                    window.location.reload();
-                }, 1800);
-            }
-        }
-
-        function pollTaskStatus() {
-            if (!currentTaskId) return;
-            fetch("/refresh/status/" + currentTaskId)
-                .then(function (r) { return r.json(); })
-                .then(function (task) {
-                    updateStatusUI(task);
-                    if (task.status !== "running") {
-                        onRefreshFinished(task);
-                    }
-                })
-                .catch(function (err) {
-                    console.warn("Status poll error:", err);
-                });
-        }
-
-        function startRefresh(orgId, mode, backfill) {
-            setRefreshButtonsDisabled(true);
-            statusBar.classList.add("active");
-            stopBtn.disabled = false;
-            isStopping = false;
-
-            progressBar.style.width = "2%";
-            progressBar.classList.remove("bg-success", "bg-warning", "bg-danger");
-            progressBar.classList.add("progress-bar-striped", "progress-bar-animated");
-            phaseEl.textContent = "Starting…";
-            itemEl.textContent = "";
-            eventsCount.textContent = "—";
-            sessionsCount.textContent = "—";
-            modeLabel.textContent = "";
-
-            fetch("/org/" + orgId + "/refresh/start", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ mode: mode, backfill_events: parseInt(backfill, 10) }),
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (data.error) {
-                        phaseEl.textContent = "Error: " + data.error;
-                        setRefreshButtonsDisabled(false);
-                        return;
-                    }
-                    currentTaskId = data.task_id;
-                    pollInterval = setInterval(pollTaskStatus, 1200);
-                    pollTaskStatus();
-                })
-                .catch(function (err) {
-                    phaseEl.textContent = "Failed to start refresh.";
-                    itemEl.textContent = String(err);
-                    setRefreshButtonsDisabled(false);
-                });
-        }
-
-        document.querySelectorAll(".js-refresh-btn").forEach(function (btn) {
-            btn.addEventListener("click", function () {
-                const orgId   = btn.getAttribute("data-org-id");
-                const mode    = btn.getAttribute("data-mode");
-                const backfill = btn.getAttribute("data-backfill") || "0";
-                startRefresh(orgId, mode, backfill);
-            });
-        });
-
-        stopBtn.addEventListener("click", function () {
-            if (!currentTaskId || isStopping) return;
-            isStopping = true;
-            stopBtn.disabled = true;
-            stopBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Stopping…';
-            fetch("/refresh/stop/" + currentTaskId, { method: "POST" })
-                .catch(function (err) { console.warn("Stop error:", err); });
-        });
-    });
-</script>
+<!-- No custom javascript on main dashboard -->
 {% endblock %}
