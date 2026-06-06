@@ -1,37 +1,189 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Lap Times</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-</head>
-<body>
-<div class="container mt-3">
-    <a href="/" class="btn btn-secondary mb-2">&larr; Back to Home</a>
+{% extends 'base.html' %}
+
+{% block title %}Lap Trace | Speedhive Center{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12">
+        <div class="breadcrumb-custom">
+            <a href="/">Dashboard</a>
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            {% if session_id %}
+                <a href="/session/{{ session_id }}">Session #{{ session_id }}</a>
+            {% else %}
+                <span>Session</span>
+            {% endif %}
+            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            <span>Lap Trace</span>
+        </div>
+    </div>
+
     {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
+        <div class="col-12">
+            <div class="alert alert-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>{{ error }}</div>
+        </div>
     {% else %}
-        <h2>Lap Times for Driver {{ driver_id }} in Session {{ session_id }}</h2>
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Lap</th>
-                    <th>Time</th>
-                    <th>Sectors</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for lap in laps %}
-                <tr>
-                    <td>{{ lap.lap_number }}</td>
-                    <td>{{ lap.time }}</td>
-                    <td>{{ lap.sector_times | join(', ') }}</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        <!-- Header Card -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="text-muted small">Session #{{ session_id }} Trace</div>
+                <h1 class="page-header mb-1"><i class="fa-solid fa-user-astronaut text-info me-2"></i>{{ driver_name }}</h1>
+                <p class="text-muted mb-0">Lap-by-lap timing trace analysis, sector breakdowns, and consistency metrics.</p>
+            </div>
+        </div>
+
+        <!-- Stats Panel -->
+        <div class="col-lg-4">
+            <div class="glass-card h-100">
+                <div class="glass-card-header"><i class="fa-solid fa-calculator text-info"></i> Performance Stats</div>
+                <ul class="meta-list">
+                    <li><span>Total Laps</span><span class="val">{{ stats.lap_count }}</span></li>
+                    <li><span>Best Lap</span><span class="val text-info fw-bold">{{ stats.best_lap }}</span></li>
+                    <li><span>Mean Lap</span><span class="val">{{ stats.mean }}</span></li>
+                    <li><span>Median Lap</span><span class="val">{{ stats.median }}</span></li>
+                    <li><span>Std Dev</span><span class="val">{{ stats.stdev }}s</span></li>
+                    <li><span>CV (Consistency)</span><span class="val text-gradient fw-bold">{{ stats.cv }}</span></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Chart Panel -->
+        <div class="col-lg-8">
+            <div class="glass-card h-100">
+                <div class="glass-card-header"><i class="fa-solid fa-chart-line text-info"></i> Lap Timeline Trace</div>
+                <div class="position-relative" style="height: 300px;">
+                    <canvas id="lapChartCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Breakdown Panel -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="glass-card-header"><i class="fa-solid fa-list-ol text-info"></i> Lap Breakdown</div>
+                <div class="table-custom-container">
+                    <table class="table table-custom">
+                        <thead>
+                            <tr>
+                                <th>Lap #</th>
+                                <th>Lap Time</th>
+                                <th>Speed (mph/kph)</th>
+                                <th>Sectors</th>
+                                <th class="text-end">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for lap in laps %}
+                                <tr>
+                                    <td class="text-secondary fw-semibold">#{{ lap.lapNumber or lap.lap or loop.index }}</td>
+                                    <td class="fw-semibold text-gradient">{{ lap.lapTime or lap.lap_time or 'N/A' }}</td>
+                                    <td class="text-secondary">{{ lap.speed or '—' }}</td>
+                                    <td class="text-secondary">
+                                        {% if lap.sectorTimes or lap.sector_times %}
+                                            <div class="d-flex gap-2">
+                                                {% for s in (lap.sectorTimes or lap.sector_times) %}
+                                                    <span class="badge-custom badge-neutral">{{ s }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if lap.inPit or lap.pit %}
+                                            <span class="badge-custom badge-alert"><i class="fa-solid fa-wrench"></i> In Pit</span>
+                                        {% else %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-road"></i> Track</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     {% endif %}
 </div>
-</body>
-</html>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const labels = [];
+        const data = [];
+        const rootStyles = window.getComputedStyle(document.documentElement);
+        const brand = rootStyles.getPropertyValue("--brand").trim() || "#06b6d4";
+        
+        {% for lap in laps %}
+            labels.push("Lap {{ lap.lapNumber or lap.lap or loop.index }}");
+            {% set seconds = parse_time_value(lap.lapTime or lap.lap_time) %}
+            {% if seconds %}
+                data.push({{ seconds }});
+            {% else %}
+                data.push(null);
+            {% endif %}
+        {% endfor %}
+        
+        const ctx = document.getElementById("lapChartCanvas");
+        if (!ctx) return;
+        
+        new Chart(ctx.getContext("2d"), {
+            type: "line",
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    label: "Lap Time (s)",
+                    borderColor: brand,
+                    borderWidth: 3,
+                    pointBackgroundColor: brand,
+                    pointBorderColor: "#0c1122",
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    backgroundColor: function(context) {
+                        const chart = context.chart;
+                        const {ctx, chartArea} = chart;
+                        if (!chartArea) return null;
+                        const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                        gradient.addColorStop(0, "rgba(6, 182, 212, 0.2)");
+                        gradient.addColorStop(1, "rgba(6, 182, 212, 0)");
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.25
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: "#141b32",
+                        titleColor: "#f8fafc",
+                        bodyColor: "#06b6d4",
+                        borderColor: "#1e293b",
+                        borderWidth: 1,
+                        padding: 10,
+                        cornerRadius: 8,
+                        displayColors: false
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: "rgba(255, 255, 255, 0.03)" },
+                        ticks: { color: "#64748b" }
+                    },
+                    y: {
+                        grid: { color: "rgba(255, 255, 255, 0.03)" },
+                        ticks: { color: "#64748b" }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}
