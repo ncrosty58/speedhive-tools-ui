@@ -41,11 +41,24 @@
             <div class="glass-card text-center py-5">
                 <h3 class="h5 fw-bold mb-2">Driver Consistency Analysis</h3>
                 <p class="text-muted small mb-4">Analyze all synced sessions to calculate driver averages, standard deviation, and consistency indices.</p>
-                <form action="/org/{{ org.id }}/stats/generate" method="post" id="run-stats-form">
-                    <button class="btn-custom py-2 px-4" type="submit" id="run-stats-btn">
-                        <i class="fa-solid fa-play me-2"></i>Run Consistency Analysis
-                    </button>
-                </form>
+                <div class="d-flex flex-column align-items-center gap-3 mb-2">
+                    <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
+                        <label for="session_type" class="text-muted small fw-semibold">Session Type:</label>
+                        <select id="session_type" name="session_type" class="form-select form-control-custom w-auto py-1 px-2" onchange="this.form.submit()">
+                            <option value="race" {% if session_type == 'race' or not session_type %}selected{% endif %}>Race</option>
+                            <option value="qualifying" {% if session_type == 'qualifying' %}selected{% endif %}>Qualifying</option>
+                            <option value="practice" {% if session_type == 'practice' %}selected{% endif %}>Practice / Warmup</option>
+                            <option value="all" {% if session_type == 'all' %}selected{% endif %}>All Sessions</option>
+                        </select>
+                    </form>
+                    
+                    <form action="/org/{{ org.id }}/stats/generate" method="post" id="run-stats-form">
+                        <input type="hidden" name="session_type" value="{{ session_type or 'race' }}">
+                        <button class="btn-custom py-2 px-4" type="submit" id="run-stats-btn">
+                            <i class="fa-solid fa-play me-2"></i>Run Consistency Analysis
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
         
@@ -74,6 +87,18 @@
                     </div>
                     <div class="d-flex align-items-center gap-3">
                         <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
+                            <input type="hidden" name="min_laps" value="{{ min_laps }}">
+                            <label for="session_type" class="text-muted small text-nowrap fw-semibold">Session Type:</label>
+                            <select id="session_type" name="session_type" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
+                                <option value="race" {% if session_type == 'race' or not session_type %}selected{% endif %}>Race</option>
+                                <option value="qualifying" {% if session_type == 'qualifying' %}selected{% endif %}>Qualifying</option>
+                                <option value="practice" {% if session_type == 'practice' %}selected{% endif %}>Practice / Warmup</option>
+                                <option value="all" {% if session_type == 'all' %}selected{% endif %}>All Sessions</option>
+                            </select>
+                        </form>
+
+                        <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
+                            <input type="hidden" name="session_type" value="{{ session_type or 'race' }}">
                             <label for="min_laps" class="text-muted small text-nowrap fw-semibold">Min Laps:</label>
                             <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
                                 <option value="10" {% if min_laps == 10 %}selected{% endif %}>10</option>
@@ -83,7 +108,9 @@
                                 <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
                             </select>
                         </form>
+
                         <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="recalc-stats-form">
+                            <input type="hidden" name="session_type" value="{{ session_type or 'race' }}">
                             <button type="submit" class="btn-custom py-1 px-3 btn-custom-outline" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'N/A' }}">
                                 <i class="fa-solid fa-arrows-rotate me-1"></i> Recalculate
                             </button>
@@ -129,6 +156,7 @@
                 <h3 class="h5 fw-bold mb-3">Driver Rank Lookup</h3>
                 <form method="get" action="/org/{{ org.id }}/stats" class="d-flex gap-2 mb-3">
                     <input type="hidden" name="min_laps" value="{{ min_laps }}">
+                    <input type="hidden" name="session_type" value="{{ session_type or 'race' }}">
                     <input type="text" id="driver_search" name="driver_search" class="form-control form-control-custom py-1 px-2" placeholder="Driver name..." value="{{ driver_search or '' }}" required>
                     <button type="submit" class="btn-custom py-1 px-3">Look Up</button>
                 </form>
