@@ -13,6 +13,45 @@
         color: var(--brand, #00f0ff) !important;
         text-decoration: underline !important;
     }
+
+    /* Stats-page-specific mobile responsiveness */
+    @media (max-width: 768px) {
+        .stats-filter-bar {
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: 1rem !important;
+        }
+        .stats-summary-box {
+            justify-content: space-around;
+            width: 100%;
+        }
+        .stats-filters-box {
+            flex-direction: column;
+            align-items: stretch !important;
+            width: 100%;
+            gap: 0.75rem !important;
+        }
+        .stats-filters-box form {
+            width: 100% !important;
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: 0.5rem !important;
+        }
+        .stats-filters-box select,
+        .stats-filters-box button {
+            width: 100% !important;
+        }
+        .stats-filters-box .form-check-inline {
+            margin-right: 0;
+            width: 100%;
+        }
+        #filter-form .d-flex {
+            flex-direction: column;
+            align-items: stretch !important;
+            width: 100%;
+            gap: 0.5rem !important;
+        }
+    }
 </style>
 <div class="row g-4">
     <!-- Active Organization Header & Tabs -->
@@ -50,8 +89,8 @@
         <!-- Stats summary & Filter bar (always shown once data is synced) -->
         <div class="col-12">
             <div class="glass-card">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-                    <div class="d-flex align-items-center gap-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 stats-filter-bar">
+                    <div class="d-flex align-items-center gap-4 stats-summary-box">
                         {% if has_persisted_stats %}
                             <div>
                                 <span class="text-muted small d-block">Laps Analyzed</span>
@@ -69,7 +108,7 @@
                             </div>
                         {% endif %}
                     </div>
-                    <div class="d-flex align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-3 stats-filters-box">
                         <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-3" id="filter-form">
                             <input type="hidden" name="min_laps" value="{{ min_laps }}">
                             <span class="text-muted small text-nowrap fw-semibold">Session Types:</span>
@@ -183,18 +222,18 @@
                 {% if driver_search %}
                     {% if search_result %}
                         <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-3">
-                            <div class="row g-3">
-                                <div class="col-md-4">
-                                    <span class="text-muted small d-block">Driver</span>
-                                    <span class="fw-bold fs-5">{{ search_result.matched }}</span>
+                            <div class="row g-3 text-center">
+                                <div class="col-4 border-end border-secondary border-opacity-10">
+                                    <span class="text-muted small d-block" style="font-size: 0.75rem;">Driver</span>
+                                    <span class="fw-bold fs-6 fs-sm-5 text-white text-truncate d-block">{{ search_result.matched }}</span>
                                 </div>
-                                <div class="col-md-4">
-                                    <span class="text-muted small d-block">Rank</span>
-                                    <span class="fw-bold fs-5 text-info">{{ search_result.rank }} <span class="fs-7 text-muted">/ {{ search_result.total }}</span></span>
+                                <div class="col-4 border-end border-secondary border-opacity-10">
+                                    <span class="text-muted small d-block" style="font-size: 0.75rem;">Rank</span>
+                                    <span class="fw-bold fs-6 fs-sm-5 text-info">{{ search_result.rank }} <span class="fs-7 text-muted" style="font-size: 0.7rem;">/ {{ search_result.total }}</span></span>
                                 </div>
-                                <div class="col-md-4">
-                                    <span class="text-muted small d-block">Percentile</span>
-                                    <span class="fw-bold fs-5 text-success">{{ search_result.percentile }}%</span>
+                                <div class="col-4">
+                                    <span class="text-muted small d-block" style="font-size: 0.75rem;">Percentile</span>
+                                    <span class="fw-bold fs-6 fs-sm-5 text-success">{{ search_result.percentile }}%</span>
                                 </div>
                             </div>
 
