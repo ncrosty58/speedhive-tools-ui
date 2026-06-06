@@ -1,167 +1,634 @@
 {% extends 'base.html' %}
 
-{% block title %}Dashboard | Speedhive Center{% endblock %}
+{% block title %}Operations Center | Speedhive{% endblock %}
+
+{% block extra_css %}
+<style>
+    .org-actions-bar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .org-actions-bar form {
+        margin: 0;
+    }
+
+    #refresh-status-bar {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(20, 27, 50, 0.4);
+        padding: 1.25rem;
+        margin-top: 1.25rem;
+        display: none;
+    }
+
+    #refresh-status-bar.active {
+        display: block;
+    }
+
+    .refresh-status-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.85rem;
+        flex-wrap: wrap;
+    }
+
+    .refresh-status-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-main);
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .refresh-status-phase {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--brand);
+        white-space: nowrap;
+    }
+
+    .refresh-status-item {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+        margin-top: 0.25rem;
+    }
+
+    .refresh-stop-btn {
+        border: 1px solid var(--danger);
+        background: transparent;
+        color: var(--danger);
+        border-radius: var(--radius-md);
+        padding: 0.45rem 1rem;
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: var(--transition);
+    }
+
+    .refresh-stop-btn:hover {
+        background: var(--danger);
+        color: #fff;
+    }
+
+    .refresh-stop-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .refresh-counters {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin-top: 0.6rem;
+        flex-wrap: wrap;
+    }
+
+    .refresh-counter-item {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .refresh-counter-item strong {
+        color: var(--text-main);
+    }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="row g-4">
+    <!-- Header/Control Section -->
     <div class="col-12 mb-2">
         <h1 class="page-header"><i class="fa-solid fa-gauge-high me-2 text-info"></i>Operations Control</h1>
-        <p class="text-muted mb-0">Browse organization racing dumps, search transponders, scan track records, and sync offline snapshots.</p>
+        <p class="text-muted mb-0">Select an organization to manage cached racing dumps, search transponders, and sync offline snapshots.</p>
     </div>
 
-    <!-- Org Card -->
-    <div class="col-lg-6">
-        <div class="glass-card h-100">
-            <div class="glass-card-header">
-                <i class="fa-solid fa-sitemap text-info"></i>Organization Hub
+    <!-- Org Dropdown Select Card -->
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="row align-items-center g-3">
+                <div class="col-md-7">
+                    <label for="org-select" class="form-label small text-muted mb-1 fw-semibold">Active Organization</label>
+                    <select id="org-select" class="form-select form-control-custom" onchange="if(this.value) { window.location.href = '/?org_id=' + this.value; }">
+                        {% for o in org_list %}
+                            <option value="{{ o.id }}" {% if o.id == selected_org_id %}selected{% endif %}>{{ o.name }} (#{{ o.id }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <form action="/org-search" method="get">
+                        <label for="manual-org-id" class="form-label small text-muted mb-1 fw-semibold">Load Custom ID</label>
+                        <div class="input-group">
+                            <input type="number" id="manual-org-id" name="org_id" class="form-control form-control-custom" placeholder="Enter Speedhive Org ID..." required>
+                            <button class="btn-custom" type="submit">Load</button>
+                        </div>
+                    </form>
+                </div>
             </div>
-            <p class="text-muted small">Load an organization by its ID to view its events, sessions, championships, and cache status.</p>
-            <form action="/org-search" method="get" class="row g-2 mt-2">
-                <div class="col-8 col-sm-9">
-                    <input type="number" id="org_id" name="org_id" class="form-control form-control-custom w-100" placeholder="e.g. 30476" required>
+        </div>
+    </div>
+
+    <!-- Active Organization Details -->
+    {% if org %}
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+                <div>
+                    <div class="text-muted small">ID: #{{ org.id }}</div>
+                    <h2 class="h3 fw-bold mb-1 text-gradient"><i class="fa-solid fa-sitemap me-2 text-info"></i>{{ org.name }}</h2>
+                    <p class="text-muted small mb-0"><i class="fa-solid fa-location-dot me-1"></i>{{ org._display_location or 'Location unknown' }}</p>
                 </div>
-                <div class="col-4 col-sm-3">
-                    <button type="submit" class="btn-custom w-100">Load</button>
-                </div>
-            </form>
-            <div class="mt-4 p-3 rounded bg-surface-2 border border-secondary border-opacity-10">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                        <span class="text-muted small d-block">Featured Organization</span>
-                        <a href="/org/{{ featured_org_id }}" class="fw-semibold text-info text-decoration-none fs-5">{{ featured_org_name }}</a>
+                <div class="org-actions-bar gap-2">
+                    <button class="btn-custom js-refresh-btn"
+                            data-org-id="{{ org.id }}"
+                            data-mode="incremental"
+                            data-backfill="{{ incremental_backfill_events or 3 }}"
+                            id="btn-incremental-refresh"
+                            type="button">
+                        <span class="js-btn-label"><i class="fa-solid fa-cloud-arrow-down"></i> Sync (Incremental)</span>
+                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
+                    </button>
+                    <button class="btn-custom-outline js-refresh-btn"
+                            data-org-id="{{ org.id }}"
+                            data-mode="full"
+                            data-backfill="0"
+                            id="btn-full-refresh"
+                            type="button">
+                        <span class="js-btn-label"><i class="fa-solid fa-rotate"></i> Sync (Full)</span>
+                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
+                    </button>
+                    <div class="dropdown d-inline-block">
+                        <button class="btn-custom-outline dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fa-solid fa-ellipsis"></i> Actions
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item" href="/track-records?org_id={{ org.id }}">
+                                    <i class="fa-solid fa-stopwatch text-info me-2"></i>Track Records Scan
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form method="post" action="/org/{{ org.id }}/save-local" class="js-org-action-form" data-action-label="Saving Local Data">
+                                    <input type="hidden" name="max_events" value="25">
+                                    <button class="dropdown-item" type="submit">
+                                        <i class="fa-solid fa-file-export text-warning me-2"></i>Save Local Data
+                                    </button>
+                                </form>
+                            </li>
+                            {% if dump_manifest %}
+                            <li>
+                                <a class="dropdown-item" href="/org/{{ org.id }}/download-local-dump.zip">
+                                    <i class="fa-solid fa-file-zipper text-success me-2"></i>Download Dump Zip
+                                </a>
+                            </li>
+                            {% endif %}
+                            <li>
+                                <a class="dropdown-item" href="/org/{{ org.id }}/export-lap-records.ndjson?max_events=25">
+                                    <i class="fa-solid fa-file-arrow-down text-info me-2"></i>Export Lap NDJSON
+                                </a>
+                            </li>
+                        </ul>
                     </div>
-                    {% if featured_org_refresh and featured_org_refresh.last_refresh_at %}
-                        <span class="badge-custom badge-ok">
-                            <i class="fa-solid fa-clock-rotate-left"></i> Cached
-                        </span>
-                    {% else %}
-                        <span class="badge-custom badge-alert">
-                            <i class="fa-solid fa-circle-exclamation"></i> Uncached
-                        </span>
-                    {% endif %}
                 </div>
-                {% if featured_org_refresh and featured_org_refresh.last_refresh_at %}
-                    <div class="mt-2 text-muted small">
-                        Last sync ({{ (featured_org_refresh.last_refresh_mode or 'unknown')|title }}): {{ format_saved_at_display(featured_org_refresh.last_refresh_at) }}
+            </div>
+
+            {# --- Live Sync Progress --- #}
+            <div id="refresh-status-bar" class="mt-3">
+                <div class="refresh-status-header">
+                    <div class="refresh-status-info">
+                        <i class="fa-solid fa-circle-notch fa-spin text-info" id="refresh-status-icon"></i>
+                        <div>
+                            <div><span class="refresh-status-phase" id="refresh-status-phase">Starting…</span></div>
+                            <div class="refresh-status-item" id="refresh-status-item"></div>
+                        </div>
                     </div>
+                    <button class="refresh-stop-btn" id="refresh-stop-btn" type="button">
+                        <i class="fa-solid fa-stop"></i> Stop
+                    </button>
+                </div>
+                <div class="progress" role="progressbar" aria-label="Sync progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="refresh-progress-bar" style="width: 0%"></div>
+                </div>
+                <div class="refresh-counters">
+                    <div class="refresh-counter-item"><i class="fa-solid fa-calendar"></i> Events: <strong id="refresh-events-counter">—</strong></div>
+                    <div class="refresh-counter-item"><i class="fa-solid fa-flag-checkered"></i> Sessions: <strong id="refresh-sessions-counter">—</strong></div>
+                    <div class="refresh-counter-item" id="refresh-mode-label" style="color: var(--brand);"></div>
+                </div>
+            </div>
+
+            {# --- Action progress banner --- #}
+            <div id="org-action-progress" class="notice-banner d-none mt-3 mb-0">
+                <i class="fa-solid fa-circle-notch fa-spin text-info"></i>
+                <span id="org-action-label">Working...</span>
+            </div>
+
+            <div class="mt-4 p-3 rounded bg-surface-2 border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center">
+                {% if org_refresh_state and org_refresh_state.last_refresh_at %}
+                    <span class="status-pill fresh">
+                        <i class="fa-solid fa-check-circle"></i> Last Sync: {{ format_saved_at_display(org_refresh_state.last_refresh_at) }} ({{ (org_refresh_state.last_refresh_mode or 'unknown')|upper }})
+                    </span>
+                {% else %}
+                    <span class="status-pill stale"><i class="fa-solid fa-circle-xmark"></i> Not Cached</span>
+                {% endif %}
+                {% if org_refresh_state %}
+                    <span class="status-pill">
+                        <i class="fa-solid fa-server"></i> {{ org_refresh_state.events_cached }} Events &bull; {{ org_refresh_state.sessions_cached }} Sessions &bull; {{ org_refresh_state.championships_cached }} Champs
+                    </span>
+                {% endif %}
+                {% if cache_status %}
+                    <span class="status-pill"><i class="fa-solid fa-clock"></i> Cache Age: {{ cache_status_label(cache_status) }}</span>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Driver Search Card -->
-    <div class="col-lg-6">
-        <div class="glass-card h-100">
-            <div class="glass-card-header">
-                <i class="fa-solid fa-user-astronaut text-purple" style="color: var(--accent);"></i>Driver Finder
+    <!-- Inline Driver Search -->
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="glass-card-header mb-2">
+                <i class="fa-solid fa-user-astronaut text-info"></i>Driver Finder
             </div>
-            <p class="text-muted small">Locate racers across events and sessions using fuzzy name-matching scoring algorithm.</p>
-            <form action="/driver-search" method="get" class="row g-2 mt-2">
-                <div class="col-sm-4">
-                    <input type="number" name="org_id" class="form-control form-control-custom w-100" placeholder="Org ID" required>
+            <p class="text-muted small">Locate racers across cached sessions using fuzzy name matching.</p>
+            <form action="/" method="get" class="row g-2">
+                <input type="hidden" name="org_id" value="{{ org.id }}">
+                <div class="col-8 col-sm-9 col-md-10">
+                    <input type="text" name="q" value="{{ driver_query or '' }}" class="form-control form-control-custom w-100" placeholder="Search driver in this organization..." required>
                 </div>
-                <div class="col-sm-5">
-                    <input type="text" name="q" class="form-control form-control-custom w-100" placeholder="Driver name" required>
-                </div>
-                <input type="hidden" name="max_events" value="15">
-                <div class="col-sm-3">
+                <div class="col-4 col-sm-3 col-md-2">
                     <button class="btn-custom w-100" type="submit" style="background: var(--accent); border-color: var(--accent); color: #fff;">
-                        Search
+                        <i class="fa-solid fa-magnifying-glass me-1"></i>Search
                     </button>
                 </div>
             </form>
+
+            {% if driver_query %}
+                <hr class="border-secondary border-opacity-20 my-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="fw-semibold text-gradient fs-5"><i class="fa-solid fa-list text-info me-2"></i>Search Matches</div>
+                    <span class="badge-custom badge-neutral">{{ driver_matches|length }} matched</span>
+                </div>
+                {% if driver_matches %}
+                    <div class="table-custom-container">
+                        <table class="table table-custom">
+                            <thead>
+                                <tr>
+                                    <th>Driver Name</th>
+                                    <th>Score</th>
+                                    <th>Event Name</th>
+                                    <th>Session Name</th>
+                                    <th>Position</th>
+                                    <th>Class</th>
+                                    <th>Best Lap</th>
+                                    <th>Laps</th>
+                                    <th class="text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in driver_matches %}
+                                    <tr>
+                                        <td class="fw-semibold text-gradient">{{ row.driver_name }}</td>
+                                        <td class="text-info fw-semibold">{{ row.score }}</td>
+                                        <td><a href="/event/{{ row.event_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-calendar-day me-1"></i> {{ row.event_name }}</a></td>
+                                        <td><a href="/session/{{ row.session_id }}" class="text-info text-decoration-none"><i class="fa-solid fa-flag-checkered me-1"></i> {{ row.session_name }}</a></td>
+                                        <td class="fw-bold">P{{ row.position }}</td>
+                                        <td class="text-secondary">{{ row.car_class }}</td>
+                                        <td class="text-info">{{ row.best_lap }}</td>
+                                        <td>{{ row.laps }}</td>
+                                        <td class="text-end">
+                                            {% if row.lap_driver_id %}
+                                                <a class="btn-custom py-1 px-3 fs-7" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">
+                                                    <i class="fa-solid fa-clock-rotate-left"></i> Trace
+                                                </a>
+                                            {% else %}
+                                                <span class="text-muted small">No Trace</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="fa-solid fa-user-slash fs-2 mb-2 d-block opacity-40"></i>
+                        No matches found for "{{ driver_query }}". Ensure organization cache is refreshed and try again.
+                    </div>
+                {% endif %}
+            {% endif %}
         </div>
     </div>
 
-    <!-- Track Records Form -->
+    <!-- Events Catalog -->
     <div class="col-12">
         <div class="glass-card">
-            <div class="glass-card-header">
-                <i class="fa-solid fa-trophy text-warning"></i>Track Record Scan
+            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                <div class="glass-card-header mb-0"><i class="fa-solid fa-calendar-days text-info"></i> Events Catalog</div>
+                <span class="badge-custom badge-neutral">{{ events|length }} Cataloged</span>
             </div>
-            <p class="text-muted small">Scan session announcements for new class/track speed records. Leaving fields optional searches across all events.</p>
-            <form id="track-records-form" action="/track-records" method="get" class="row g-3 mt-1">
-                <div class="col-md-2">
-                    <label for="record_org_id" class="form-label small text-muted">Organization ID</label>
-                    <input type="number" id="record_org_id" name="org_id" class="form-control form-control-custom w-100" value="30476" required>
+            
+            <form method="get" action="/" class="row g-3 mb-4 bg-surface-2 p-3 rounded border border-secondary border-opacity-10">
+                <input type="hidden" name="org_id" value="{{ org.id }}">
+                {% if driver_query %}
+                    <input type="hidden" name="q" value="{{ driver_query }}">
+                {% endif %}
+                <div class="col-md-5">
+                    <label class="form-label small text-muted">Filter Start Date</label>
+                    <input type="date" class="form-control form-control-custom w-100" name="start_date" value="{{ start_date or '' }}">
                 </div>
-                <div class="col-md-3">
-                    <label for="classification" class="form-label small text-muted">Class / Group (optional)</label>
-                    <input type="text" id="classification" name="classification" class="form-control form-control-custom w-100" placeholder="e.g. IT7, SM">
+                <div class="col-md-5">
+                    <label class="form-label small text-muted">Filter End Date</label>
+                    <input type="date" class="form-control form-control-custom w-100" name="end_date" value="{{ end_date or '' }}">
                 </div>
-                <div class="col-md-2">
-                    <label for="start_date" class="form-label small text-muted">Start Date</label>
-                    <input type="date" id="start_date" name="start_date" class="form-control form-control-custom w-100">
-                </div>
-                <div class="col-md-2">
-                    <label for="end_date" class="form-label small text-muted">End Date</label>
-                    <input type="date" id="end_date" name="end_date" class="form-control form-control-custom w-100">
-                </div>
-                <div class="col-md-2">
-                    <label for="limit_events" class="form-label small text-muted">Max Events Limit</label>
-                    <select id="limit_events" name="limit_events" class="form-select form-control-custom w-100">
-                        <option value="5">5 Events</option>
-                        <option value="10" selected>10 Events</option>
-                        <option value="25">25 Events</option>
-                        <option value="50">50 Events</option>
-                        <option value="0">Scan All</option>
-                    </select>
-                </div>
-                <div class="col-md-1 d-grid">
-                    <label class="form-label small text-muted d-none d-md-block">&nbsp;</label>
-                    <button id="track-records-submit" type="submit" class="btn-custom">
-                        <span id="track-records-submit-label"><i class="fa-solid fa-magnifying-glass"></i></span>
-                        <span id="track-records-submit-loading" class="d-none"><i class="fa-solid fa-circle-notch fa-spin"></i></span>
-                    </button>
-                </div>
-                <div class="col-12">
-                    <div id="track-records-progress" class="notice-banner d-none mb-0 mt-2">
-                        <div class="w-100">
-                            <div class="d-flex align-items-center justify-content-between">
-                                <span class="fw-medium text-info"><i class="fa-solid fa-compass-drafting fa-spin me-2"></i>Analyzing announcements NDJSON...</span>
-                                <span id="track-records-percent" class="fw-semibold text-info">0%</span>
-                            </div>
-                            <div class="progress mt-2" role="progressbar" aria-label="Scan progress">
-                                <div id="track-records-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
-                            </div>
-                        </div>
-                    </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn-custom w-100" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
                 </div>
             </form>
+
+            {% if events %}
+                <div class="table-custom-container">
+                    <table class="table table-custom">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Event Name</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for event in events %}
+                                <tr>
+                                    <td class="text-secondary">{{ event._display_date or event.startDate or 'N/A' }}</td>
+                                    <td class="fw-semibold text-gradient">{{ event.name }}</td>
+                                    <td class="text-end">
+                                        <a href="/event/{{ event.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-folder-open"></i> Open</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
+                    No events found matching the specified filters.
+                </div>
+            {% endif %}
         </div>
     </div>
+
+    <!-- Collapsible Championships Panel -->
+    <div class="col-12">
+        <div class="accordion-custom">
+            <div class="accordion-custom-header" onclick="document.getElementById('champ-collapse').classList.toggle('d-none'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-down'); this.querySelector('.chevron-icon').classList.toggle('fa-chevron-up');">
+                <span><i class="fa-solid fa-trophy text-warning me-2"></i>Championships Catalog ({{ championships|length }})</span>
+                <i class="fa-solid fa-chevron-down chevron-icon text-muted"></i>
+            </div>
+            <div id="champ-collapse" class="accordion-custom-body d-none">
+                {% if championships %}
+                    <ul class="meta-list">
+                        {% for champ in championships %}
+                            <li class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <a href="/championship/{{ champ.id }}" class="fw-semibold text-info text-decoration-none">{{ champ.name }}</a>
+                                    {% if champ.year %}
+                                        <span class="badge-custom badge-neutral ms-2">{{ champ.year }}</span>
+                                    {% endif %}
+                                </div>
+                                <a href="/championship/{{ champ.id }}" class="btn-custom-outline py-1 px-3"><i class="fa-solid fa-eye"></i> View</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted mb-0 text-center py-2">No championship data found in cache.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
     document.addEventListener("DOMContentLoaded", function () {
-        const form = document.getElementById("track-records-form");
-        const submitBtn = document.getElementById("track-records-submit");
-        const label = document.getElementById("track-records-submit-label");
-        const loading = document.getElementById("track-records-submit-loading");
-        const progress = document.getElementById("track-records-progress");
-        const percent = document.getElementById("track-records-percent");
-        const progressBar = document.getElementById("track-records-progress-bar");
-        if (!form || !submitBtn || !label || !loading || !progress || !percent || !progressBar) return;
+        const legacyForms = Array.from(document.querySelectorAll(".js-org-action-form"));
+        const banner = document.getElementById("org-action-progress");
+        const bannerLabel = document.getElementById("org-action-label");
 
-        form.addEventListener("submit", function () {
-            submitBtn.disabled = true;
-            label.classList.add("d-none");
-            loading.classList.remove("d-none");
-            progress.classList.remove("d-none");
+        legacyForms.forEach(function (form) {
+            form.addEventListener("submit", function () {
+                const button = form.querySelector("button[type='submit']");
+                const lbl = button ? button.querySelector(".js-btn-label") : null;
+                const spin = button ? button.querySelector(".js-btn-loading") : null;
+                const actionLabel = form.getAttribute("data-action-label") || "Working";
 
-            let value = 0;
-            percent.textContent = "0%";
-            progressBar.style.width = "0%";
-            const tick = window.setInterval(function () {
-                value = Math.min(98, value + Math.floor(Math.random() * 8) + 3);
-                percent.textContent = String(value) + "%";
-                progressBar.style.width = String(value) + "%";
-                if (value >= 98) {
-                    window.clearInterval(tick);
+                legacyForms.forEach(function (f) {
+                    const b = f.querySelector("button[type='submit']");
+                    if (b) b.disabled = true;
+                });
+                if (lbl) lbl.classList.add("d-none");
+                if (spin) spin.classList.remove("d-none");
+                if (banner) banner.classList.remove("d-none");
+                if (bannerLabel) bannerLabel.textContent = actionLabel;
+            });
+        });
+
+        // ---------------------------------------------------------------
+        // Async refresh with live status bar
+        // ---------------------------------------------------------------
+        const statusBar    = document.getElementById("refresh-status-bar");
+        const phaseEl      = document.getElementById("refresh-status-phase");
+        const itemEl       = document.getElementById("refresh-status-item");
+        const progressBar  = document.getElementById("refresh-progress-bar");
+        const stopBtn      = document.getElementById("refresh-stop-btn");
+        const eventsCount  = document.getElementById("refresh-events-counter");
+        const sessionsCount = document.getElementById("refresh-sessions-counter");
+        const modeLabel    = document.getElementById("refresh-mode-label");
+        const statusIcon   = document.getElementById("refresh-status-icon");
+
+        let currentTaskId = null;
+        let pollInterval  = null;
+        let isStopping    = false;
+
+        function setRefreshButtonsDisabled(disabled) {
+            document.querySelectorAll(".js-refresh-btn").forEach(function (btn) {
+                btn.disabled = disabled;
+                const lbl  = btn.querySelector(".js-btn-label");
+                const spin = btn.querySelector(".js-btn-loading");
+                if (disabled) {
+                    if (lbl) lbl.classList.add("d-none");
+                    if (spin) spin.classList.remove("d-none");
+                } else {
+                    if (lbl) lbl.classList.remove("d-none");
+                    if (spin) spin.classList.add("d-none");
                 }
-            }, 800);
+            });
+        }
+
+        function calcProgress(task) {
+            const et = task.events_total || 0;
+            const ed = task.events_done || 0;
+            const st = task.sessions_total || 0;
+            const sd = task.sessions_done || 0;
+            const p = (et > 0)
+                ? (0.20 * (ed / et) + (st > 0 ? 0.80 * (sd / st) : 0))
+                : 0;
+            return Math.min(Math.floor(p * 100), 99);
+        }
+
+        function updateStatusUI(task) {
+            const statusMap = {
+                running: { icon: "fa-circle-notch fa-spin", bar: "" },
+                done:    { icon: "fa-circle-check",    bar: "bg-success" },
+                stopped: { icon: "fa-stop-circle",     bar: "bg-warning" },
+                error:   { icon: "fa-circle-exclamation", bar: "bg-danger" },
+            };
+            const s = statusMap[task.status] || statusMap.running;
+
+            statusIcon.className = "fa-solid " + s.icon + " text-info";
+            phaseEl.textContent = task.phase || "Working…";
+            itemEl.textContent = task.current_item || "";
+
+            eventsCount.textContent = task.events_total
+                ? (task.events_done + " / " + task.events_total)
+                : (task.events_done || "—");
+            sessionsCount.textContent = task.sessions_total
+                ? (task.sessions_done + " / " + task.sessions_total)
+                : (task.sessions_done || "—");
+
+            const mode = (task.mode || "").charAt(0).toUpperCase() + (task.mode || "").slice(1);
+            modeLabel.textContent = mode + " sync";
+
+            if (task.status === "done") {
+                progressBar.style.width = "100%";
+                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated", "bg-warning", "bg-danger");
+                progressBar.classList.add("bg-success");
+            } else if (task.status === "stopped") {
+                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated");
+                progressBar.classList.add("bg-warning");
+                progressBar.style.width = Math.max(calcProgress(task), 10) + "%";
+            } else if (task.status === "error") {
+                progressBar.classList.remove("progress-bar-striped", "progress-bar-animated");
+                progressBar.classList.add("bg-danger");
+                progressBar.style.width = Math.max(calcProgress(task), 10) + "%";
+            } else {
+                progressBar.style.width = Math.max(calcProgress(task), 2) + "%";
+            }
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        function onRefreshFinished(task) {
+            stopPolling();
+            setRefreshButtonsDisabled(false);
+            stopBtn.disabled = false;
+            stopBtn.textContent = "";
+            stopBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop';
+            isStopping = false;
+            updateStatusUI(task);
+
+            if (task.status === "done") {
+                phaseEl.textContent = "Complete — reloading…";
+                setTimeout(function () {
+                    window.location.reload();
+                }, 1800);
+            }
+        }
+
+        function pollTaskStatus() {
+            if (!currentTaskId) return;
+            fetch("/refresh/status/" + currentTaskId)
+                .then(function (r) { return r.json(); })
+                .then(function (task) {
+                    updateStatusUI(task);
+                    if (task.status !== "running") {
+                        onRefreshFinished(task);
+                    }
+                })
+                .catch(function (err) {
+                    console.warn("Status poll error:", err);
+                });
+        }
+
+        function startRefresh(orgId, mode, backfill) {
+            setRefreshButtonsDisabled(true);
+            statusBar.classList.add("active");
+            stopBtn.disabled = false;
+            isStopping = false;
+
+            progressBar.style.width = "2%";
+            progressBar.classList.remove("bg-success", "bg-warning", "bg-danger");
+            progressBar.classList.add("progress-bar-striped", "progress-bar-animated");
+            phaseEl.textContent = "Starting…";
+            itemEl.textContent = "";
+            eventsCount.textContent = "—";
+            sessionsCount.textContent = "—";
+            modeLabel.textContent = "";
+
+            fetch("/org/" + orgId + "/refresh/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: mode, backfill_events: parseInt(backfill, 10) }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error) {
+                        phaseEl.textContent = "Error: " + data.error;
+                        setRefreshButtonsDisabled(false);
+                        return;
+                    }
+                    currentTaskId = data.task_id;
+                    pollInterval = setInterval(pollTaskStatus, 1200);
+                    pollTaskStatus();
+                })
+                .catch(function (err) {
+                    phaseEl.textContent = "Failed to start refresh.";
+                    itemEl.textContent = String(err);
+                    setRefreshButtonsDisabled(false);
+                });
+        }
+
+        document.querySelectorAll(".js-refresh-btn").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                const orgId   = btn.getAttribute("data-org-id");
+                const mode    = btn.getAttribute("data-mode");
+                const backfill = btn.getAttribute("data-backfill") || "0";
+                startRefresh(orgId, mode, backfill);
+            });
+        });
+
+        stopBtn.addEventListener("click", function () {
+            if (!currentTaskId || isStopping) return;
+            isStopping = true;
+            stopBtn.disabled = true;
+            stopBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Stopping…';
+            fetch("/refresh/stop/" + currentTaskId, { method: "POST" })
+                .catch(function (err) { console.warn("Stop error:", err); });
         });
     });
 </script>
