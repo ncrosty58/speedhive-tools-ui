@@ -1948,7 +1948,26 @@ def lap_times(session_id, driver_id):
             elif lookup_mode == "sn":
                 driver_name = f"Start Number {lookup_value}"
 
-        stats = compute_lap_statistics(driver_laps)
+        ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+        if ignore_outliers:
+            times = []
+            for lap in driver_laps:
+                time_str = lap.get("lapTime") or lap.get("lap_time")
+                if time_str:
+                    sec = parse_time_value(time_str)
+                    if sec is not None and sec > 0:
+                        times.append((lap, sec))
+            from speedhive.processing.process_lap_analysis import filter_outliers_iqr
+            filtered_seconds = filter_outliers_iqr([t[1] for t in times])
+            filtered_seconds_pool = list(filtered_seconds)
+            for lap, sec in times:
+                if sec in filtered_seconds_pool:
+                    filtered_seconds_pool.remove(sec)
+                    lap["is_outlier"] = False
+                else:
+                    lap["is_outlier"] = True
+
+        stats = compute_lap_statistics(driver_laps, ignore_outliers=ignore_outliers)
         return render_template(
             "lap_times.html",
             laps=driver_laps,
@@ -1956,6 +1975,7 @@ def lap_times(session_id, driver_id):
             driver_name=driver_name,
             session_id=session_id,
             driver_id=driver_id,
+            ignore_outliers=ignore_outliers,
         )
     except Exception as exc:
         return render_template("lap_times.html", error=str(exc), session_id=session_id, driver_id=driver_id), 500
@@ -2024,6 +2044,8 @@ def org_stats(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
+    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
         session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
@@ -2045,6 +2067,7 @@ def org_stats(org_id):
         
     session_types_list.sort()
     session_types_str = ",".join(session_types_list)
+    session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
 
     org, _ = read_organization_from_store(org_id_int)
     if not org:
@@ -2084,6 +2107,7 @@ def org_stats(org_id):
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
+            ignore_outliers=ignore_outliers,
         )
 
     # Check if stats are already calculated and stored in SQLite org_stats table
@@ -2093,7 +2117,7 @@ def org_stats(org_id):
         with storage.connect() as conn:
             row = conn.execute(
                 "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
-                (org_id_int, session_types_str)
+                (org_id_int, session_types_key)
             ).fetchone()
         if row:
             clustered = json.loads(row["payload"])
@@ -2114,33 +2138,16 @@ def org_stats(org_id):
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
+            ignore_outliers=ignore_outliers,
         )
 
     try:
         min_laps = int(request.args.get("min_laps") or "20")
         
-        rows = [
-            {
-                "name": name,
-                "lap_count": data["lap_count"],
-                "mean": data["mean"],
-                "mean_display": format_seconds(data["mean"]),
-                "stdev": data["stdev"],
-                "stdev_display": f"{data['stdev']:.3f}s" if data["stdev"] else "N/A",
-                "cv": data["cv"],
-                "cv_display": f"{data['cv'] * 100:.2f}%" if data["cv"] is not None else "N/A",
-                "aliases": data.get("aliases", []),
-            }
-            for name, data in clustered.items()
-            if data.get("lap_count", 0) >= min_laps and data.get("cv") is not None
-        ]
-        
-        rows.sort(key=lambda r: r["cv"])
-        top_consistent = rows[:15]
-        least_consistent = sorted(rows, key=lambda r: r["cv"], reverse=True)[:15]
-        
-        total_drivers = len(clustered)
-        total_laps_analyzed = sum(d["lap_count"] for d in clustered.values())
+        from speedhive.analyzers.analyze_consistency import get_consistency_rankings
+        top_consistent, least_consistent, total_drivers, total_laps_analyzed = get_consistency_rankings(
+            clustered, min_laps=min_laps, limit=15
+        )
         
         driver_search = (request.args.get("driver_search") or "").strip()
         search_result = None
@@ -2185,6 +2192,7 @@ def org_stats(org_id):
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
+            ignore_outliers=ignore_outliers,
         )
     except Exception as exc:
         return render_template(
@@ -2206,6 +2214,8 @@ def generate_org_stats(org_id):
         org_id_int = int(org_id)
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
     dump_dir = DUMPS_ROOT / str(org_id_int)
@@ -2233,9 +2243,13 @@ def generate_org_stats(org_id):
         
     session_types_list.sort()
     session_types_str = ",".join(session_types_list)
+    session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
 
     if not has_db_stats and not has_dump_stats:
-        return redirect(url_for("org_stats", org_id=org_id_int, session_types=session_types_list, error="No synced session data available to analyze."))
+        redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
+        if ignore_outliers:
+            redirect_args["ignore_outliers"] = "1"
+        return redirect(url_for("org_stats", **redirect_args))
 
     try:
         from speedhive.processing.process_lap_analysis import (
@@ -2250,10 +2264,10 @@ def generate_org_stats(org_id):
         )
 
         if has_db_stats:
-            _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int)
+            _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
             session_map = load_session_types_from_storage(storage, org_id_int)
         else:
-            _, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int)
+            _, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int, ignore_outliers=ignore_outliers)
             session_map = load_session_types(DUMPS_ROOT, org_id_int)
         by_name = aggregate_by_name(enriched, session_map, session_types=session_types_list)
         clustered = cluster_names(by_name, threshold=0.85)
@@ -2263,7 +2277,7 @@ def generate_org_stats(org_id):
         with storage.connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                (org_id_int, session_types_str, payload_str, calculated_at)
+                (org_id_int, session_types_key, payload_str, calculated_at)
             )
             conn.commit()
 
@@ -2275,9 +2289,15 @@ def generate_org_stats(org_id):
             except Exception:
                 pass
     except Exception as exc:
-        return redirect(url_for("org_stats", org_id=org_id_int, session_types=session_types_list, error=f"Analysis failed: {exc}"))
+        redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
+        if ignore_outliers:
+            redirect_args["ignore_outliers"] = "1"
+        return redirect(url_for("org_stats", **redirect_args))
 
-    return redirect(url_for("org_stats", org_id=org_id_int, session_types=session_types_list))
+    redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
+    if ignore_outliers:
+        redirect_args["ignore_outliers"] = "1"
+    return redirect(url_for("org_stats", **redirect_args))
 
 @app.route("/org/<org_id>/stats/driver/<driver_name>")
 def driver_stats_breakdown(org_id, driver_name):
@@ -2285,6 +2305,8 @@ def driver_stats_breakdown(org_id, driver_name):
         org_id_int = int(org_id)
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
 
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -2307,6 +2329,7 @@ def driver_stats_breakdown(org_id, driver_name):
         
     session_types_list.sort()
     session_types_str = ",".join(session_types_list)
+    session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
     
     try:
         min_laps = int(request.args.get("min_laps") or "20")
@@ -2324,7 +2347,7 @@ def driver_stats_breakdown(org_id, driver_name):
         with storage.connect() as conn:
             row = conn.execute(
                 "SELECT payload FROM org_stats WHERE org_id = ? AND session_type = ?",
-                (org_id_int, session_types_str)
+                (org_id_int, session_types_key)
             ).fetchone()
         if row:
             clustered = json.loads(row["payload"])
@@ -2362,10 +2385,10 @@ def driver_stats_breakdown(org_id, driver_name):
         )
 
         if has_db_stats:
-            laps_by_driver, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int)
+            laps_by_driver, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
             session_map = load_session_types_from_storage(storage, org_id_int)
         else:
-            laps_by_driver, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int)
+            laps_by_driver, enriched = compute_laps_and_enriched(DUMPS_ROOT, org_id_int, ignore_outliers=ignore_outliers)
             session_map = load_session_types(DUMPS_ROOT, org_id_int)
 
         driver_sessions = []
@@ -2403,12 +2426,23 @@ def driver_stats_breakdown(org_id, driver_name):
                         
                         formatted_laps = []
                         best_lap = min(laps) if laps else None
+                        filtered_laps = value.get("filtered_laps", laps)
+                        non_outliers_pool = list(filtered_laps) if filtered_laps else []
+
                         for i, lap in enumerate(laps):
+                            is_outlier = False
+                            if ignore_outliers:
+                                if lap in non_outliers_pool:
+                                    non_outliers_pool.remove(lap)
+                                else:
+                                    is_outlier = True
+
                             formatted_laps.append({
                                 "number": i + 1,
                                 "seconds": lap,
                                 "display": format_seconds(lap),
-                                "is_best": lap == best_lap
+                                "is_best": lap == best_lap,
+                                "is_outlier": is_outlier,
                             })
 
                         mean_val = value.get("mean")
@@ -2421,7 +2455,7 @@ def driver_stats_breakdown(org_id, driver_name):
                             "class_name": class_name,
                             "session_type": matched_types[0].title(),
                             "date_display": date_display,
-                            "lap_count": len(laps),
+                            "lap_count": len(laps) if not ignore_outliers else len(filtered_laps),
                             "mean_display": format_seconds(mean_val) if mean_val else "N/A",
                             "stdev_display": f"{stdev_val:.3f}s" if stdev_val else "N/A",
                             "cv_display": f"{cv_val * 100:.2f}%" if cv_val is not None else "N/A",
@@ -2441,6 +2475,7 @@ def driver_stats_breakdown(org_id, driver_name):
             session_types=session_types_list,
             min_laps=min_laps,
             active_tab="stats",
+            ignore_outliers=ignore_outliers,
         )
     except Exception as exc:
         return render_template(
@@ -2452,6 +2487,7 @@ def driver_stats_breakdown(org_id, driver_name):
             session_types=session_types_list,
             min_laps=min_laps,
             active_tab="stats",
+            ignore_outliers=ignore_outliers,
         )
 
 @app.route("/org/<org_id>/operations")
