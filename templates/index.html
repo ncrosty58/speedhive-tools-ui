@@ -42,10 +42,10 @@
                 <!-- Shared Organization Tabs -->
                 <ul class="nav nav-tabs custom-org-tabs">
                     <li class="nav-item">
-                        <a class="nav-link {% if active_tab == 'dashboard' %}active{% endif %}" href="/?org_id={{ org.id }}{% if classification %}&classification={{ classification }}{% endif %}{% if start_date %}&start_date={{ start_date }}{% endif %}{% if end_date %}&end_date={{ end_date }}{% endif %}{% if limit_events %}&limit_events={{ limit_events }}{% endif %}"><i class="fa-solid fa-gauge-high me-2 text-info"></i>Dashboard</a>
+                        <a class="nav-link {% if active_tab == 'dashboard' %}active{% endif %}" href="/?org_id={{ org.id }}{% if classification %}&amp;classification={{ classification }}{% endif %}{% if start_date %}&amp;start_date={{ start_date }}{% endif %}{% if end_date %}&amp;end_date={{ end_date }}{% endif %}{% if limit_events %}&amp;limit_events={{ limit_events }}{% endif %}"><i class="fa-solid fa-gauge-high me-2 text-info"></i>Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if active_tab == 'stats' %}active{% endif %}" href="/org/{{ org.id }}/stats"><i class="fa-solid fa-chart-line me-2 text-success"></i>Consistency & Stats</a>
+                        <a class="nav-link {% if active_tab == 'stats' %}active{% endif %}" href="/org/{{ org.id }}/stats"><i class="fa-solid fa-chart-line me-2 text-success"></i>Consistency &amp; Stats</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if active_tab == 'operations' %}active{% endif %}" href="/org/{{ org.id }}/operations"><i class="fa-solid fa-sliders me-2 text-danger"></i>Data Operations</a>
@@ -98,7 +98,7 @@
                     <span><i class="fa-solid fa-trophy text-warning me-2"></i>Track Records{% if track_records_ready %} ({{ records|length }} found){% endif %}</span>
                     <div class="d-flex align-items-center gap-2" onclick="event.stopPropagation();">
                         {% if records %}
-                        <a href="/track-records/export.json?org_id={{ org.id }}&classification={{ classification or '' }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&limit_events={{ limit_events or '10' }}" class="btn-custom-outline py-1 px-2 small fs-7"><i class="fa-solid fa-file-arrow-down"></i> Export JSON</a>
+                        <a href="/track-records/export.json?org_id={{ org.id }}&amp;classification={{ classification or '' }}&amp;start_date={{ start_date or '' }}&amp;end_date={{ end_date or '' }}&amp;limit_events={{ limit_events or '10' }}" class="btn-custom-outline py-1 px-2 small fs-7"><i class="fa-solid fa-file-arrow-down"></i> Export JSON</a>
                         {% endif %}
                         <i class="fa-solid fa-chevron-up chevron-icon text-muted ms-2"></i>
                     </div>
