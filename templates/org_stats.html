@@ -35,6 +35,27 @@
                 <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
             </div>
         </div>
+    {% elif not has_persisted_stats %}
+        <!-- Stats need to be generated -->
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <h3 class="h5 fw-bold mb-2">Driver Consistency Analysis</h3>
+                <p class="text-muted small mb-4">Analyze all synced sessions to calculate driver averages, standard deviation, and consistency indices.</p>
+                <form action="/org/{{ org.id }}/stats/generate" method="post" id="run-stats-form">
+                    <button class="btn-custom py-2 px-4" type="submit" id="run-stats-btn">
+                        <i class="fa-solid fa-play me-2"></i>Run Consistency Analysis
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <script>
+            document.getElementById('run-stats-form').addEventListener('submit', function() {
+                const btn = document.getElementById('run-stats-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Running Analysis (Takes ~3s)...';
+            });
+        </script>
     {% else %}
         <!-- Stats summary & Filter bar -->
         <div class="col-12">
@@ -51,7 +72,7 @@
                             <span class="fs-5 fw-bold">{{ total_drivers }}</span>
                         </div>
                     </div>
-                    <div>
+                    <div class="d-flex align-items-center gap-3">
                         <form method="get" action="/org/{{ org.id }}/stats" class="d-flex align-items-center gap-2">
                             <label for="min_laps" class="text-muted small text-nowrap fw-semibold">Min Laps:</label>
                             <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-auto" onchange="this.form.submit()">
@@ -62,6 +83,41 @@
                                 <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
                             </select>
                         </form>
+                        <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="recalc-stats-form">
+                            <button type="submit" class="btn-custom py-1 px-3 btn-custom-outline" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'N/A' }}">
+                                <i class="fa-solid fa-arrows-rotate me-1"></i> Recalculate
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            document.getElementById('recalc-stats-form')?.addEventListener('submit', function() {
+                const btn = document.getElementById('recalc-stats-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
+            });
+        </script>
+
+        <!-- Metrics Explanation Card -->
+        <div class="col-12">
+            <div class="glass-card">
+                <h3 class="h5 fw-bold mb-2">Understanding the Consistency Metrics</h3>
+                <p class="text-muted small mb-3">To ensure fair rankings, these metrics filter out pace differences between sessions and vehicle classes:</p>
+                <div class="row g-3 small">
+                    <div class="col-md-4">
+                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-stopwatch me-1"></i> Average Lap</h4>
+                        <p class="text-muted mb-0">The overall mean of the driver's lap times across all analyzed race sessions.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-arrows-left-right me-1"></i> Within-Session Std Dev</h4>
+                        <p class="text-muted mb-0">Calculated by pooling variance <em>within each session</em>. This ignores differences in base speeds between different classes (e.g. shifter vs cadet) or track layouts to measure true lap-to-lap variation.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-percent me-1"></i> Coefficient of Variation (CV %)</h4>
+                        <p class="text-muted mb-0">The primary metric for driving consistency, computed as the weighted average of session CVs (<code>Std Dev / Mean</code>). A lower percentage represents more repeatable lap times relative to the driver's pace.</p>
                     </div>
                 </div>
             </div>

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{% if org and org.name %}{{ org.name }}{% else %}Speedhive Dashboard{% endif %}{% endblock %}
+{% block title %}{% if org and org.name %}{{ org.name }}{% else %}Speedhive-tools Dashboard{% endif %}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -21,188 +21,289 @@
             </div>
         </div>
 
-        <!-- Inline Filters -->
+
+
+        <!-- Tabbed Dashboard Layout -->
         <div class="col-12">
-            <form method="get" action="/" class="d-flex flex-wrap gap-2 align-items-center">
-                <input type="hidden" name="org_id" value="{{ org.id }}">
-                {% if driver_query %}
-                    <input type="hidden" name="q" value="{{ driver_query }}">
-                {% endif %}
-                <input type="text" id="classification" name="classification" class="form-control form-control-custom w-auto py-1 px-2" placeholder="Class filter" value="{{ classification or '' }}">
-                <input type="date" id="start_date" name="start_date" class="form-control form-control-custom w-auto py-1 px-2" value="{{ start_date or '' }}">
-                <input type="date" id="end_date" name="end_date" class="form-control form-control-custom w-auto py-1 px-2" value="{{ end_date or '' }}">
-                <select id="limit_events" name="limit_events" class="form-select form-control-custom w-auto py-1 px-2">
-                    <option value="10" {% if limit_events == '10' or limit_events is none %}selected{% endif %}>10 Events</option>
-                    <option value="25" {% if limit_events == '25' %}selected{% endif %}>25 Events</option>
-                    <option value="50" {% if limit_events == '50' %}selected{% endif %}>50 Events</option>
-                    <option value="100" {% if limit_events == '100' %}selected{% endif %}>100 Events</option>
-                    <option value="0" {% if limit_events == '0' %}selected{% endif %}>All Events</option>
-                </select>
-                <button type="submit" class="btn-custom py-1 px-3">Filter</button>
-            </form>
-        </div>
+            <style>
+                .nav-tabs-custom {
+                    border-bottom: 1px solid var(--border) !important;
+                    margin-bottom: 1.5rem;
+                }
+                .nav-tabs-custom .nav-item {
+                    margin-bottom: -1px;
+                }
+                .nav-tabs-custom .nav-link {
+                    color: var(--text-muted);
+                    background: transparent;
+                    border: 1px solid transparent;
+                    padding: 0.6rem 1.2rem;
+                    font-weight: 500;
+                    font-size: 0.9rem;
+                    transition: var(--transition);
+                    border-top-left-radius: var(--radius-md);
+                    border-top-right-radius: var(--radius-md);
+                }
+                .nav-tabs-custom .nav-link:hover {
+                    color: var(--text-main);
+                    background: rgba(255, 255, 255, 0.02);
+                    border-color: transparent;
+                }
+                .nav-tabs-custom .nav-link.active {
+                    color: var(--brand) !important;
+                    background: var(--bg-surface) !important;
+                    border-color: var(--border) var(--border) var(--bg-surface) !important;
+                    font-weight: 600;
+                }
+            </style>
 
-        <!-- Two-Column Layout -->
-        <!-- Left Column: Events & Championships -->
-        <div class="col-lg-7">
-            <div class="glass-card mb-4">
-                <h3 class="h5 fw-bold mb-3">Events</h3>
-                {% if events %}
-                    <div class="table-custom-container" style="max-height: 500px; overflow-y: auto;">
-                        <table class="table table-custom mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Event Name</th>
-                                    <th class="text-end"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for event in events %}
-                                    <tr>
-                                        <td class="text-secondary small">{{ event._display_date or event.startDate or 'N/A' }}</td>
-                                        <td class="fw-semibold">{{ event.name }}</td>
-                                        <td class="text-end">
-                                            <a href="/event/{{ event.id }}" class="text-info text-decoration-none small">Open</a>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+            <ul class="nav nav-tabs nav-tabs-custom" id="dashboardTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="events-tab" data-bs-toggle="tab" data-bs-target="#events-tab-pane" type="button" role="tab" aria-controls="events-tab-pane" aria-selected="true">
+                        <i class="fa-solid fa-calendar-days me-2"></i>Events & Championships
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="records-tab" data-bs-toggle="tab" data-bs-target="#records-tab-pane" type="button" role="tab" aria-controls="records-tab-pane" aria-selected="false">
+                        <i class="fa-solid fa-stopwatch me-2"></i>Track Records
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="dashboardTabContent">
+                <!-- Tab Pane 1: Events & Championships -->
+                <div class="tab-pane fade show active" id="events-tab-pane" role="tabpanel" aria-labelledby="events-tab" tabindex="0">
+                    <!-- Find Driver (Stacked at the top) -->
+                    <div class="glass-card mb-4">
+                        <h3 class="h5 fw-bold mb-3">Find Driver</h3>
+                        <form action="/" method="get" class="d-flex gap-2 mb-3">
+                            <input type="hidden" name="org_id" value="{{ org.id }}">
+                            <input type="text" name="q" value="{{ driver_query or '' }}" class="form-control form-control-custom py-1 px-2" placeholder="Driver name..." required>
+                            <button class="btn-custom py-1 px-3" type="submit">Search</button>
+                        </form>
+
+                        {% if driver_query %}
+                            {% if driver_matches %}
+                                <div class="table-custom-container" style="max-height: 450px; overflow-y: auto;">
+                                    <table class="table table-custom mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Session</th>
+                                                <th>Pos</th>
+                                                <th class="text-end"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for row in driver_matches %}
+                                                <tr>
+                                                    <td class="fw-semibold small">
+                                                        {{ row.driver_name }}
+                                                        <span class="text-muted d-block" style="font-size: 0.7rem;">Score: {{ row.score }}</span>
+                                                    </td>
+                                                    <td class="small text-secondary">
+                                                        <a href="/session/{{ row.session_id }}" class="text-secondary text-decoration-none">{{ row.session_name }}</a>
+                                                        <span class="d-block" style="font-size: 0.7rem;">{{ row.event_name }}</span>
+                                                    </td>
+                                                    <td class="small fw-bold">P{{ row.position }}</td>
+                                                    <td class="text-end">
+                                                        {% if row.lap_driver_id %}
+                                                            <a class="text-info text-decoration-none small" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">Trace</a>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {% else %}
+                                <div class="text-center py-4 text-muted small">No matches found for "{{ driver_query }}".</div>
+                            {% endif %}
+                        {% endif %}
                     </div>
-                {% else %}
-                    <div class="text-center py-4 text-muted small">No events found.</div>
-                {% endif %}
-            </div>
 
-            <div class="glass-card">
-                <h3 class="h5 fw-bold mb-3">Championships</h3>
-                {% if championships %}
-                    <div class="table-custom-container" style="max-height: 300px; overflow-y: auto;">
-                        <table class="table table-custom mb-0">
-                            <tbody>
-                                {% for champ in championships %}
-                                    <tr>
-                                        <td>
-                                            <a href="/championship/{{ champ.id }}" class="fw-semibold text-info text-decoration-none">{{ champ.name }}</a>
-                                            {% if champ.year %}
-                                                <span class="text-secondary small ms-2">({{ champ.year }})</span>
-                                            {% endif %}
-                                        </td>
-                                        <td class="text-end">
-                                            <a href="/championship/{{ champ.id }}" class="text-info text-decoration-none small">Open</a>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="text-center py-4 text-muted small">No championships.</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Right Column: Driver Search & Track Records -->
-        <div class="col-lg-5">
-            <div class="glass-card mb-4">
-                <h3 class="h5 fw-bold mb-3">Find Driver</h3>
-                <form action="/" method="get" class="d-flex gap-2 mb-3">
-                    <input type="hidden" name="org_id" value="{{ org.id }}">
-                    <input type="text" name="q" value="{{ driver_query or '' }}" class="form-control form-control-custom py-1 px-2" placeholder="Driver name..." required>
-                    <button class="btn-custom py-1 px-3" type="submit">Search</button>
-                </form>
-
-                {% if driver_query %}
-                    {% if driver_matches %}
-                        <div class="table-custom-container" style="max-height: 300px; overflow-y: auto;">
-                            <table class="table table-custom mb-0">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Session / Event</th>
-                                        <th>Pos</th>
-                                        <th class="text-end"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in driver_matches %}
-                                        <tr>
-                                            <td class="fw-semibold small">
-                                                {{ row.driver_name }}
-                                                <span class="text-muted d-block" style="font-size: 0.7rem;">Score: {{ row.score }}</span>
-                                            </td>
-                                            <td class="small text-secondary">
-                                                <a href="/session/{{ row.session_id }}" class="text-secondary text-decoration-none">{{ row.session_name }}</a>
-                                                <span class="d-block" style="font-size: 0.7rem;">{{ row.event_name }}</span>
-                                            </td>
-                                            <td class="small fw-bold">P{{ row.position }}</td>
-                                            <td class="text-end">
-                                                {% if row.lap_driver_id %}
-                                                    <a class="text-info text-decoration-none small" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">Trace</a>
-                                                {% endif %}
-                                            </td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                    <!-- Events Card -->
+                    <div class="glass-card mb-4">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <h3 class="h5 fw-bold mb-0">Events</h3>
+                            <form method="get" action="/" class="d-flex flex-wrap align-items-center gap-2">
+                                <input type="hidden" name="org_id" value="{{ org.id }}">
+                                {% if driver_query %}<input type="hidden" name="q" value="{{ driver_query }}">{% endif %}
+                                {% if classification %}<input type="hidden" name="classification" value="{{ classification }}">{% endif %}
+                                {% if limit_events %}<input type="hidden" name="limit_events" value="{{ limit_events }}">{% endif %}
+                                <label for="start_date" class="text-muted small text-nowrap fw-semibold">Filter Dates:</label>
+                                <input type="date" id="start_date" name="start_date" class="form-control form-control-custom py-1 w-auto" value="{{ start_date or '' }}">
+                                <span class="text-muted small">to</span>
+                                <input type="date" id="end_date" name="end_date" class="form-control form-control-custom py-1 w-auto" value="{{ end_date or '' }}">
+                                <button type="submit" class="btn-custom py-1 px-3">Filter</button>
+                                {% if start_date or end_date %}
+                                    <a href="/?org_id={{ org.id }}{% if driver_query %}&amp;q={{ driver_query }}{% endif %}{% if classification %}&amp;classification={{ classification }}{% endif %}{% if limit_events %}&amp;limit_events={{ limit_events }}{% endif %}" class="btn-custom btn-custom-outline py-1 px-3">Clear</a>
+                                {% endif %}
+                            </form>
                         </div>
-                    {% else %}
-                        <div class="text-center py-4 text-muted small">No matches found for "{{ driver_query }}".</div>
-                    {% endif %}
-                {% endif %}
-            </div>
+                        {% if events %}
+                            <div class="table-custom-container" style="max-height: 500px; overflow-y: auto;">
+                                <table class="table table-custom mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Event Name</th>
+                                            <th class="text-end"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for event in events %}
+                                            <tr>
+                                                <td class="text-secondary small">{{ event._display_date or event.startDate or 'N/A' }}</td>
+                                                <td class="fw-semibold">{{ event.name }}</td>
+                                                <td class="text-end">
+                                                    <a href="/event/{{ event.id }}" class="text-info text-decoration-none small">Open</a>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-4 text-muted small">No events found.</div>
+                        {% endif %}
+                    </div>
 
-            <div class="glass-card">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h3 class="h5 fw-bold mb-0">Track Records</h3>
-                    {% if records %}
-                        <a href="/track-records/export.json?org_id={{ org.id }}&amp;classification={{ classification or '' }}&amp;start_date={{ start_date or '' }}&amp;end_date={{ end_date or '' }}&amp;limit_events={{ limit_events or '10' }}" class="text-info text-decoration-none small">Export JSON</a>
-                    {% endif %}
+                    <!-- Championships Card -->
+                    <div class="glass-card">
+                        <h3 class="h5 fw-bold mb-3">Championships</h3>
+                        {% if championships %}
+                            <div class="table-custom-container" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-custom mb-0">
+                                    <tbody>
+                                        {% for champ in championships %}
+                                            <tr>
+                                                <td>
+                                                    <a href="/championship/{{ champ.id }}" class="fw-semibold text-info text-decoration-none">{{ champ.name }}</a>
+                                                    {% if champ.year %}
+                                                        <span class="text-secondary small ms-2">({{ champ.year }})</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-end">
+                                                    <a href="/championship/{{ champ.id }}" class="text-info text-decoration-none small">Open</a>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-4 text-muted small">No championships.</div>
+                        {% endif %}
+                    </div>
                 </div>
 
-                {% if records_error %}
-                    <div class="alert alert-danger small py-2 mb-3">{{ records_error }}</div>
-                {% endif %}
+                <!-- Tab Pane 2: Track Records -->
+                <div class="tab-pane fade" id="records-tab-pane" role="tabpanel" aria-labelledby="records-tab" tabindex="0">
+                    <div class="row g-4">
+                        <div class="col-12">
+                            <div class="glass-card">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h3 class="h5 fw-bold mb-0">Track Records</h3>
+                                    {% if records %}
+                                        <a href="/track-records/export.json?org_id={{ org.id }}&amp;classification={{ classification or '' }}&amp;driver_filter={{ driver_filter or '' }}&amp;start_date={{ start_date or '' }}&amp;end_date={{ end_date or '' }}&amp;limit_events={{ limit_events if limit_events is not none else 0 }}" class="text-info text-decoration-none small">Export JSON</a>
+                                    {% endif %}
+                                </div>
 
-                {% if track_records_ready and records %}
-                    <div class="table-custom-container" style="max-height: 400px; overflow-y: auto;">
-                        <table class="table table-custom mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Driver / Class</th>
-                                    <th>Record</th>
-                                    <th>Session</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for r in records %}
-                                    <tr>
-                                        <td class="small">
-                                            <span class="fw-semibold d-block">{{ r.driver }}</span>
-                                            <span class="text-secondary" style="font-size: 0.7rem;">{{ r.classification }}</span>
-                                        </td>
-                                        <td class="text-info fw-bold small">{{ r.lap_time }}</td>
-                                        <td class="small text-secondary">
-                                            <a href="/session/{{ r.session_id }}" class="text-secondary text-decoration-none">{{ r.session_name }}</a>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                <form method="get" action="/" class="d-flex flex-wrap gap-2 align-items-center mb-4">
+                                    <input type="hidden" name="org_id" value="{{ org.id }}">
+                                    {% if driver_query %}<input type="hidden" name="q" value="{{ driver_query }}">{% endif %}
+                                    <input type="text" id="classification" name="classification" class="form-control form-control-custom w-auto py-1 px-2" placeholder="Class filter (e.g. Rotax)" value="{{ classification or '' }}">
+                                    <input type="text" id="driver_filter" name="driver_filter" class="form-control form-control-custom w-auto py-1 px-2" placeholder="Driver filter (e.g. Nathan)" value="{{ driver_filter or '' }}">
+                                    
+                                    <label for="start_date" class="text-muted small fw-semibold ms-2">Filter Dates:</label>
+                                    <input type="date" id="start_date" name="start_date" class="form-control form-control-custom py-1 w-auto" value="{{ start_date or '' }}">
+                                    <span class="text-muted small">to</span>
+                                    <input type="date" id="end_date" name="end_date" class="form-control form-control-custom py-1 w-auto" value="{{ end_date or '' }}">
+                                    
+                                    <label for="limit_events" class="text-muted small fw-semibold ms-2">Scan Limit:</label>
+                                    <select id="limit_events" name="limit_events" class="form-select form-control-custom w-auto py-1 px-2">
+                                        <option value="10" {% if limit_events == 10 %}selected{% endif %}>10 Events</option>
+                                        <option value="25" {% if limit_events == 25 %}selected{% endif %}>25 Events</option>
+                                        <option value="50" {% if limit_events == 50 %}selected{% endif %}>50 Events</option>
+                                        <option value="100" {% if limit_events == 100 %}selected{% endif %}>100 Events</option>
+                                        <option value="0" {% if limit_events is none %}selected{% endif %}>All Events</option>
+                                    </select>
+                                    
+                                    <button type="submit" class="btn-custom py-1 px-3">Filter Records</button>
+                                    {% if classification or driver_filter or start_date or end_date %}
+                                        <a href="/?org_id={{ org.id }}{% if driver_query %}&amp;q={{ driver_query }}{% endif %}" class="btn-custom btn-custom-outline py-1 px-3">Clear</a>
+                                    {% endif %}
+                                </form>
+
+                                {% if records_error %}
+                                    <div class="alert alert-danger small py-2 mb-3">{{ records_error }}</div>
+                                {% endif %}
+
+                                {% if track_records_ready and records %}
+                                    <div class="table-custom-container" style="max-height: 600px; overflow-y: auto;">
+                                        <table class="table table-custom mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Date</th>
+                                                    <th>Driver</th>
+                                                    <th>Class</th>
+                                                    <th>Record Lap Time</th>
+                                                    <th>Session</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for r in records %}
+                                                    <tr>
+                                                        <td class="text-secondary small">{{ r.timestamp or 'N/A' }}</td>
+                                                        <td class="fw-semibold">{{ r.driver }}</td>
+                                                        <td class="text-secondary small">{{ r.classification }}</td>
+                                                        <td class="text-info fw-bold">{{ r.lap_time }}</td>
+                                                        <td>
+                                                            <a href="/session/{{ r.session_id }}" class="text-secondary text-decoration-none">{{ r.session_name }}</a>
+                                                        </td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                {% elif track_records_ready %}
+                                    <div class="text-center py-4 text-muted small">No lap records found.</div>
+                                {% else %}
+                                    <div class="text-center py-4 text-muted small">Run sync under Operations to generate track records.</div>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
-                {% elif track_records_ready %}
-                    <div class="text-center py-4 text-muted small">No lap records found.</div>
-                {% else %}
-                    <div class="text-center py-4 text-muted small">Run sync under Operations to generate track records.</div>
-                {% endif %}
+                </div>
             </div>
         </div>
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const tabButtons = document.querySelectorAll('#dashboardTab button');
+                const activeTabId = localStorage.getItem('activeDashboardTab');
+                
+                if (activeTabId) {
+                    const tabEl = document.getElementById(activeTabId);
+                    if (tabEl) {
+                        const tab = new bootstrap.Tab(tabEl);
+                        tab.show();
+                    }
+                }
+
+                tabButtons.forEach(button => {
+                    button.addEventListener('shown.bs.tab', function (event) {
+                        localStorage.setItem('activeDashboardTab', event.target.id);
+                    });
+                });
+            });
+        </script>
     {% else %}
         <!-- Welcome Screen (Centered Input) -->
         <div class="col-12 d-flex align-items-center justify-content-center" style="min-height: 60vh;">
             <div class="text-center" style="max-width: 400px; width: 100%;">
-                <h1 class="h3 fw-bold mb-4">Speedhive Center</h1>
+                <h1 class="h3 fw-bold mb-4">Speedhive-tools Center</h1>
                 <form action="/org-search" method="get" class="d-flex flex-column gap-3">
                     <input type="number" id="manual-org-id" name="org_id" class="form-control form-control-custom text-center py-3 fs-5" placeholder="Organization ID" required>
                     <button class="btn-custom py-3" type="submit">Load Workspace</button>
