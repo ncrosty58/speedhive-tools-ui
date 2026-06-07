@@ -1,6 +1,7 @@
 services:
   web:
     build: .
+    restart: unless-stopped
     environment:
       - SPEEDHIVE_WEB_DATA_DIR=/app/web_data
     ports:
