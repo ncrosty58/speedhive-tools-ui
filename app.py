@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "s
 from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
+from speedhive.exporters.export_db_dump import export_db_dump
 from speedhive.storage import SpeedhiveStorage
 from speedhive.processing.process_lap_analysis import (
     extract_iso_date,
@@ -33,6 +34,8 @@ from speedhive.processing.process_lap_analysis import (
     build_lap_chart_from_laps,
     normalize_search_text,
     name_match_score,
+    normalize_result_row,
+    safe_int,
 )
 
 app = Flask(__name__)
@@ -410,123 +413,7 @@ def format_datetime_display(value: Any, include_time: bool = True) -> Optional[s
         pass
     return text
 
-def format_gap_display(gap: Any) -> Optional[str]:
-    """Format a gap/difference object from classification responses."""
-    if not isinstance(gap, dict):
-        return None
-    laps_behind = gap.get("lapsBehind")
-    time_diff = first_non_empty(gap.get("timeDifference"), gap.get("difference"))
-    if laps_behind not in (None, "", 0):
-        if time_diff and str(time_diff) not in ("00.000", "0", "00:00.000"):
-            return f"+{laps_behind} lap(s), {time_diff}"
-        return f"+{laps_behind} lap(s)"
-    if not time_diff:
-        return None
-    if str(time_diff) in ("00.000", "0", "00:00.000"):
-        return "Leader"
-    return f"+{time_diff}" if not str(time_diff).startswith("+") else str(time_diff)
-
-def safe_int(value: Any, default: int = 9999) -> int:
-    """Best-effort integer conversion for sorting."""
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-def normalize_result_row(
-    row: Dict[str, Any],
-    available_comp_ids: Optional[set] = None,
-    available_start_numbers: Optional[set] = None,
-) -> Dict[str, Any]:
-    """Normalize result row keys across payload variants for template rendering."""
-    competitor = row.get("competitor") if isinstance(row.get("competitor"), dict) else {}
-    driver = row.get("driver") if isinstance(row.get("driver"), dict) else {}
-    driver_name = first_non_empty(
-        row.get("name"),
-        row.get("driverName"),
-        competitor.get("name"),
-        driver.get("name"),
-        row.get("participantName"),
-    ) or "Unknown Competitor"
-
-    car_name = first_non_empty(
-        row.get("car"),
-        row.get("vehicle"),
-        row.get("marque"),
-        competitor.get("car"),
-    )
-    class_name = first_non_empty(
-        row.get("resultClass"),
-        row.get("vehicleClass"),
-        row.get("classification"),
-        row.get("class"),
-        competitor.get("class"),
-    )
-    if car_name and class_name:
-        car_class = f"{car_name} / {class_name}"
-    else:
-        car_class = car_name or class_name or "N/A"
-
-    total_time = first_non_empty(
-        row.get("totalTime"),
-        row.get("total_time"),
-        row.get("time"),
-        row.get("elapsedTime"),
-        row.get("finishTime"),
-    )
-    if not total_time:
-        total_time = format_gap_display(row.get("difference")) or format_gap_display(row.get("gap")) or "N/A"
-
-    best_lap = first_non_empty(
-        row.get("bestLapTime"),
-        row.get("best_lap_time"),
-        row.get("bestTime"),
-        row.get("lapTime"),
-    ) or "N/A"
-
-    laps = first_non_empty(
-        row.get("laps"),
-        row.get("lapCount"),
-        row.get("lap_count"),
-        row.get("completedLaps"),
-        row.get("numberOfLaps"),
-    )
-    laps_display = laps if laps is not None else "N/A"
-
-    position = first_non_empty(row.get("position"), row.get("pos"))
-    competitor_id = first_non_empty(row.get("competitorId"), row.get("id"), competitor.get("id"))
-    start_number = first_non_empty(row.get("startNumber"), row.get("transponder"))
-
-    lap_driver_id = None
-    action_label = None
-    comp_id_ok = competitor_id not in (None, "") and (
-        available_comp_ids is None or str(competitor_id) in available_comp_ids
-    )
-    start_no_ok = start_number not in (None, "") and (
-        available_start_numbers is None or str(start_number) in available_start_numbers
-    )
-
-    if comp_id_ok:
-        lap_driver_id = f"cid:{competitor_id}"
-        action_label = "View Laps"
-    elif start_no_ok:
-        lap_driver_id = f"sn:{start_number}"
-        action_label = "View Laps"
-    elif position not in (None, ""):
-        lap_driver_id = f"pos:{position}"
-        action_label = "View Position Trace"
-
-    return {
-        "position": position if position is not None else "N/A",
-        "position_sort": safe_int(position),
-        "driver_name": driver_name,
-        "car_class": car_class,
-        "total_time_display": total_time,
-        "best_lap_display": best_lap,
-        "laps_display": laps_display,
-        "lap_driver_id": lap_driver_id,
-        "action_label": action_label,
-    }
+# format_gap_display, safe_int, and normalize_result_row are now imported from speedhive.processing.process_lap_analysis
 
 
 
@@ -660,21 +547,20 @@ def read_lap_chart_from_store(session_id: int) -> tuple[List[Dict[str, Any]], Di
     return payload if isinstance(payload, list) else [], meta
 
 def get_org_store_status(org_id: int) -> Dict[str, Any]:
-    refresh_state = read_org_refresh_state(org_id)
-    if refresh_state.get("last_refresh_at"):
+    status = storage.get_org_status(org_id)
+    if status.get("last_refresh_at"):
         return {
-            "saved_at": refresh_state.get("last_refresh_at"),
-            "age_seconds": refresh_state.get("age_seconds"),
-            "age_hours": refresh_state.get("age_hours"),
+            "saved_at": status.get("last_refresh_at"),
+            "age_seconds": status.get("age_seconds"),
+            "age_hours": status.get("age_hours"),
             "source": "org-refresh-state",
             "stale": False,
             "error": None,
-            "events_cached": refresh_state.get("events_cached"),
-            "sessions_cached": refresh_state.get("sessions_cached"),
-            "championships_cached": refresh_state.get("championships_cached"),
+            "events_cached": status.get("events_cached"),
+            "sessions_cached": status.get("sessions_cached"),
+            "championships_cached": status.get("championships_cached"),
         }
-    _, saved_at = db_stored_record(lambda: storage.get_events(org_id))
-    return cache_meta(saved_at, source="cache-status")
+    return cache_meta(None, source="cache-status")
 
 def get_organization_stored(org_id: int, force_refresh: bool = False) -> tuple[Dict[str, Any], Dict[str, Any]]:
     data, meta = store_fetch(
@@ -885,36 +771,7 @@ def _infer_session_event_id(session_payload: Any) -> Optional[int]:
     )
 
 def read_org_refresh_state(org_id: int) -> Dict[str, Any]:
-    db_payload = storage.get_refresh_state(org_id).payload
-    payload = db_payload
-    if not isinstance(payload, dict):
-        return {}
-
-    full_dt = parse_iso_utc(payload.get("last_full_refresh_at"))
-    incremental_dt = parse_iso_utc(payload.get("last_incremental_refresh_at"))
-    explicit_last_dt = parse_iso_utc(payload.get("last_refresh_at"))
-    last_dt = explicit_last_dt
-    if not last_dt:
-        candidates = [dt for dt in (full_dt, incremental_dt) if dt]
-        if candidates:
-            last_dt = max(candidates)
-
-    age = cache_age_seconds(last_dt)
-    return {
-        "org_id": org_id,
-        "last_refresh_mode": first_non_empty(payload.get("last_refresh_mode"), "full" if full_dt else None),
-        "last_refresh_at": iso_utc(last_dt) if last_dt else None,
-        "last_full_refresh_at": iso_utc(full_dt) if full_dt else None,
-        "last_incremental_refresh_at": iso_utc(incremental_dt) if incremental_dt else None,
-        "age_seconds": age,
-        "age_hours": (age / 3600.0) if age is not None else None,
-        "events_cached": safe_int(payload.get("events_cached"), 0),
-        "sessions_cached": safe_int(payload.get("sessions_cached"), 0),
-        "championships_cached": safe_int(payload.get("championships_cached"), 0),
-        "new_events_detected": safe_int(payload.get("new_events_detected"), 0),
-        "refreshed_events": safe_int(payload.get("refreshed_events"), 0),
-        "refreshed_sessions": safe_int(payload.get("refreshed_sessions"), 0),
-    }
+    return storage.get_org_status(org_id)
 
 
 def list_stored_orgs() -> List[Dict[str, Any]]:
@@ -932,68 +789,7 @@ def list_stored_orgs() -> List[Dict[str, Any]]:
 
 def save_org_dump(org_id: int, force_refresh: bool = False, max_events: Optional[int] = None) -> Dict[str, Any]:
     dump_dir = DUMPS_ROOT / str(org_id)
-    dump_dir.mkdir(parents=True, exist_ok=True)
-
-    events, _ = get_events_stored(org_id, force_refresh=force_refresh)
-    if max_events is not None:
-        events = events[:max_events]
-
-    events_path = dump_dir / "events.ndjson"
-    sessions_path = dump_dir / "sessions.ndjson"
-    laps_path = dump_dir / "laps.ndjson"
-    anns_path = dump_dir / "announcements.ndjson"
-    results_path = dump_dir / "results.ndjson"
-
-    events_count = 0
-    sessions_count = 0
-    laps_records_count = 0
-
-    with open(events_path, "w", encoding="utf-8") as events_fh, \
-         open(sessions_path, "w", encoding="utf-8") as sessions_fh, \
-         open(laps_path, "w", encoding="utf-8") as laps_fh, \
-         open(anns_path, "w", encoding="utf-8") as anns_fh, \
-         open(results_path, "w", encoding="utf-8") as results_fh:
-        for event in events:
-            if not isinstance(event, dict):
-                continue
-            event_id = event.get("id")
-            if not event_id:
-                continue
-            event_name = event.get("name")
-            base_event = {"org_id": org_id, "event_id": event_id, "event_name": event_name}
-            write_ndjson_line(events_fh, {**base_event, "raw": event})
-            events_count += 1
-
-            sessions, _ = get_sessions_stored(int(event_id), force_refresh=force_refresh)
-            for session in sessions:
-                if not isinstance(session, dict):
-                    continue
-                session_id = session.get("id")
-                if not session_id:
-                    continue
-                session_id_int = int(session_id)
-                write_ndjson_line(sessions_fh, {**base_event, "session_id": session_id_int, "raw": session})
-                sessions_count += 1
-
-                announcements, _ = get_announcements_stored(session_id_int, force_refresh=force_refresh)
-                write_ndjson_line(anns_fh, {**base_event, "session_id": session_id_int, "announcements": announcements})
-
-                results, _ = get_results_stored(session_id_int, force_refresh=force_refresh)
-                write_ndjson_line(results_fh, {**base_event, "session_id": session_id_int, "results": results})
-
-                laps, _ = get_laps_stored(session_id_int, force_refresh=force_refresh)
-                write_ndjson_line(laps_fh, {**base_event, "session_id": session_id_int, "rows_count": len(laps), "rows": laps})
-                laps_records_count += 1
-
-    manifest = {
-        "org_id": org_id,
-        "saved_at": iso_utc(utc_now()),
-        "events_count": events_count,
-        "sessions_count": sessions_count,
-        "laps_records_count": laps_records_count,
-    }
-    write_json_file(dump_dir / "manifest.json", manifest)
-    return {"path": str(dump_dir), **manifest}
+    return export_db_dump(storage, org_id, dump_dir, max_events)
 
 def format_saved_at_display(saved_at_value: Optional[str]) -> str:
     saved_dt = parse_iso_utc(saved_at_value)
