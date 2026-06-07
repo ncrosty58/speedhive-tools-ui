@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "s
 
 from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
+from speedhive.exporters.export_lap_records import get_lap_records
 from speedhive.storage import SpeedhiveStorage
 from speedhive.processing.process_lap_analysis import (
     extract_iso_date,
@@ -1703,23 +1704,8 @@ def export_org_lap_records(org_id):
     max_events = max(1, min(safe_int(request.args.get("max_events"), 25), MAX_ORG_EVENTS))
 
     def generate():
-        events, _ = read_events_from_store(org_id_int)
-        for event in events[:max_events]:
-            if not isinstance(event, dict):
-                continue
-            event_id = event.get("id")
-            if not event_id:
-                continue
-            event_name = event.get("name")
-            base_event = {"org_id": org_id_int, "event_id": event_id, "event_name": event_name}
-            sessions, _ = read_event_sessions_from_store(int(event_id))
-            for session in sessions:
-                if not isinstance(session, dict) or not session.get("id"):
-                    continue
-                sid = int(session["id"])
-                laps, _ = read_laps_from_store(sid)
-                payload = {**base_event, "session_id": sid, "rows_count": len(laps), "rows": laps}
-                yield json.dumps(payload, ensure_ascii=False, default=str) + "\n"
+        for record in get_lap_records(storage, org_id_int, max_events):
+            yield json.dumps(record, ensure_ascii=False, default=str) + "\n"
 
     headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_laps_top_{max_events}.ndjson"}
     return Response(generate(), mimetype="application/x-ndjson", headers=headers)
