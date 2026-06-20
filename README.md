@@ -106,4 +106,4 @@ To work on the core scraping or data-processing logic, changes should be made wi
 3. Reference the updated commit inside the parent `speedhive-tools-ui` repository.
 
 ## 📄 License
-This project is licensed under the [MIT License](file:///opt/speedhive_data/speedhive-tools/LICENSE).
+This project is licensed under the [MIT License](file:///opt/speedhive-tools-ui/speedhive-tools/LICENSE).
