@@ -1,0 +1,4 @@
+# Exclude the speedhive-tools submodule from UI linting
+exclude = [
+    "speedhive-tools",
+]
