@@ -4,8 +4,8 @@ Provides functions to retrieve event, session, driver, and lap data.
 All functions return dicts/lists derived from the Speedhive JSON API.
 """
 
-import requests
-from typing import Optional, List, Dict, Any
+import httpx
+from typing import List, Dict, Any
 
 BASE_URL = "https://speedhive.mylaps.com/api/v1"
 
@@ -16,7 +16,7 @@ def get_event_info(event_id: str) -> Dict[str, Any]:
     :return: dict with keys: name, date, venue, country, etc.
     """
     url = f"{BASE_URL}/events/{event_id}"
-    resp = requests.get(url)
+    resp = httpx.get(url)
     resp.raise_for_status()
     return resp.json()["data"]
 
@@ -26,7 +26,7 @@ def get_session_list(event_id: str) -> List[Dict[str, Any]]:
     Each session dict contains: id, name, type (race / practice / qualifying), start_time, etc.
     """
     url = f"{BASE_URL}/events/{event_id}/sessions"
-    resp = requests.get(url)
+    resp = httpx.get(url)
     resp.raise_for_status()
     return resp.json()["data"]
 
@@ -36,7 +36,7 @@ def get_session_results(session_id: str) -> List[Dict[str, Any]]:
     Each result dict: position, driver_name, car, total_time, best_lap_time, laps, interval, etc.
     """
     url = f"{BASE_URL}/sessions/{session_id}/results"
-    resp = requests.get(url)
+    resp = httpx.get(url)
     resp.raise_for_status()
     return resp.json()["data"]
 
@@ -45,7 +45,7 @@ def get_driver_details(driver_id: str) -> Dict[str, Any]:
     Fetch personal details of a driver (name, nationality, date of birth, etc.)
     """
     url = f"{BASE_URL}/drivers/{driver_id}"
-    resp = requests.get(url)
+    resp = httpx.get(url)
     resp.raise_for_status()
     return resp.json()["data"]
 
@@ -55,7 +55,7 @@ def get_lap_times(session_id: str, driver_id: str) -> List[Dict[str, Any]]:
     Each lap dict: lap_number, time (string), time_ms (int), sector_times (list).
     """
     url = f"{BASE_URL}/sessions/{session_id}/drivers/{driver_id}/laps"
-    resp = requests.get(url)
+    resp = httpx.get(url)
     resp.raise_for_status()
     return resp.json()["data"]
 

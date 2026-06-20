@@ -14,7 +14,7 @@
                 <span>Event</span>
             {% endif %}
             <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            <span>{{ session.name or 'Session' }}</span>
+            <span>{% if session %}{{ session.name or 'Session' }}{% else %}Session{% endif %}</span>
         </div>
         <a href="/session/{{ session_id }}/export-laps.json" class="btn-custom-outline"><i class="fa-solid fa-file-arrow-down"></i> Export Laps JSON</a>
     </div>
