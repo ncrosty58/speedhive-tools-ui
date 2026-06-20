@@ -8,7 +8,7 @@
         <div class="breadcrumb-custom">
             <a href="/">Dashboard</a>
             <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            {% if championship.organizationId %}
+            {% if championship and championship.organizationId %}
                 <a href="/org/{{ championship.organizationId }}">Organization #{{ championship.organizationId }}</a>
             {% else %}
                 <span>Organization</span>

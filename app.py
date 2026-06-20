@@ -1,16 +1,12 @@
 """Web app for Speedhive data with HTML frontend using speedhive-tools."""
 import json
 import os
-import re
-import statistics
 import sys
 import tempfile
 import threading
-import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -1512,7 +1508,7 @@ def event_info(event_id):
         event_id_int = int(event_id)
         event, _ = read_event_from_store(event_id_int)
         if not event:
-            return render_template("event.html", error=f"Event #{event_id} not found", event_id=event_id), 404
+            return render_template("event.html", error=f"Event #{event_id} not found", event_id=event_id, event={}), 404
 
         event_view = dict(event)
         organization = event.get("organization") if isinstance(event.get("organization"), dict) else {}
@@ -1566,6 +1562,8 @@ def session_results(session_id):
     try:
         session_id_int = int(session_id)
         session, session_meta = read_session_from_store(session_id_int)
+        if not session:
+            return render_template("results.html", error=f"Session #{session_id} not found", session_id=session_id, session={}), 404
         results, _ = read_results_from_store(session_id_int)
         announcements, _ = read_announcements_from_store(session_id_int)
         lap_chart, _ = read_lap_chart_from_store(session_id_int)
@@ -1621,7 +1619,7 @@ def session_results(session_id):
             cache_status=laps_meta if laps_meta else session_meta,
         )
     except Exception as exc:
-        return render_template("results.html", error=str(exc), session_id=session_id), 500
+        return render_template("results.html", error=str(exc), session_id=session_id, session={}), 500
 
 @app.route("/session/<session_id>/export-laps.json")
 def export_session_laps(session_id):
@@ -1639,6 +1637,9 @@ def export_session_laps(session_id):
 def lap_times(session_id, driver_id):
     try:
         session_id_int = int(session_id)
+        session, _ = read_session_from_store(session_id_int)
+        if not session:
+            return render_template("lap_times.html", error=f"Session #{session_id} not found", session_id=session_id, driver_id=driver_id), 404
         lookup_mode = "cid"
         lookup_value = str(driver_id)
         if ":" in lookup_value:

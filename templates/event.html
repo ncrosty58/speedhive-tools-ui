@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Event {{ event.name or event_id }} | Speedhive-tools Center{% endblock %}
+{% block title %}Event {% if event %}{{ event.name or event_id }}{% else %}{{ event_id }}{% endif %} | Speedhive-tools Center{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -14,7 +14,7 @@
                 <span>Organization</span>
             {% endif %}
             <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            <span>{{ event.name }}</span>
+            <span>{% if event %}{{ event.name }}{% else %}Event Details{% endif %}</span>
         </div>
     </div>
 
