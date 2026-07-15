@@ -478,6 +478,7 @@
             </button>
             <div class="collapse navbar-collapse justify-content-end" id="mainNav">
                 <ul class="navbar-nav align-items-center gap-2">
+                    {% if authenticated %}
                     <li class="nav-item me-3">
                         <select class="form-select form-control-custom" style="font-size: 0.8rem; min-width: 200px; padding: 0.25rem 2rem 0.25rem 0.5rem;" onchange="navigateToOrganization(this.value)">
                             <option value="">-- Workspace --</option>
@@ -491,11 +492,21 @@
                             Dashboard
                         </a>
                     </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link nav-link-custom" href="https://speedhive.mylaps.com" target="_blank" rel="noopener">
                             MyLaps
                         </a>
                     </li>
+                    {% if authenticated %}
+                    <li class="nav-item">
+                        <form method="post" action="/logout" class="m-0">
+                            <button type="submit" class="nav-link nav-link-custom border-0 bg-transparent">
+                                <i class="fa-solid fa-right-from-bracket me-1"></i>Logout
+                            </button>
+                        </form>
+                    </li>
+                    {% endif %}
                 </ul>
             </div>
         </div>

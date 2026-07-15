@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     environment:
       - SPEEDHIVE_WEB_DATA_DIR=/app/web_data
+      # site login password; value lives in the gitignored .env file
+      - SPEEDHIVE_UI_PASSWORD=${SPEEDHIVE_UI_PASSWORD}
     ports:
       - "8854:8854"
     volumes:

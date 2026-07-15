@@ -15,15 +15,55 @@ def setup_test_env():
         db_path = Path(tmpdir) / "test_speedhive.db"
         os.environ["SPEEDHIVE_DB_PATH"] = str(db_path)
         os.environ["SPEEDHIVE_WEB_DATA_DIR"] = tmpdir
+        os.environ["SPEEDHIVE_UI_PASSWORD"] = "test-password"
         yield
         # Cleanup is handled by TemporaryDirectory
 
 @pytest.fixture
 def client():
+    """A logged-in client (the whole UI sits behind the site password)."""
+    from app import app, UI_PASSWORD
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        client.post("/login", data={"password": UI_PASSWORD})
+        yield client
+
+@pytest.fixture
+def anon_client():
     from app import app
     app.config["TESTING"] = True
     with app.test_client() as client:
         yield client
+
+def test_login_required_for_ui(anon_client):
+    """Anonymous UI requests are sent to the login page."""
+    resp = anon_client.get("/")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+def test_public_track_records_feed_stays_open(anon_client):
+    """The curated feed and CI sync endpoints must not require a login."""
+    resp = anon_client.get("/org/123/track-records.json")
+    assert resp.status_code == 200
+    resp = anon_client.get("/org/123/track-records/status")
+    assert resp.status_code in (200, 502)  # may fail upstream, but not a login redirect
+
+def test_login_wrong_password(anon_client):
+    resp = anon_client.post("/login", data={"password": "nope"})
+    assert resp.status_code == 200
+    assert b"Incorrect password" in resp.data
+
+def test_login_and_logout(anon_client):
+    from app import UI_PASSWORD
+    resp = anon_client.post("/login", data={"password": UI_PASSWORD})
+    assert resp.status_code == 302
+    resp = anon_client.get("/")
+    assert resp.status_code == 200
+    resp = anon_client.post("/logout")
+    assert resp.status_code == 302
+    resp = anon_client.get("/")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
 
 def test_app_home_route(client):
     """Test that the home page (dashboard) renders successfully."""

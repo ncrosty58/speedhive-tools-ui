@@ -39,6 +39,33 @@ import track_records
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
 
+# Site-wide UI password (see /login): keeps random visitors from modifying the
+# database, without per-user accounts. Must be provided via env (docker-compose
+# reads it from the gitignored .env file); logins are refused if unset.
+UI_PASSWORD = os.environ.get("SPEEDHIVE_UI_PASSWORD")
+
+# Endpoints that stay open without a login session. These are machine-facing:
+# whrri-demo fetches the curated feed directly from browsers, and its GitLab CI
+# schedule drives the status/sync endpoints unauthenticated.
+PUBLIC_ENDPOINTS = {
+    "login",
+    "static",
+    "org_track_records_json",         # curated feed consumed live by whrri-demo
+    "org_track_records_status",       # polled by whrri-demo GitLab CI sync job
+    "org_track_records_sync",         # triggered by whrri-demo GitLab CI sync job
+    "org_track_records_sync_status",  # polled by whrri-demo GitLab CI sync job
+}
+
+
+@app.before_request
+def require_login():
+    if request.endpoint is None or request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if session.get("authenticated"):
+        return None
+    next_path = request.path if request.method == "GET" else None
+    return redirect(url_for("login", next=next_path))
+
 # Initialize the Speedhive client
 client = SpeedhiveClient.create()
 
@@ -188,12 +215,13 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
   </div>
   
   <div style='margin-bottom: 30px;'>
-    <a href='https://speedhive.cosmoslab.dev/org/{org_id_int}/track-records/review' 
+    <a href='https://speedhive.cosmoslab.dev/org/{org_id_int}/track-records/review'
        style='background-color: #06b6d4; color: #0a0b10; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 14px; display: inline-block;'>
       Review and Approve
     </a>
+    {f"<p style='color: #9ca3af; font-size: 13px; margin: 12px 0 0 0;'>The site is password protected &mdash; sign in with password <span style='color: #f3f4f6; font-weight: 600;'>{UI_PASSWORD}</span></p>" if UI_PASSWORD else ""}
   </div>
-  
+
   <div style='border-top: 1px solid #222634; padding-top: 15px; color: #9ca3af; font-size: 11px;'>
     This is an automated notification from the Speedhive tools sync pipeline.
   </div>
@@ -1211,18 +1239,60 @@ def inject_global_data():
             except Exception:
                 pass
 
+    # Fall back to the org chosen at login (or last explicitly visited)
+    if not global_org_id:
+        global_org_id = session.get("org_id")
+
     if not global_org_id and request.path == "/":
         if org_list:
             global_org_id = org_list[0]["id"]
 
+    # Keep the session's org sticky: switching orgs via the navbar (or any
+    # org-scoped URL) becomes the new default for URLs without an org in them.
+    if session.get("authenticated") and global_org_id:
+        session["org_id"] = str(global_org_id)
+
     return {
         "org_list": org_list,
         "global_org_id": global_org_id,
+        "authenticated": session.get("authenticated", False),
         "datetime": datetime,
         "parse_time_value": parse_time_value,
         "format_saved_at_display": format_saved_at_display,
         "store_status_label": store_status_label,
     }
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        if not UI_PASSWORD:
+            error = "Site password is not configured (set SPEEDHIVE_UI_PASSWORD)."
+        elif request.form.get("password", "") == UI_PASSWORD:
+            session["authenticated"] = True
+            org_id = request.form.get("org_id") or ""
+            if org_id:
+                session["org_id"] = org_id
+            next_path = request.form.get("next") or ""
+            # only allow same-site relative redirects
+            if next_path.startswith("/") and not next_path.startswith("//"):
+                return redirect(next_path)
+            if org_id:
+                return redirect(url_for("index", org_id=org_id))
+            return redirect(url_for("index"))
+        else:
+            error = "Incorrect password."
+    if session.get("authenticated"):
+        return redirect(url_for("index"))
+    return render_template("login.html", error=error, next_path=request.args.get("next", ""))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
 
 @app.route("/")
 def index():
@@ -1230,6 +1300,8 @@ def index():
     org_list = list_stored_orgs()
 
     selected_org_id = request.args.get("org_id")
+    if not selected_org_id:
+        selected_org_id = session.get("org_id")
     if not selected_org_id:
         if org_list:
             selected_org_id = org_list[0]["id"]

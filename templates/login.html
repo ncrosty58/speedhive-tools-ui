@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in — Speedhive-tools{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 60vh;">
+    <div style="width: 100%; max-width: 380px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 2rem;">
+        <h1 class="h5 mb-1" style="color: var(--text-main);">
+            <i class="fa-solid fa-lock me-2" style="color: var(--brand);"></i>Sign in
+        </h1>
+        <p class="mb-4" style="color: var(--text-muted); font-size: 0.85rem;">
+            Choose a workspace and enter the site password to continue.
+        </p>
+
+        {% if error %}
+            <div class="notice-banner error mb-3"><span>{{ error }}</span></div>
+        {% endif %}
+
+        <form method="post" action="/login">
+            <input type="hidden" name="next" value="{{ next_path or '' }}">
+
+            <div class="mb-3">
+                <label class="form-label" for="login-org" style="color: var(--text-muted); font-size: 0.8rem;">Workspace</label>
+                <select class="form-select form-control-custom" id="login-org" name="org_id">
+                    <option value="">-- Choose later --</option>
+                    {% for o in org_list %}
+                        <option value="{{ o.id }}" {% if o.id|string == global_org_id|string %}selected{% endif %}>{{ o.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label" for="login-password" style="color: var(--text-muted); font-size: 0.8rem;">Password</label>
+                <input type="password" class="form-control form-control-custom" id="login-password" name="password" autofocus autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="btn btn-custom w-100">Sign in</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
