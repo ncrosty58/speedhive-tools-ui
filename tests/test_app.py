@@ -65,6 +65,20 @@ def test_login_and_logout(anon_client):
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
 
+def test_add_organization_requires_login(anon_client):
+    resp = anon_client.get("/organizations/add")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+def test_add_organization_page_and_validation(client):
+    resp = client.get("/organizations/add")
+    assert resp.status_code == 200
+    assert b"Add organization" in resp.data
+    # non-numeric input is rejected before any Speedhive lookup happens
+    resp = client.post("/organizations/add", data={"org_id": "not-a-number"})
+    assert resp.status_code == 200
+    assert b"numeric" in resp.data
+
 def test_track_records_ndjson_import_export_roundtrip(client):
     import io, json as jsonlib
     rec1 = {"classAbbreviation": "FP", "lapTime": "1:13.325", "driverName": "Jerry Morlewski", "date": "2026-05-24", "marque": "Triumph"}

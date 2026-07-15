@@ -485,6 +485,7 @@
                             {% for o in org_list %}
                                 <option value="{{ o.id }}" {% if o.id|string == global_org_id|string %}selected{% endif %}>{{ o.name }}</option>
                             {% endfor %}
+                            <option value="__add__">➕ Add organization…</option>
                         </select>
                     </li>
                     <li class="nav-item">
@@ -562,6 +563,10 @@
 
         function navigateToOrganization(val) {
             const path = window.location.pathname;
+            if (val === '__add__') {
+                window.location.href = '/organizations/add';
+                return;
+            }
             showPageLoading('Loading...', 'Switching workspace');
             if (!val) {
                 window.location.href = '/';

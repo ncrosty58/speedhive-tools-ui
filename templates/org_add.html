@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Add Organization — Speedhive-tools{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 50vh;">
+    <div style="width: 100%; max-width: 460px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 2rem;">
+        <h1 class="h5 mb-1" style="color: var(--text-main);">
+            <i class="fa-solid fa-plus me-2" style="color: var(--brand);"></i>Add organization
+        </h1>
+        <p class="mb-4" style="color: var(--text-muted); font-size: 0.85rem;">
+            Enter a Speedhive organization ID (the number in a speedhive.mylaps.com
+            organization URL). It will be looked up online before anything is loaded.
+        </p>
+
+        {% if error %}
+            <div class="notice-banner error mb-3"><span>{{ error }}</span></div>
+        {% endif %}
+
+        <form method="post" action="/organizations/add" class="d-flex gap-2 mb-3">
+            <input type="number" name="org_id" value="{{ org_id_input }}" required autofocus
+                   class="form-control form-control-custom" placeholder="e.g. 30476">
+            <button type="submit" class="btn-custom-outline flex-shrink-0">Look up</button>
+        </form>
+
+        {% if lookup %}
+        <div class="p-3 rounded mb-3" style="background: var(--brand-soft); border: 1px solid var(--border);">
+            <div style="color: var(--text-main); font-weight: 600;">{{ lookup.name }}</div>
+            <div style="color: var(--text-muted); font-size: 0.8rem;">Speedhive organization #{{ lookup.id }}</div>
+        </div>
+        <a href="/?org_id={{ lookup.id }}" class="btn-custom w-100 d-block text-center">
+            Open workspace
+        </a>
+        <p class="mt-2 mb-0" style="color: var(--text-muted); font-size: 0.75rem;">
+            The workspace starts empty — run a Refresh from its dashboard to sync
+            events into the local store; it then appears in the workspace dropdown.
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

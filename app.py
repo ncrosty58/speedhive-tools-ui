@@ -1271,15 +1271,10 @@ def login():
             error = "Site password is not configured (set SPEEDHIVE_UI_PASSWORD)."
         elif request.form.get("password", "") == UI_PASSWORD:
             session["authenticated"] = True
-            org_id = request.form.get("org_id") or ""
-            if org_id:
-                session["org_id"] = org_id
             next_path = request.form.get("next") or ""
             # only allow same-site relative redirects
             if next_path.startswith("/") and not next_path.startswith("//"):
                 return redirect(next_path)
-            if org_id:
-                return redirect(url_for("index", org_id=org_id))
             return redirect(url_for("index"))
         else:
             error = "Incorrect password."
@@ -1292,6 +1287,34 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/organizations/add", methods=["GET", "POST"])
+def org_add():
+    """Look up a Speedhive org by ID and hand off to its (empty) workspace.
+
+    Opening the workspace is what registers it: the dashboard live-fetches the
+    org, and a Refresh there syncs its data into the store, after which it
+    shows up in the workspace dropdown.
+    """
+    lookup = None
+    error = None
+    org_id_input = ""
+    if request.method == "POST":
+        org_id_input = (request.form.get("org_id") or "").strip()
+        if not org_id_input.isdigit():
+            error = "Enter a numeric Speedhive organization ID."
+        else:
+            try:
+                found = client.get_organization(int(org_id_input))
+            except Exception as exc:
+                found = None
+                error = f"Speedhive lookup failed: {exc}"
+            if found:
+                lookup = {"id": int(org_id_input), "name": found.get("name") or f"Organization #{org_id_input}"}
+            elif not error:
+                error = f"No Speedhive organization found with ID {org_id_input}."
+    return render_template("org_add.html", lookup=lookup, error=error, org_id_input=org_id_input)
 
 
 @app.route("/")
