@@ -34,6 +34,8 @@ from speedhive.processing.process_lap_analysis import (
     safe_int,
 )
 
+import track_records
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
 
@@ -47,6 +49,7 @@ DUMPS_ROOT = WEB_DATA_ROOT / "saved_dumps"
 DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", WEB_DATA_ROOT / "speedhive.db"))
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS", "3"))
+TRACK_RECORDS_ROOT = WEB_DATA_ROOT / "track_records"
 
 DUMPS_ROOT.mkdir(parents=True, exist_ok=True)
 storage = SpeedhiveStorage(DB_PATH)
@@ -71,6 +74,108 @@ with storage.connect() as conn:
         ")"
     )
     conn.commit()
+
+# ---------------------------------------------------------------------------
+# Background track-records sync task registry, persisted to disk (per org).
+# Gunicorn runs multiple worker PROCESSES (see Dockerfile: --workers 3), so an
+# in-memory dict would only be visible to whichever worker started a given
+# task -- a poll request landed on a different worker would see nothing.
+# Disk is shared by all workers. (Note: the raw-refresh registry just below
+# still uses an in-memory dict and has this same latent bug -- out of scope
+# here, flagged separately.)
+# ---------------------------------------------------------------------------
+_track_records_task_write_lock = threading.Lock()
+
+
+def _track_records_task_path(org_id: int, task_id: str) -> Path:
+    return track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)["tasks"] / f"{task_id}.json"
+
+
+def _new_track_records_task(org_id: int) -> str:
+    task_id = str(uuid.uuid4())
+    task = {
+        "task_id": task_id,
+        "org_id": org_id,
+        "status": "running",  # running | done | error
+        "phase": "Starting",
+        "started_at": iso_utc(utc_now()),
+        "finished_at": None,
+        "error": None,
+        "result": None,
+    }
+    path = _track_records_task_path(org_id, task_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(task, f, indent=2)
+    return task_id
+
+
+def _get_track_records_task(org_id: int, task_id: str) -> Optional[Dict[str, Any]]:
+    path = _track_records_task_path(org_id, task_id)
+    if not path.exists():
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def _update_track_records_task(org_id: int, task_id: str, **kwargs) -> None:
+    with _track_records_task_write_lock:
+        path = _track_records_task_path(org_id, task_id)
+        if not path.exists():
+            return
+        with open(path) as f:
+            task = json.load(f)
+        task.update(kwargs)
+        with open(path, "w") as f:
+            json.dump(task, f, indent=2)
+
+
+def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
+    tasks_dir = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)["tasks"]
+    if not tasks_dir.exists():
+        return None
+    for task_file in tasks_dir.glob("*.json"):
+        try:
+            with open(task_file) as f:
+                task = json.load(f)
+        except Exception:
+            continue
+        if task.get("status") == "running":
+            return task
+    return None
+
+
+def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
+    def report(phase):
+        _update_track_records_task(org_id, task_id, phase=phase)
+
+    try:
+        status = track_records.get_cache_status(org_id, DB_PATH, TRACK_RECORDS_ROOT)
+        if force or status["needs_sync"]:
+            report("Syncing with Speedhive")
+            mode = "full" if full else "incremental"
+            refresh_org_cache_bundle(
+                client=client,
+                org_id=org_id,
+                mode=mode,
+                max_events=MAX_ORG_EVENTS,
+                recent_backfill_events=20 if mode == "incremental" else 0,
+                cleanup_on_full=True,
+                db_path=DB_PATH,
+            )
+        else:
+            report(f"Cache is fresh ({status['age_hours']:.1f}h old), skipping sync")
+
+        result = track_records.run_sync_and_diff(org_id, DB_PATH, TRACK_RECORDS_ROOT, progress_cb=report)
+        _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=result)
+    except Exception as exc:
+        _update_track_records_task(org_id, task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
+
+
+def _track_records_candidate_identity(candidate):
+    p = candidate["proposed"]
+    return (p.get("classAbbreviation"), p.get("lapTime"), p.get("driverName"), p.get("date"))
+
 
 # ---------------------------------------------------------------------------
 # Background refresh task registry
@@ -2324,6 +2429,170 @@ def org_operations(org_id):
         cache_status=cache_status,
         running_task_id=running_task_id,
     )
+
+
+@app.route("/org/<org_id>/track-records/status")
+def org_track_records_status(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT)
+    running_task = _get_running_track_records_task_for_org(org_id_int)
+    status["task_running"] = running_task is not None
+    status["task_id"] = running_task["task_id"] if running_task else None
+    return jsonify(status)
+
+
+@app.route("/org/<org_id>/track-records/sync", methods=["POST"])
+def org_track_records_sync(org_id):
+    """Prepared API for a scheduled CI pipeline (or the UI button) to trigger
+    a sync+diff run for this org. Checks cache freshness first and returns
+    {"skipped": true} immediately (no thread spawned, no Speedhive calls)
+    unless the cache is actually stale or ?force=1 is passed -- safe to call
+    on a schedule for any org.
+    """
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+
+    body = request.get_json(silent=True) or {}
+    force = request.args.get("force") in ("1", "true", "True") or bool(body.get("force"))
+    full = request.args.get("full") in ("1", "true", "True") or bool(body.get("full"))
+
+    running_task = _get_running_track_records_task_for_org(org_id_int)
+    if running_task:
+        return jsonify({"task_id": running_task["task_id"], "org_id": org_id_int, "already_running": True})
+
+    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT)
+    if not force and not status["needs_sync"]:
+        return jsonify({
+            "skipped": True,
+            "reason": f"cache is {status['age_hours']:.1f}h old, staleness threshold is {status['stale_after_hours']}h",
+            "status": status,
+        })
+
+    task_id = _new_track_records_task(org_id_int)
+    t = threading.Thread(target=_run_track_records_sync_task, args=(task_id, org_id_int, full, force), daemon=True)
+    t.start()
+    return jsonify({"task_id": task_id, "org_id": org_id_int})
+
+
+@app.route("/org/<org_id>/track-records/sync/<task_id>")
+def org_track_records_sync_status(org_id, task_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+    task = _get_track_records_task(org_id_int, task_id)
+    if task is None:
+        return jsonify({"error": "Unknown task_id"}), 404
+    return jsonify(task)
+
+
+@app.route("/org/<org_id>/track-records/review")
+def org_track_records_review(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    payload = read_json_file(p["candidates"]) or {"generated_at": None, "candidates": []}
+    return render_template(
+        "track_records_review.html",
+        org_id=org_id_int,
+        generated_at=payload.get("generated_at"),
+        candidates=payload.get("candidates", []),
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/org/<org_id>/track-records/review/apply", methods=["POST"])
+def org_track_records_review_apply(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    identity = (
+        request.form.get("orig_classAbbreviation"),
+        request.form.get("orig_lapTime"),
+        request.form.get("orig_driverName"),
+        request.form.get("orig_date"),
+    )
+    final_record = {
+        "classAbbreviation": (request.form.get("classAbbreviation") or "").strip(),
+        "lapTime": (request.form.get("lapTime") or "").strip(),
+        "driverName": (request.form.get("driverName") or "").strip(),
+        "marque": (request.form.get("marque") or "").strip() or None,
+        "date": (request.form.get("date") or "").strip(),
+    }
+    if not final_record["classAbbreviation"] or not final_record["lapTime"] or not final_record["date"]:
+        return redirect(url_for("org_track_records_review", org_id=org_id_int, error="Class, lap time, and date are required to approve a candidate."))
+
+    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated["records"].append(final_record)
+    curated["date"] = utc_now().strftime("%Y-%m-%d")
+    track_records.save_json(p["curated"], curated)
+
+    payload = read_json_file(p["candidates"]) or {"generated_at": None, "candidates": []}
+    payload["candidates"] = [c for c in payload.get("candidates", []) if _track_records_candidate_identity(c) != identity]
+    track_records.save_json(p["candidates"], payload)
+
+    return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Approved {final_record['classAbbreviation']} — {final_record['lapTime']} by {final_record['driverName']}."))
+
+
+@app.route("/org/<org_id>/track-records/review/reject", methods=["POST"])
+def org_track_records_review_reject(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    identity = (
+        request.form.get("orig_classAbbreviation"),
+        request.form.get("orig_lapTime"),
+        request.form.get("orig_driverName"),
+        request.form.get("orig_date"),
+    )
+
+    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    rejected_payload.setdefault("rejected", []).append({
+        "classAbbreviation": identity[0],
+        "lapTime": identity[1],
+        "driverName": identity[2],
+        "date": identity[3],
+        "rejected_at": iso_utc(utc_now()),
+    })
+    track_records.save_json(p["rejected"], rejected_payload)
+
+    payload = read_json_file(p["candidates"]) or {"generated_at": None, "candidates": []}
+    payload["candidates"] = [c for c in payload.get("candidates", []) if _track_records_candidate_identity(c) != identity]
+    track_records.save_json(p["candidates"], payload)
+
+    return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Rejected {identity[0]} — {identity[1]} by {identity[2]}."))
+
+
+@app.route("/org/<org_id>/track-records.json")
+def org_track_records_json(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    body = json.dumps(curated, ensure_ascii=False)
+    resp = Response(body, mimetype="application/json")
+    # Public, read-only, non-sensitive data (lap times), no cookies/auth involved --
+    # a wildcard lets any consuming site fetch it regardless of its own domain.
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET"
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
 
 
 if __name__ == '__main__':
