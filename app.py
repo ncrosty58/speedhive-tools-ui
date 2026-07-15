@@ -22,7 +22,7 @@ except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "src"))
 
 from speedhive.wrapper import SpeedhiveClient
-from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
+from speedhive.processing.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
 from speedhive.exporters.export_db_dump import export_db_dump
 from speedhive.ndjson import dumps_ndjson_record, iter_ndjson_lines
@@ -413,7 +413,7 @@ def _get_running_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
 
 def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int) -> None:
     """Run the org refresh in a background thread with progress updates."""
-    from speedhive.exporters.export_org_cache import (
+    from speedhive.processing.refresh_org_cache import (
         _event_ids_from_rows, _sorted_event_ids_for_backfill,
         _parse_iso_utc,
     )
@@ -463,7 +463,7 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
         current_event_id_set = set(current_event_ids)
         new_event_ids = sorted(current_event_id_set - previous_event_ids)
 
-        from speedhive.exporters.export_org_cache import _safe_int
+        from speedhive.processing.refresh_org_cache import _safe_int
         refresh_event_ids: set
         if mode == "full":
             refresh_event_ids = set(current_event_id_set)
