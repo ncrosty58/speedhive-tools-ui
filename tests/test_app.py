@@ -65,6 +65,40 @@ def test_login_and_logout(anon_client):
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
 
+def test_track_records_legacy_json_migrates_to_ndjson(tmp_path):
+    """Old pretty-printed curated.json files must transparently become NDJSON."""
+    import json as jsonlib
+    import track_records
+
+    legacy_doc = {"date": "2026-03-01", "records": [
+        {"classAbbreviation": "FA", "lapTime": "1:01.861", "driverName": "J. Lewis Cooper, Jr", "marque": "Swift", "date": "2009-05-10"},
+        {"classAbbreviation": "GT1", "lapTime": "1:05.5", "driverName": "X", "marque": None, "date": "2019-06-01"},
+    ]}
+    p = track_records.paths_for_org(tmp_path, 999)
+    p["dir"].mkdir(parents=True)
+    (p["dir"] / "curated.json").write_text(jsonlib.dumps(legacy_doc))
+
+    loaded = track_records.load_curated(p)
+    assert loaded["date"] == "2026-03-01"
+    assert len(loaded["records"]) == 2
+
+    # ndjson now exists, legacy renamed aside
+    assert p["curated"].exists()
+    assert not (p["dir"] / "curated.json").exists()
+    assert (p["dir"] / "curated.json.migrated").exists()
+
+    # first line is the meta line, then one record per line
+    lines = p["curated"].read_text().strip().splitlines()
+    assert jsonlib.loads(lines[0]) == {"_meta": {"date": "2026-03-01"}}
+    assert len(lines) == 3
+
+    # round-trip through save/load preserves everything
+    loaded["date"] = "2026-07-15"
+    track_records.save_curated(p, loaded)
+    again = track_records.load_curated(p)
+    assert again["date"] == "2026-07-15"
+    assert again["records"] == loaded["records"]
+
 def test_track_records_ndjson_import_export_roundtrip(client):
     import io, json as jsonlib
     rec1 = {"classAbbreviation": "FP", "lapTime": "1:13.325", "driverName": "Jerry Morlewski", "date": "2026-05-24", "marque": "Triumph"}

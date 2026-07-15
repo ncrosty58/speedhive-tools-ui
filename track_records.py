@@ -3,8 +3,12 @@
 Pulls Speedhive's announcer-flagged "New Track/Class Record" data for a given
 org, normalizes classification tokens against that org's own alias map (no
 hardcoded org-specific data lives here), and diffs against a per-org curated
-file -- new/changed rows only ever land in a per-org candidates_pending.json
-for a human to review, never written to curated.json directly.
+file -- new/changed rows only ever land in a per-org candidates_pending.ndjson
+for a human to review, never written to curated.ndjson directly.
+
+Row-shaped data (curated records, pending candidates, rejected entries) is
+stored as NDJSON; config-shaped files (class alias map, notification settings,
+task state) are plain JSON documents.
 
 Works for any org_id; nothing here is specific to any one club/organization.
 """
@@ -33,9 +37,9 @@ def paths_for_org(track_records_root: Path, org_id: int) -> dict:
     d = org_track_records_dir(track_records_root, org_id)
     return {
         "dir": d,
-        "curated": d / "curated.json",
-        "candidates": d / "candidates_pending.json",
-        "rejected": d / "rejected.json",
+        "curated": d / "curated.ndjson",
+        "candidates": d / "candidates_pending.ndjson",
+        "rejected": d / "rejected.ndjson",
         "alias_map": d / "class_alias_map.json",
         "history": d / "history",
         "tasks": d / "tasks",
@@ -55,6 +59,95 @@ def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+
+# ---------------------------------------------------------------------------
+# NDJSON storage
+#
+# Row-shaped data (curated records, pending candidates, rejected entries) is
+# stored as NDJSON: an optional first line {"_meta": {...}} carrying the
+# document-level fields (e.g. curated's "date"), then one JSON object per
+# line. Config/state-shaped files (class_alias_map.json, tasks/*.json) stay
+# plain JSON documents. Loaders return the same in-memory dict shapes the
+# legacy pretty-printed .json files had, and transparently migrate a legacy
+# file the first time it's read (the old file is kept as *.json.migrated).
+# ---------------------------------------------------------------------------
+
+def save_ndjson(path, doc, records_key):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {k: v for k, v in doc.items() if k != records_key}
+    with open(path, "w") as f:
+        if meta:
+            f.write(json.dumps({"_meta": meta}, ensure_ascii=False) + "\n")
+        for row in doc.get(records_key, []) or []:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def load_ndjson(path, default, records_key):
+    path = Path(path)
+    if not path.exists():
+        migrated = _migrate_legacy_json(path, records_key)
+        if migrated is not None:
+            return migrated
+        doc = dict(default)
+        doc[records_key] = list(default.get(records_key, []) or [])
+        return doc
+    meta = {}
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            if isinstance(obj, dict) and set(obj.keys()) == {"_meta"}:
+                meta = obj["_meta"] or {}
+            else:
+                rows.append(obj)
+    doc = dict(default)
+    doc.update(meta)
+    doc[records_key] = rows
+    return doc
+
+
+def _migrate_legacy_json(ndjson_path, records_key):
+    """One-time migration from the old pretty-printed .json document."""
+    legacy = ndjson_path.with_suffix(".json")
+    if not legacy.exists():
+        return None
+    with open(legacy) as f:
+        doc = json.load(f)
+    save_ndjson(ndjson_path, doc, records_key)
+    try:
+        legacy.rename(legacy.with_suffix(".json.migrated"))
+    except OSError:
+        pass  # a concurrent worker won the rename race; content is identical
+    return doc
+
+
+def load_curated(p):
+    return load_ndjson(p["curated"], {"date": None, "records": []}, "records")
+
+
+def save_curated(p, doc):
+    save_ndjson(p["curated"], doc, "records")
+
+
+def load_candidates(p):
+    return load_ndjson(p["candidates"], {"generated_at": None, "org_id": None, "candidates": []}, "candidates")
+
+
+def save_candidates(p, doc):
+    save_ndjson(p["candidates"], doc, "candidates")
+
+
+def load_rejected(p):
+    return load_ndjson(p["rejected"], {"rejected": []}, "rejected")
+
+
+def save_rejected(p, doc):
+    save_ndjson(p["rejected"], doc, "rejected")
 
 
 def lap_time_to_seconds(lap_time):
@@ -135,7 +228,7 @@ def get_cache_status(org_id, db_path, track_records_root, client=None):
     p = paths_for_org(track_records_root, org_id)
     db_path = Path(db_path)
 
-    candidates_payload = load_json(p["candidates"], {"candidates": []})
+    candidates_payload = load_candidates(p)
     pending_candidates = len(candidates_payload.get("candidates", []))
 
     stale_after_hours = DEFAULT_STALE_AFTER_HOURS
@@ -263,8 +356,8 @@ def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
 
     report("Normalizing and diffing against curated records")
     alias_map = load_json(p["alias_map"], {"aliases": {}, "always_review": []})
-    curated = load_json(p["curated"], {"date": None, "records": []})
-    rejected_rows = load_json(p["rejected"], {"rejected": []}).get("rejected", [])
+    curated = load_curated(p)
+    rejected_rows = load_rejected(p).get("rejected", [])
     rejected_keys = {
         rejected_key(r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date"))
         for r in rejected_rows
@@ -357,10 +450,10 @@ def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
         "org_id": org_id,
         "candidates": candidates,
     }
-    save_json(p["candidates"], payload)
+    save_candidates(p, payload)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    save_json(p["history"] / f"candidates_{stamp}.json", payload)
+    save_ndjson(p["history"] / f"candidates_{stamp}.ndjson", payload, "candidates")
 
     new_count = sum(1 for c in candidates if c["action"] == "new_record")
     unmapped_count = sum(1 for c in candidates if c["action"] == "unmapped_classification")

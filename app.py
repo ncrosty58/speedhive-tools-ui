@@ -286,13 +286,7 @@ def _auto_notify_for_org(org_id: int) -> None:
             print(f"[Notifier] Missing configuration key(s) for Org {org_id}. Skipping email.")
             return
 
-        candidates_file = p["candidates"]
-        if not candidates_file.exists():
-            return
-
-        with open(candidates_file) as f:
-            candidates_data = json.load(f)
-
+        candidates_data = track_records.load_candidates(p)
         candidates = candidates_data.get("candidates", [])
         if not candidates:
             return
@@ -315,7 +309,7 @@ def _auto_notify_for_org(org_id: int) -> None:
 
         # Update last_notified_fingerprint on disk
         candidates_data["last_notified_fingerprint"] = fingerprint
-        track_records.save_json(candidates_file, candidates_data)
+        track_records.save_candidates(p, candidates_data)
         print(f"[Notifier] Notification sent successfully for Org {org_id}.")
 
     except Exception as exc:
@@ -2725,7 +2719,7 @@ def org_track_records_review(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    payload = read_json_file(p["candidates"]) or {"generated_at": None, "candidates": []}
+    payload = track_records.load_candidates(p)
     return render_template(
         "track_records_review.html",
         org_id=org_id_int,
@@ -2765,14 +2759,14 @@ def org_track_records_review_apply(org_id):
     if not final_record["classAbbreviation"] or not final_record["lapTime"] or not final_record["date"]:
         return redirect(url_for("org_track_records_review", org_id=org_id_int, error="Class, lap time, and date are required to approve a candidate."))
 
-    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated = track_records.load_curated(p)
     curated["records"].append(final_record)
     curated["date"] = utc_now().strftime("%Y-%m-%d")
-    track_records.save_json(p["curated"], curated)
+    track_records.save_curated(p, curated)
 
-    payload = read_json_file(p["candidates"]) or {"generated_at": None, "candidates": []}
+    payload = track_records.load_candidates(p)
     payload["candidates"] = [c for c in payload.get("candidates", []) if _track_records_candidate_identity(c) != identity]
-    track_records.save_json(p["candidates"], payload)
+    track_records.save_candidates(p, payload)
 
     return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Approved {final_record['classAbbreviation']} — {final_record['lapTime']} by {final_record['driverName']}."))
 
@@ -2792,7 +2786,7 @@ def org_track_records_review_reject(org_id):
         request.form.get("orig_date"),
     )
 
-    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    rejected_payload = track_records.load_rejected(p)
     rejected_payload.setdefault("rejected", []).append({
         "classAbbreviation": identity[0],
         "lapTime": identity[1],
@@ -2800,11 +2794,11 @@ def org_track_records_review_reject(org_id):
         "date": identity[3],
         "rejected_at": iso_utc(utc_now()),
     })
-    track_records.save_json(p["rejected"], rejected_payload)
+    track_records.save_rejected(p, rejected_payload)
 
-    payload = read_json_file(p["candidates"]) or {"generated_at": None, "candidates": []}
+    payload = track_records.load_candidates(p)
     payload["candidates"] = [c for c in payload.get("candidates", []) if _track_records_candidate_identity(c) != identity]
-    track_records.save_json(p["candidates"], payload)
+    track_records.save_candidates(p, payload)
 
     return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Rejected {identity[0]} — {identity[1]} by {identity[2]}."))
 
@@ -2816,7 +2810,7 @@ def org_track_records_curated(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated = track_records.load_curated(p)
     records = sorted(curated.get("records", []), key=lambda r: (r.get("classAbbreviation") or "", r.get("date") or ""))
     return render_template(
         "track_records_curated.html",
@@ -2843,7 +2837,7 @@ def org_track_records_curated_delete(org_id):
         request.form.get("date"),
     )
 
-    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated = track_records.load_curated(p)
     before_count = len(curated.get("records", []))
     curated["records"] = [
         r for r in curated.get("records", [])
@@ -2854,12 +2848,12 @@ def org_track_records_curated_delete(org_id):
         return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="Record not found (already removed?)."))
 
     curated["date"] = utc_now().strftime("%Y-%m-%d")
-    track_records.save_json(p["curated"], curated)
+    track_records.save_curated(p, curated)
 
     # Prevent the same announcement from immediately re-surfacing as a "new"
     # candidate on the next sync -- the underlying Speedhive data is still
     # there, so without this it would just get re-proposed right away.
-    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    rejected_payload = track_records.load_rejected(p)
     rejected_payload.setdefault("rejected", []).append({
         "classAbbreviation": identity[0],
         "lapTime": identity[1],
@@ -2868,7 +2862,7 @@ def org_track_records_curated_delete(org_id):
         "rejected_at": iso_utc(utc_now()),
         "reason": "deleted_from_curated",
     })
-    track_records.save_json(p["rejected"], rejected_payload)
+    track_records.save_rejected(p, rejected_payload)
 
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Removed {identity[0]} — {identity[1]} by {identity[2]}."))
 
@@ -2880,7 +2874,7 @@ def org_track_records_export_ndjson(org_id):
     except ValueError:
         return jsonify({"error": "Invalid org_id"}), 400
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated = track_records.load_curated(p)
 
     def generate():
         for record in curated.get("records", []):
@@ -2949,7 +2943,7 @@ def org_track_records_import(org_id):
     if not incoming:
         return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="File contained no records."))
 
-    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated = track_records.load_curated(p)
 
     def identity(r):
         return (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date"))
@@ -2965,7 +2959,7 @@ def org_track_records_import(org_id):
         notice = f"Imported {len(added)} record(s)" + (f", skipped {skipped} duplicate(s)." if skipped else ".")
 
     curated["date"] = utc_now().strftime("%Y-%m-%d")
-    track_records.save_json(p["curated"], curated)
+    track_records.save_curated(p, curated)
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=notice))
 
 
@@ -2976,7 +2970,7 @@ def org_track_records_rejected(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    rejected_payload = track_records.load_rejected(p)
     records = rejected_payload.get("rejected", [])
     # Sort rejected records by class abbreviation, then event date
     records = sorted(records, key=lambda r: (r.get("classAbbreviation") or "", r.get("date") or ""))
@@ -3004,7 +2998,7 @@ def org_track_records_rejected_restore(org_id):
         request.form.get("date"),
     )
 
-    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    rejected_payload = track_records.load_rejected(p)
     before_count = len(rejected_payload.get("rejected", []))
     rejected_payload["rejected"] = [
         r for r in rejected_payload.get("rejected", [])
@@ -3014,7 +3008,7 @@ def org_track_records_rejected_restore(org_id):
     if removed == 0:
         return redirect(url_for("org_track_records_rejected", org_id=org_id_int, error="Record not found (already restored?)."))
 
-    track_records.save_json(p["rejected"], rejected_payload)
+    track_records.save_rejected(p, rejected_payload)
 
     return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on sync."))
 
@@ -3159,7 +3153,7 @@ def org_track_records_json(org_id):
     except ValueError:
         return jsonify({"error": "Invalid org_id"}), 400
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    curated = track_records.load_curated(p)
     body = json.dumps(curated, ensure_ascii=False)
     resp = Response(body, mimetype="application/json")
     # Public, read-only, non-sensitive data (lap times), no cookies/auth involved --
@@ -3217,14 +3211,9 @@ def org_track_records_notify(org_id):
         return jsonify({"error": "Missing to_emails (neither provided in POST body nor environment)"}), 400
 
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    candidates_file = p["candidates"]
-
-    if not candidates_file.exists():
-        return jsonify({"skipped": True, "reason": "No pending candidates file found"}), 200
 
     try:
-        with open(candidates_file) as f:
-            candidates_data = json.load(f)
+        candidates_data = track_records.load_candidates(p)
     except Exception as exc:
         return jsonify({"error": f"Failed to read candidates file: {str(exc)}"}), 500
 
@@ -3242,7 +3231,7 @@ def org_track_records_notify(org_id):
         ])
         fingerprint = ",".join(fingerprint_list)
         candidates_data["last_notified_fingerprint"] = fingerprint
-        track_records.save_json(candidates_file, candidates_data)
+        track_records.save_candidates(p, candidates_data)
 
         return jsonify({"success": True, "resend_response": resend_response})
     except Exception as exc:
