@@ -207,15 +207,13 @@ def clear_org_cache_files(org_id: int):
         except Exception:
             pass
 
-    # Wipe task state files from disk
-    if REFRESH_TASKS_DIR.exists():
-        for path in REFRESH_TASKS_DIR.glob("*.json"):
-            try:
-                task = json.loads(path.read_text(encoding="utf-8"))
-                if task.get("org_id") == org_id:
-                    path.unlink(missing_ok=True)
-            except Exception:
-                continue
+    # Wipe task state records from database
+    try:
+        with storage.connect() as conn:
+            conn.execute("DELETE FROM background_tasks WHERE org_id = ?", (org_id,))
+            conn.commit()
+    except Exception:
+        pass
 
     storage.delete_org(org_id)
 

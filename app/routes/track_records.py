@@ -403,15 +403,30 @@ def org_track_records_history(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    tasks_dir = p["tasks"]
-
+    from app import storage
     tasks = []
-    if tasks_dir.exists():
-        for task_file in tasks_dir.glob("*.json"):
-            try:
-                with open(task_file) as f:
-                    task_data = json.load(f)
+    try:
+        with storage.connect() as conn:
+            cursor = conn.execute(
+                "SELECT task_id, status, payload, started_at, finished_at FROM background_tasks "
+                "WHERE org_id = ? AND task_type = 'track_records' "
+                "ORDER BY started_at DESC",
+                (org_id_int,)
+            )
+            for row in cursor.fetchall():
+                task_data = {
+                    "task_id": row["task_id"],
+                    "org_id": org_id_int,
+                    "task_type": "track_records",
+                    "status": row["status"],
+                    "started_at": row["started_at"],
+                    "finished_at": row["finished_at"],
+                }
+                if row["payload"]:
+                    try:
+                        task_data.update(json.loads(row["payload"]))
+                    except Exception:
+                        pass
 
                 duration_str = "—"
                 if task_data.get("started_at") and task_data.get("finished_at"):
@@ -432,10 +447,8 @@ def org_track_records_history(org_id):
                 task_data["duration_str"] = duration_str
                 task_data["raw_json"] = json.dumps(task_data, indent=2, ensure_ascii=False)
                 tasks.append(task_data)
-            except Exception:
-                continue
-
-    tasks = sorted(tasks, key=lambda t: t.get("started_at") or "", reverse=True)
+    except Exception:
+        pass
 
     return render_template(
         "track_records_history.html",

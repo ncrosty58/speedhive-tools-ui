@@ -65,6 +65,17 @@ def create_app() -> Flask:
             "PRIMARY KEY (org_id, session_type)"
             ")"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS background_tasks ("
+            "task_id TEXT PRIMARY KEY, "
+            "org_id INTEGER, "
+            "task_type TEXT, "
+            "status TEXT, "
+            "payload TEXT, "
+            "started_at TEXT, "
+            "finished_at TEXT"
+            ")"
+        )
         conn.commit()
         
     # Configure global request hook

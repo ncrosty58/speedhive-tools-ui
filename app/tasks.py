@@ -11,63 +11,93 @@ from speedhive.analysis.lap_analysis import safe_int
 # Paths and Constants
 APP_ROOT = Path(__file__).resolve().parent.parent
 WEB_DATA_ROOT = Path(os.environ.get("SPEEDHIVE_WEB_DATA_DIR", APP_ROOT / "web_data"))
-REFRESH_TASKS_DIR = WEB_DATA_ROOT / "refresh_tasks"
 TRACK_RECORDS_ROOT = WEB_DATA_ROOT / "track_records"
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 
 _tasks_lock = threading.Lock()
-_track_records_task_write_lock = threading.Lock()
-
-
-def _get_task_path(task_id: str) -> Path:
-    return REFRESH_TASKS_DIR / f"{task_id}.json"
 
 
 def _new_task(org_id: int, mode: str) -> str:
+    from app import storage
     task_id = str(uuid.uuid4())
     task = {
-        "task_id": task_id,
-        "org_id": org_id,
         "mode": mode,
-        "status": "running",
         "phase": "Starting refresh...",
         "current_item": "",
         "sessions_done": 0,
         "sessions_total": 0,
-        "started_at": iso_utc(utc_now()),
-        "finished_at": None,
         "error": None
     }
-    _update_task(task_id, **task)
+    started_at = iso_utc(utc_now())
+    with _tasks_lock:
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT INTO background_tasks (task_id, org_id, task_type, status, payload, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, org_id, "refresh_org", "running", json.dumps(task), started_at, None)
+            )
+            conn.commit()
     return task_id
 
 
 def _get_task(task_id: str) -> Optional[Dict[str, Any]]:
-    path = _get_task_path(task_id)
-    if not path.exists():
-        return None
+    from app import storage
     with _tasks_lock:
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT org_id, task_type, status, payload, started_at, finished_at FROM background_tasks WHERE task_id = ?",
+                (task_id,)
+            ).fetchone()
+            if not row:
+                return None
+            task = {
+                "task_id": task_id,
+                "org_id": row["org_id"],
+                "task_type": row["task_type"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+            }
+            if row["payload"]:
+                try:
+                    task.update(json.loads(row["payload"]))
+                except Exception:
+                    pass
+            return task
 
 
 def _update_task(task_id: str, **kwargs) -> None:
-    path = _get_task_path(task_id)
+    from app import storage
     with _tasks_lock:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        task = {}
-        if path.exists():
-            try:
-                task = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        task.update(kwargs)
-        try:
-            path.write_text(json.dumps(task, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+        task = _get_task(task_id)
+        if not task:
+            return
+        
+        org_id = kwargs.pop("org_id", task.get("org_id"))
+        task_type = kwargs.pop("task_type", task.get("task_type", "refresh_org"))
+        status = kwargs.pop("status", task.get("status"))
+        started_at = kwargs.pop("started_at", task.get("started_at"))
+        finished_at = kwargs.pop("finished_at", task.get("finished_at"))
+        
+        # Remove primary metadata from kwargs payload
+        kwargs.pop("task_id", None)
+        
+        payload_data = {}
+        # Merge existing payload data keys
+        keys_to_merge = (
+            "mode", "phase", "current_item", "sessions_done", "sessions_total",
+            "error", "result", "summary", "events_done", "events_total"
+        )
+        for k in keys_to_merge:
+            if k in task:
+                payload_data[k] = task[k]
+        payload_data.update(kwargs)
+        
+        with storage.connect() as conn:
+            conn.execute(
+                "UPDATE background_tasks SET org_id = ?, task_type = ?, status = ?, payload = ?, started_at = ?, finished_at = ? WHERE task_id = ?",
+                (org_id, task_type, status, json.dumps(payload_data, ensure_ascii=False), started_at, finished_at, task_id)
+            )
+            conn.commit()
 
 
 def _is_stop_requested(task_id: str) -> bool:
@@ -76,77 +106,86 @@ def _is_stop_requested(task_id: str) -> bool:
 
 
 def _get_running_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
-    if not REFRESH_TASKS_DIR.exists():
-        return None
+    from app import storage
     with _tasks_lock:
-        for path in REFRESH_TASKS_DIR.glob("*.json"):
-            try:
-                task = json.loads(path.read_text(encoding="utf-8"))
-                if task.get("org_id") == org_id and task.get("status") in ("running", "stopping"):
-                    return task
-            except Exception:
-                continue
-    return None
-
-
-def _track_records_task_path(org_id: int, task_id: str) -> Path:
-    from speedhive.workflows.track_records import curation as track_records
-    return track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)["tasks"] / f"{task_id}.json"
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT task_id, status, payload, started_at, finished_at FROM background_tasks "
+                "WHERE org_id = ? AND task_type = 'refresh_org' AND status IN ('running', 'stopping') "
+                "LIMIT 1",
+                (org_id,)
+            ).fetchone()
+            if not row:
+                return None
+            task = {
+                "task_id": row["task_id"],
+                "org_id": org_id,
+                "task_type": "refresh_org",
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+            }
+            if row["payload"]:
+                try:
+                    task.update(json.loads(row["payload"]))
+                except Exception:
+                    pass
+            return task
 
 
 def _new_track_records_task(org_id: int) -> str:
+    from app import storage
     task_id = str(uuid.uuid4())
     task = {
-        "task_id": task_id,
-        "org_id": org_id,
-        "status": "running",  # running | done | error
         "phase": "Starting",
-        "started_at": iso_utc(utc_now()),
-        "finished_at": None,
         "error": None,
         "result": None,
     }
-    path = _track_records_task_path(org_id, task_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(task, f, indent=2)
+    started_at = iso_utc(utc_now())
+    with _tasks_lock:
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT INTO background_tasks (task_id, org_id, task_type, status, payload, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, org_id, "track_records", "running", json.dumps(task), started_at, None)
+            )
+            conn.commit()
     return task_id
 
 
 def _get_track_records_task(org_id: int, task_id: str) -> Optional[Dict[str, Any]]:
-    path = _track_records_task_path(org_id, task_id)
-    if not path.exists():
-        return None
-    with open(path) as f:
-        return json.load(f)
+    return _get_task(task_id)
 
 
 def _update_track_records_task(org_id: int, task_id: str, **kwargs) -> None:
-    with _track_records_task_write_lock:
-        path = _track_records_task_path(org_id, task_id)
-        if not path.exists():
-            return
-        with open(path) as f:
-            task = json.load(f)
-        task.update(kwargs)
-        with open(path, "w") as f:
-            json.dump(task, f, indent=2)
+    _update_task(task_id, **kwargs)
 
 
 def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
-    from speedhive.workflows.track_records import curation as track_records
-    tasks_dir = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)["tasks"]
-    if not tasks_dir.exists():
-        return None
-    for task_file in tasks_dir.glob("*.json"):
-        try:
-            with open(task_file) as f:
-                task = json.load(f)
-        except Exception:
-            continue
-        if task.get("status") == "running":
+    from app import storage
+    with _tasks_lock:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT task_id, status, payload, started_at, finished_at FROM background_tasks "
+                "WHERE org_id = ? AND task_type = 'track_records' AND status = 'running' "
+                "LIMIT 1",
+                (org_id,)
+            ).fetchone()
+            if not row:
+                return None
+            task = {
+                "task_id": row["task_id"],
+                "org_id": org_id,
+                "task_type": "track_records",
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+            }
+            if row["payload"]:
+                try:
+                    task.update(json.loads(row["payload"]))
+                except Exception:
+                    pass
             return task
-    return None
 
 
 def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
