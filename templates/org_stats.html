@@ -33,9 +33,10 @@
         </div>
         
         <div class="d-flex gap-2">
-            <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}">Dashboard</a>
+            <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}">Overview</a>
             <a class="btn-custom {% if active_tab == 'stats' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/stats">Stats</a>
             <a class="btn-custom {% if active_tab == 'operations' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/operations">Operations</a>
+            <a class="btn-custom-outline py-2 px-3" href="/org/{{ org.id }}/track-records/settings"><i class="fa-solid fa-cog me-1"></i>Settings</a>
         </div>
     </div>
 
@@ -50,12 +51,12 @@
         <div class="col-12">
             <div class="glass-card text-center py-5">
                 <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
-                <p class="text-muted small mb-4">Run a data sync under Operations to generate stats.</p>
+                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
                 <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
             </div>
         </div>
     {% elif manifest_exists %}
-        <!-- Stats summary & Filter bar (always shown once data is synced) -->
+        <!-- Stats summary & Filter bar (always shown once data is refreshed) -->
         <div class="col-12">
             <div class="glass-card">
                 <div class="row g-3 align-items-center">

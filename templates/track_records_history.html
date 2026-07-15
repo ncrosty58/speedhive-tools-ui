@@ -1,18 +1,18 @@
 {% extends 'base.html' %}
 
-{% block title %}Sync History — Org {{ org_id }}{% endblock %}
+{% block title %}Track Records Scan History — Org {{ org_id }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
     <div class="col-12 d-flex justify-content-between align-items-center">
         <div>
-            <h1 class="h2 fw-bold mb-1">Track Records Sync History</h1>
+            <h1 class="h2 fw-bold mb-1">Track Records Scan History</h1>
             <span class="text-muted small">
-                Logs of previous background synchronization runs.
+                Logs of previous background scan runs.
             </span>
         </div>
         <a class="btn-custom-outline" href="/org/{{ org_id }}">
-            <i class="fa-solid fa-arrow-left"></i> Back to Org Dashboard
+            <i class="fa-solid fa-arrow-left"></i> Back to Overview
         </a>
     </div>
 
@@ -90,8 +90,8 @@
             {% else %}
             <div class="text-center py-5 text-muted">
                 <i class="fa-solid fa-history fa-3x mb-3 opacity-25"></i>
-                <p>No synchronization history found for this organization.</p>
-                <p class="small">Run a manual sync to generate logs.</p>
+                <p>No scan history found for this organization.</p>
+                <p class="small">Run a manual scan to generate logs.</p>
             </div>
             {% endif %}
         </div>

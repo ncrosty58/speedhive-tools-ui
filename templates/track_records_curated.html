@@ -18,26 +18,15 @@
     <div class="col-12">
         <div class="glass-card">
             <div class="d-flex flex-wrap align-items-center gap-2">
-                <a class="btn-custom-outline" href="{{ url_for('org_track_records_export_ndjson', org_id=org_id) }}">
-                    <i class="fa-solid fa-download me-1"></i>Export NDJSON
+                <a class="btn-custom-outline" href="{{ url_for('org_track_records_settings', org_id=org_id) }}">
+                    <i class="fa-solid fa-cog me-1"></i>Settings
                 </a>
-                <form method="POST" action="{{ url_for('org_track_records_import', org_id=org_id) }}"
-                      enctype="multipart/form-data" class="d-flex flex-wrap align-items-center gap-2 mb-0"
-                      onsubmit="return this.mode.value !== 'replace' || confirm('Replace ALL curated records with the file contents?');">
-                    <input type="file" name="file" accept=".ndjson,.jsonl,application/x-ndjson" required
-                           class="form-control form-control-custom form-control-sm" style="max-width: 280px;">
-                    <select name="mode" class="form-select form-control-custom form-select-sm" style="max-width: 160px;">
-                        <option value="merge" selected>Merge (skip dupes)</option>
-                        <option value="replace">Replace all</option>
-                    </select>
-                    <button type="submit" class="btn-custom-outline">
-                        <i class="fa-solid fa-upload me-1"></i>Import NDJSON
-                    </button>
-                </form>
+                <a class="btn-custom-outline" href="{{ url_for('org_track_records_review', org_id=org_id) }}">
+                    Review Pending Candidates
+                </a>
             </div>
             <div class="text-muted mt-2" style="font-size: 0.75rem;">
-                One JSON object per line: <code>{"classAbbreviation": "FP", "lapTime": "1:13.325", "driverName": "…", "date": "YYYY-MM-DD", "marque": "…"}</code>
-                (marque/addedAt optional). Import validates every line first — a bad line aborts the whole import.
+                Import and export are now in Operations so the curated list page stays focused on editing and review.
             </div>
         </div>
     </div>
@@ -66,7 +55,7 @@
                             <td>{{ r.date }}</td>
                             <td class="text-end">
                                 <form method="POST" action="{{ url_for('org_track_records_curated_delete', org_id=org_id) }}"
-                                      onsubmit="return confirm('Remove this record? It will not automatically reappear on future syncs.');">
+                                      onsubmit="return confirm('Remove this record? It will not automatically reappear on future scans.');">
                                     <input type="hidden" name="classAbbreviation" value="{{ r.classAbbreviation }}">
                                     <input type="hidden" name="lapTime" value="{{ r.lapTime }}">
                                     <input type="hidden" name="driverName" value="{{ r.driverName }}">

@@ -8,7 +8,7 @@
         <div>
             <h1 class="h2 fw-bold mb-1">Track Records — Review</h1>
             <span class="text-muted small">
-                {% if generated_at %}Candidates generated {{ generated_at }}{% else %}No candidates generated yet — trigger a sync from the Operations page{% endif %}
+                {% if generated_at %}Candidates generated {{ generated_at }}{% else %}No candidates generated yet — run a track-record scan from the Operations page{% endif %}
                 &bull; <a href="{{ url_for('org_track_records_curated', org_id=org_id) }}">Manage curated records</a>
             </span>
         </div>
@@ -18,7 +18,7 @@
     {% if not candidates %}
     <div class="col-12">
         <div class="glass-card">
-            <p class="text-muted mb-0">No candidates awaiting review. New candidates appear here after a sync finds a faster time or an unrecognized class in Speedhive's announcer data.</p>
+            <p class="text-muted mb-0">No candidates awaiting review. New candidates appear here after a scan finds a faster time or an unrecognized class in Speedhive's announcer data.</p>
         </div>
     </div>
     {% endif %}

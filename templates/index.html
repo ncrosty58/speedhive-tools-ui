@@ -15,9 +15,10 @@
             </div>
             
             <div class="d-flex gap-2">
-                <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}{% if classification %}&amp;classification={{ classification }}{% endif %}{% if start_date %}&amp;start_date={{ start_date }}{% endif %}{% if end_date %}&amp;end_date={{ end_date }}{% endif %}{% if limit_events %}&amp;limit_events={{ limit_events }}{% endif %}">Dashboard</a>
+                <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}{% if classification %}&amp;classification={{ classification }}{% endif %}{% if start_date %}&amp;start_date={{ start_date }}{% endif %}{% if end_date %}&amp;end_date={{ end_date }}{% endif %}{% if limit_events %}&amp;limit_events={{ limit_events }}{% endif %}">Overview</a>
                 <a class="btn-custom {% if active_tab == 'stats' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/stats">Stats</a>
                 <a class="btn-custom {% if active_tab == 'operations' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/operations">Operations</a>
+                <a class="btn-custom-outline py-2 px-3" href="/org/{{ org.id }}/track-records/settings"><i class="fa-solid fa-cog me-1"></i>Settings</a>
             </div>
         </div>
 
@@ -285,7 +286,7 @@
                                 {% elif track_records_ready %}
                                     <div class="text-center py-4 text-muted small">No lap records found.</div>
                                 {% else %}
-                                    <div class="text-center py-4 text-muted small">Run sync under Operations to generate track records.</div>
+                                    <div class="text-center py-4 text-muted small">Run the track-record scan in Operations to generate track records.</div>
                                 {% endif %}
                             </div>
                         </div>

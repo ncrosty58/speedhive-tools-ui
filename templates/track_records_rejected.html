@@ -44,7 +44,7 @@
                             <td>{{ r.reason or 'User Rejected' }}</td>
                             <td class="text-end">
                                 <form method="POST" action="{{ url_for('org_track_records_rejected_restore', org_id=org_id) }}"
-                                      onsubmit="return confirm('Restore this record? It will be eligible to be proposed again on the next sync.');">
+                                      onsubmit="return confirm('Restore this record? It will be eligible to be proposed again on the next scan.');">
                                     <input type="hidden" name="classAbbreviation" value="{{ r.classAbbreviation }}">
                                     <input type="hidden" name="lapTime" value="{{ r.lapTime }}">
                                     <input type="hidden" name="driverName" value="{{ r.driverName }}">

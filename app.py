@@ -25,6 +25,7 @@ from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
 from speedhive.exporters.export_db_dump import export_db_dump
+from speedhive.ndjson import dumps_ndjson_record, iter_ndjson_lines
 from speedhive.storage import SpeedhiveStorage
 from speedhive.processing.process_lap_analysis import (
     extract_iso_date,
@@ -198,7 +199,7 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
   <h2 style='color: #f3f4f6; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 12px; letter-spacing: -0.01em;'>Track Records Review Required</h2>
   
   <p style='color: #9ca3af; font-size: 15px; line-height: 1.6; margin-bottom: 25px;'>
-    The automatic sync has detected new track records or unmapped classifications that require human verification.
+    The automatic scan has detected new track records or unmapped classifications that require human verification.
   </p>
   
   <div style='background-color: #12141d; border: 1px solid #222634; border-radius: 4px; padding: 20px; margin-bottom: 30px;'>
@@ -229,7 +230,7 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
   </div>
 
   <div style='border-top: 1px solid #222634; padding-top: 15px; color: #9ca3af; font-size: 11px;'>
-    This is an automated notification from the Speedhive tools sync pipeline.
+    This is an automated notification from the Speedhive tools scan pipeline.
   </div>
 </div>"""
 
@@ -326,27 +327,23 @@ def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: b
         _update_track_records_task(org_id, task_id, phase=phase)
 
     try:
-        status = track_records.get_cache_status(org_id, DB_PATH, TRACK_RECORDS_ROOT)
-        if force or status["needs_sync"]:
-            report("Syncing with Speedhive")
-            mode = "full" if full else "incremental"
-            refresh_org_cache_bundle(
-                client=client,
-                org_id=org_id,
-                mode=mode,
-                max_events=MAX_ORG_EVENTS,
-                recent_backfill_events=20 if mode == "incremental" else 0,
-                cleanup_on_full=True,
-                db_path=DB_PATH,
-            )
-        else:
-            report(f"Cache is fresh ({status['age_hours']:.1f}h old), skipping sync")
+        outcome = track_records.refresh_and_scan(
+            org_id,
+            client,
+            DB_PATH,
+            TRACK_RECORDS_ROOT,
+            mode="full" if full else "incremental",
+            force=force,
+            max_events=MAX_ORG_EVENTS,
+            recent_backfill_events=20,
+            cleanup_on_full=True,
+            progress_cb=report,
+        )
+        scan_result = outcome["scan"]
+        _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=scan_result)
 
-        result = track_records.run_sync_and_diff(org_id, DB_PATH, TRACK_RECORDS_ROOT, progress_cb=report)
-        _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=result)
-
-        # Automatically check and trigger notification emails upon successful sync completion
-        if result.get("candidates_found", 0) > 0:
+        # Automatically check and trigger notification emails upon successful scan completion
+        if scan_result.get("candidates_found", 0) > 0:
             _auto_notify_for_org(org_id)
 
     except Exception as exc:
@@ -1010,14 +1007,6 @@ def get_lap_chart_stored(session_id: int, force_refresh: bool = False) -> tuple[
         ),
     )
     return data if isinstance(data, list) else [], meta
-
-
-
-def write_ndjson_line(handle, payload: Dict[str, Any]) -> None:
-    handle.write(json.dumps(payload, ensure_ascii=False, default=str))
-    handle.write("\n")
-
-
 def _infer_event_org_id(event_payload: Any) -> Optional[int]:
     if not isinstance(event_payload, dict):
         return None
@@ -1294,7 +1283,7 @@ def org_add():
     """Look up a Speedhive org by ID and hand off to its (empty) workspace.
 
     Opening the workspace is what registers it: the dashboard live-fetches the
-    org, and a Refresh there syncs its data into the store, after which it
+    org, and a Refresh there updates its data in the store, after which it
     shows up in the workspace dropdown.
     """
     lookup = None
@@ -1850,7 +1839,7 @@ def export_org_lap_records(org_id):
 
     def generate():
         for record in get_lap_records(storage, org_id_int, max_events):
-            yield json.dumps(record, ensure_ascii=False, default=str) + "\n"
+            yield dumps_ndjson_record(record) + "\n"
 
     headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_laps_top_{max_events}.ndjson"}
     return Response(generate(), mimetype="application/x-ndjson", headers=headers)
@@ -2695,10 +2684,10 @@ def org_track_records_status(org_id):
 @app.route("/org/<org_id>/track-records/sync", methods=["POST"])
 def org_track_records_sync(org_id):
     """Prepared API for a scheduled CI pipeline (or the UI button) to trigger
-    a sync+diff run for this org. Checks cache freshness first and returns
-    {"skipped": true} immediately (no thread spawned, no Speedhive calls)
-    unless the cache is actually stale or ?force=1 is passed -- safe to call
-    on a schedule for any org.
+    a refresh-and-scan run for this org. Checks cache freshness first and
+    returns {"skipped": true} immediately (no thread spawned, no Speedhive
+    calls) unless the cache is actually stale or ?force=1 is passed -- safe to
+    call on a schedule for any org.
     """
     try:
         org_id_int = int(org_id)
@@ -2718,7 +2707,7 @@ def org_track_records_sync(org_id):
         age_str = f"{status['age_hours']:.1f}h" if status.get('age_hours') is not None else "unknown age"
         return jsonify({
             "skipped": True,
-            "reason": f"sync skipped (needs_sync is false, cache is {age_str} old, source: {status.get('check_source')})",
+            "reason": f"refresh skipped (needs_sync is false, cache is {age_str} old, source: {status.get('check_source')})",
             "status": status,
         })
 
@@ -2879,7 +2868,7 @@ def org_track_records_curated_delete(org_id):
     track_records.save_curated(p, curated)
 
     # Prevent the same announcement from immediately re-surfacing as a "new"
-    # candidate on the next sync -- the underlying Speedhive data is still
+    # candidate on the next scan -- the underlying Speedhive data is still
     # there, so without this it would just get re-proposed right away.
     rejected_payload = track_records.load_rejected(p)
     rejected_payload.setdefault("rejected", []).append({
@@ -2904,12 +2893,12 @@ def org_track_records_export_ndjson(org_id):
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
     curated = track_records.load_curated(p)
 
-    def generate():
-        for record in curated.get("records", []):
-            yield json.dumps(record, ensure_ascii=False) + "\n"
-
     headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_track_records.ndjson"}
-    return Response(generate(), mimetype="application/x-ndjson", headers=headers)
+    return Response(
+        (line + "\n" for line in iter_ndjson_lines({"records": curated.get("records", [])}, "records")),
+        mimetype="application/x-ndjson",
+        headers=headers,
+    )
 
 
 # Fields carried through on import; anything else on a line is dropped.
@@ -3038,7 +3027,7 @@ def org_track_records_rejected_restore(org_id):
 
     track_records.save_rejected(p, rejected_payload)
 
-    return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on sync."))
+    return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on the next scan."))
 
 
 @app.route("/org/<org_id>/track-records/settings", methods=["GET", "POST"])

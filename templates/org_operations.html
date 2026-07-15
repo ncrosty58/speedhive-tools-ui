@@ -14,16 +14,17 @@
         </div>
         
         <div class="d-flex gap-2">
-            <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}">Dashboard</a>
+            <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}">Overview</a>
             <a class="btn-custom {% if active_tab == 'stats' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/stats">Stats</a>
             <a class="btn-custom {% if active_tab == 'operations' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/operations">Operations</a>
+            <a class="btn-custom-outline py-2 px-3" href="/org/{{ org.id }}/track-records/settings"><i class="fa-solid fa-cog me-1"></i>Settings</a>
         </div>
     </div>
 
     <!-- Live Sync Card -->
     <div class="col-lg-6">
         <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-3">Sync Store</h3>
+            <h3 class="h5 fw-bold mb-3">Refresh Data</h3>
             
             <div class="d-flex flex-wrap gap-2 mb-3">
                 <button class="btn-custom js-refresh-btn"
@@ -32,7 +33,7 @@
                         data-backfill="{{ incremental_backfill_events or 3 }}"
                         id="btn-incremental-refresh"
                         type="button">
-                    <span class="js-btn-label">Incremental Sync</span>
+                    <span class="js-btn-label">Quick Refresh</span>
                     <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
                 </button>
                 <button class="btn-custom-outline js-refresh-btn"
@@ -41,7 +42,7 @@
                         data-backfill="0"
                         id="btn-full-refresh"
                         type="button">
-                    <span class="js-btn-label">Full Sync</span>
+                    <span class="js-btn-label">Full Refresh</span>
                     <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
                 </button>
             </div>
@@ -72,7 +73,7 @@
 
             <div class="mt-3 p-2 rounded bg-surface border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center small">
                 {% if org_refresh_state and org_refresh_state.last_refresh_at %}
-                    <span class="text-success small">Last Sync: {{ format_saved_at_display(org_refresh_state.last_refresh_at) }} ({{ (org_refresh_state.last_refresh_mode or 'unknown')|upper }})</span>
+                    <span class="text-success small">Last Refresh: {{ format_saved_at_display(org_refresh_state.last_refresh_at) }} ({{ (org_refresh_state.last_refresh_mode or 'unknown')|upper }})</span>
                 {% else %}
                     <span class="text-warning small">Not Synced</span>
                 {% endif %}
@@ -86,22 +87,63 @@
     <!-- Track Records Card -->
     <div class="col-lg-6">
         <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-3">Track Records</h3>
+            <h3 class="h5 fw-bold mb-3">Track Records Scan</h3>
 
             <div class="d-flex flex-wrap gap-2 mb-3">
                 <button class="btn-custom" id="btn-pull-track-records" type="button" data-org-id="{{ org.id }}">
-                    <span class="js-btn-label">Pull Track Records</span>
-                    <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> <span id="track-records-phase">Working...</span></span>
+                    <span class="js-btn-label">Update Track Records</span>
+                    <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> <span id="track-records-phase">Updating...</span></span>
                 </button>
-                <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/review">Review Candidates</a>
-                <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/curated">Manage Curated</a>
+                <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/review">Review Results</a>
                 <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/rejected">Manage Rejected</a>
-                <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/settings"><i class="fa-solid fa-cog"></i> Settings</a>
-                <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/history"><i class="fa-solid fa-history"></i> Sync History</a>
+                <a class="btn-custom-outline" href="/org/{{ org.id }}/track-records/history"><i class="fa-solid fa-history"></i> Scan History</a>
             </div>
 
             <div class="mt-3 p-2 rounded bg-surface border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center small" id="track-records-status">
-                <span class="text-muted small">Loading status…</span>
+                <span class="text-muted small">Loading scan status…</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Track Record Data Card -->
+    <div class="col-lg-6">
+        <div class="glass-card h-100">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center mb-3">
+                <div>
+                    <h3 class="h5 fw-bold mb-1">Track Record Data</h3>
+                    <div class="text-muted small">Import or export curated track-record files from one place.</div>
+                </div>
+                <a class="btn-custom-outline" href="{{ url_for('org_track_records_curated', org_id=org.id) }}">
+                    Manage Curated List
+                </a>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <a class="btn-custom-outline" href="{{ url_for('org_track_records_export_ndjson', org_id=org.id) }}">
+                    <i class="fa-solid fa-download me-1"></i>Export Curated Records
+                </a>
+                <a class="btn-custom-outline" href="{{ url_for('export_org_lap_records', org_id=org.id, max_events=25) }}">
+                    <i class="fa-solid fa-download me-1"></i>Export Lap Records
+                </a>
+            </div>
+
+            <form method="POST" action="{{ url_for('org_track_records_import', org_id=org.id) }}"
+                  enctype="multipart/form-data" class="d-flex flex-wrap align-items-center gap-2 mb-0"
+                  onsubmit="return this.mode.value !== 'replace' || confirm('Replace ALL curated records with the file contents?');">
+                <input type="file" name="file" accept=".ndjson,.jsonl,application/x-ndjson" required
+                       class="form-control form-control-custom form-control-sm" style="max-width: 280px;">
+                <select name="mode" class="form-select form-control-custom form-select-sm" style="max-width: 160px;">
+                    <option value="merge" selected>Merge (skip dupes)</option>
+                    <option value="replace">Replace all</option>
+                </select>
+                <button type="submit" class="btn-custom-outline">
+                    <i class="fa-solid fa-upload me-1"></i>Import Curated Records
+                </button>
+            </form>
+
+            <div class="text-muted mt-2" style="font-size: 0.75rem;">
+                Import expects one JSON object per line. Required fields: class, lap time, driver, and date.
+                Merge skips duplicates; replace overwrites the curated list.
             </div>
         </div>
     </div>
@@ -125,10 +167,6 @@
                     Download ZIP
                 </a>
                 {% endif %}
-                
-                <a class="btn-custom-outline" href="/org/{{ org.id }}/export-lap-records.ndjson?max_events=25">
-                    Export NDJSON
-                </a>
             </div>
 
             {% if dump_manifest %}
@@ -162,18 +200,6 @@
         </div>
     </div>
 
-    <!-- Load another Organization -->
-    <div class="col-lg-6">
-        <div class="glass-card">
-            <h3 class="h5 fw-bold mb-3">Load Another Workspace</h3>
-            <form action="/org-search" method="get">
-                <div class="input-group">
-                    <input type="number" id="manual-org-id" name="org_id" class="form-control form-control-custom py-1" placeholder="Organization ID" required>
-                    <button class="btn-custom py-1 px-3" type="submit">Load</button>
-                </div>
-            </form>
-        </div>
-    </div>
 </div>
 {% endblock %}
 
@@ -268,7 +294,7 @@
                 : String(sessionsDone);
 
             const mode = (task.mode || "").charAt(0).toUpperCase() + (task.mode || "").slice(1);
-            modeLabel.textContent = mode + " sync";
+            modeLabel.textContent = mode + " refresh";
 
             if (task.status === "done") {
                 progressBar.style.width = "100%";
@@ -392,7 +418,7 @@
             pollTaskStatus();
         }
 
-        // Track Records pull button
+        // Track Records scan button
         const trackRecordsBtn = document.getElementById("btn-pull-track-records");
         const trackRecordsStatus = document.getElementById("track-records-status");
         const trackRecordsPhase = document.getElementById("track-records-phase");
@@ -406,10 +432,10 @@
 
         function renderTrackRecordsStatus(status) {
             if (!trackRecordsStatus) return;
-            const ageText = status.age_hours != null ? status.age_hours.toFixed(1) + "h old" : "never synced";
+            const ageText = status.age_hours != null ? status.age_hours.toFixed(1) + "h old" : "never scanned";
             trackRecordsStatus.innerHTML =
-                '<span class="text-muted">Cache: ' + ageText + '</span>' +
-                '<span class="text-muted">Pending candidates: <strong class="text-main">' + status.pending_candidates + '</strong></span>';
+                '<span class="text-muted">Speedhive cache: ' + ageText + '</span>' +
+                '<span class="text-muted">Review queue: <strong class="text-main">' + status.pending_candidates + '</strong></span>';
         }
 
         function fetchTrackRecordsStatus(orgId) {
@@ -427,7 +453,7 @@
                 fetch("/org/" + orgId + "/track-records/sync/" + taskId)
                     .then(function (r) { return r.json(); })
                     .then(function (task) {
-                        if (trackRecordsPhase) trackRecordsPhase.textContent = task.phase || "Working...";
+                        if (trackRecordsPhase) trackRecordsPhase.textContent = task.phase || "Updating...";
                         if (task.status !== "running") {
                             clearInterval(poll);
                             setTrackRecordsButtonBusy(false);
@@ -444,7 +470,7 @@
 
             trackRecordsBtn.addEventListener("click", function () {
                 setTrackRecordsButtonBusy(true);
-                if (trackRecordsPhase) trackRecordsPhase.textContent = "Starting...";
+                if (trackRecordsPhase) trackRecordsPhase.textContent = "Starting update...";
 
                 fetch("/org/" + trOrgId + "/track-records/sync?force=1", { method: "POST" })
                     .then(function (r) { return r.json(); })
