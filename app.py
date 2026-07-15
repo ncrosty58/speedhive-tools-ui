@@ -145,6 +145,154 @@ def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, A
     return None
 
 
+def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key: str, from_email: str, to_emails: list) -> dict:
+    new_records = 0
+    unmapped = 0
+    for c in candidates:
+        if c.get("type") == "new_record":
+            new_records += 1
+        elif c.get("type") == "unmapped":
+            unmapped += 1
+
+    total_candidates = len(candidates)
+
+    email_html = f"""<div style='background-color: #0a0b10; color: #f3f4f6; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #222634; border-radius: 4px;'>
+  <div style='border-bottom: 1px solid #222634; padding-bottom: 15px; margin-bottom: 25px;'>
+    <span style='color: #06b6d4; font-size: 20px; font-weight: bold; letter-spacing: -0.02em;'>Speedhive-tools</span>
+    <span style='color: #9ca3af; font-size: 20px; font-weight: 300;'> | Organization {org_id_int}</span>
+  </div>
+  
+  <h2 style='color: #f3f4f6; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 12px; letter-spacing: -0.01em;'>Track Records Review Required</h2>
+  
+  <p style='color: #9ca3af; font-size: 15px; line-height: 1.6; margin-bottom: 25px;'>
+    The automatic sync has detected new track records or unmapped classifications that require human verification.
+  </p>
+  
+  <div style='background-color: #12141d; border: 1px solid #222634; border-radius: 4px; padding: 20px; margin-bottom: 30px;'>
+    <h3 style='color: #06b6d4; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0; margin-bottom: 15px;'>Pending Candidates</h3>
+    
+    <table style='width: 100%; border-collapse: collapse;'>
+      <tr>
+        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px;'>New Record Candidates</td>
+        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600;'>{new_records}</td>
+      </tr>
+      <tr>
+        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px; border-top: 1px solid #222634;'>Unmapped Classifications</td>
+        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600; border-top: 1px solid #222634;'>{unmapped}</td>
+      </tr>
+      <tr style='border-top: 1px solid #222634;'>
+        <td style='padding: 8px 0 0 0; color: #f3f4f6; font-size: 14px; font-weight: 600;'>Total Review Queue</td>
+        <td style='padding: 8px 0 0 0; text-align: right; color: #06b6d4; font-size: 15px; font-weight: 700;'>{total_candidates}</td>
+      </tr>
+    </table>
+  </div>
+  
+  <div style='margin-bottom: 30px;'>
+    <a href='https://speedhive.cosmoslab.dev/org/{org_id_int}/track-records/review' 
+       style='background-color: #06b6d4; color: #0a0b10; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 14px; display: inline-block;'>
+      Review and Approve
+    </a>
+  </div>
+  
+  <div style='border-top: 1px solid #222634; padding-top: 15px; color: #9ca3af; font-size: 11px;'>
+    This is an automated notification from the Speedhive tools sync pipeline.
+  </div>
+</div>"""
+
+    payload = {
+        "from": from_email,
+        "to": to_emails,
+        "subject": f"WHRRI Track Records: Review Required ({total_candidates} new candidates)",
+        "html": email_html
+    }
+
+    import urllib.request
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {resend_api_key}",
+            "Content-Type": "application/json"
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _auto_notify_for_org(org_id: int) -> None:
+    try:
+        p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)
+        config_file = p["dir"] / "config.json"
+        if not config_file.exists():
+            print(f"[Notifier] Org {org_id} config.json missing. Skipping auto-notification.")
+            return
+
+        with open(config_file) as f:
+            config = json.load(f)
+
+        notif_config = config.get("notifications", {})
+        if not notif_config.get("enabled", True):
+            print(f"[Notifier] Notifications disabled for Org {org_id}. Skipping.")
+            return
+
+        resend_api_key = notif_config.get("resend_api_key") or os.environ.get("RESEND_API_KEY")
+        from_email = notif_config.get("from_email") or os.environ.get("NOTIFICATION_FROM_EMAIL")
+        to_emails = notif_config.get("to_emails")
+        if not to_emails:
+            env_to = os.environ.get("NOTIFICATION_TO_EMAILS")
+            if env_to:
+                if env_to.strip().startswith("["):
+                    try:
+                        to_emails = json.loads(env_to)
+                    except Exception:
+                        to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
+                else:
+                    to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
+
+        if isinstance(to_emails, str):
+            to_emails = [email.strip() for email in to_emails.split(",") if email.strip()]
+
+        if not resend_api_key or not from_email or not to_emails:
+            print(f"[Notifier] Missing configuration key(s) for Org {org_id}. Skipping email.")
+            return
+
+        candidates_file = p["candidates"]
+        if not candidates_file.exists():
+            return
+
+        with open(candidates_file) as f:
+            candidates_data = json.load(f)
+
+        candidates = candidates_data.get("candidates", [])
+        if not candidates:
+            return
+
+        # De-duplication check: compute fingerprint
+        fingerprint_list = sorted([
+            f"{c.get('type')}:{c.get('proposed', {}).get('classAbbreviation')}:{c.get('proposed', {}).get('lapTime')}:{c.get('proposed', {}).get('date')}"
+            for c in candidates
+        ])
+        fingerprint = ",".join(fingerprint_list)
+
+        last_notified = candidates_data.get("last_notified_fingerprint")
+        if notif_config.get("de_duplicate", True) and last_notified == fingerprint:
+            print(f"[Notifier] Pending candidates for Org {org_id} have not changed. Skipping duplicate email.")
+            return
+
+        # Send email
+        print(f"[Notifier] Sending review notification for Org {org_id} to {to_emails}...")
+        _send_resend_notification(org_id, candidates, resend_api_key, from_email, to_emails)
+
+        # Update last_notified_fingerprint on disk
+        candidates_data["last_notified_fingerprint"] = fingerprint
+        track_records.save_json(candidates_file, candidates_data)
+        print(f"[Notifier] Notification sent successfully for Org {org_id}.")
+
+    except Exception as exc:
+        print(f"[Notifier] Error executing auto-notification for Org {org_id}: {str(exc)}", file=sys.stderr)
+
+
 def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
     def report(phase):
         _update_track_records_task(org_id, task_id, phase=phase)
@@ -168,6 +316,11 @@ def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: b
 
         result = track_records.run_sync_and_diff(org_id, DB_PATH, TRACK_RECORDS_ROOT, progress_cb=report)
         _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=result)
+
+        # Automatically check and trigger notification emails upon successful sync completion
+        if result.get("candidates_found", 0) > 0:
+            _auto_notify_for_org(org_id)
+
     except Exception as exc:
         _update_track_records_task(org_id, task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
 
@@ -2776,81 +2929,19 @@ def org_track_records_notify(org_id):
     if not candidates:
         return jsonify({"skipped": True, "reason": "No pending candidates to notify about"}), 200
 
-    new_records = 0
-    unmapped = 0
-    for c in candidates:
-        if c.get("type") == "new_record":
-            new_records += 1
-        elif c.get("type") == "unmapped":
-            unmapped += 1
-
-    total_candidates = len(candidates)
-
-    email_html = f"""<div style='background-color: #0a0b10; color: #f3f4f6; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #222634; border-radius: 4px;'>
-  <div style='border-bottom: 1px solid #222634; padding-bottom: 15px; margin-bottom: 25px;'>
-    <span style='color: #06b6d4; font-size: 20px; font-weight: bold; letter-spacing: -0.02em;'>Speedhive-tools</span>
-    <span style='color: #9ca3af; font-size: 20px; font-weight: 300;'> | Organization {org_id_int}</span>
-  </div>
-  
-  <h2 style='color: #f3f4f6; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 12px; letter-spacing: -0.01em;'>Track Records Review Required</h2>
-  
-  <p style='color: #9ca3af; font-size: 15px; line-height: 1.6; margin-bottom: 25px;'>
-    The automatic sync has detected new track records or unmapped classifications that require human verification.
-  </p>
-  
-  <div style='background-color: #12141d; border: 1px solid #222634; border-radius: 4px; padding: 20px; margin-bottom: 30px;'>
-    <h3 style='color: #06b6d4; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0; margin-bottom: 15px;'>Pending Candidates</h3>
-    
-    <table style='width: 100%; border-collapse: collapse;'>
-      <tr>
-        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px;'>New Record Candidates</td>
-        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600;'>{new_records}</td>
-      </tr>
-      <tr>
-        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px; border-top: 1px solid #222634;'>Unmapped Classifications</td>
-        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600; border-top: 1px solid #222634;'>{unmapped}</td>
-      </tr>
-      <tr style='border-top: 1px solid #222634;'>
-        <td style='padding: 8px 0 0 0; color: #f3f4f6; font-size: 14px; font-weight: 600;'>Total Review Queue</td>
-        <td style='padding: 8px 0 0 0; text-align: right; color: #06b6d4; font-size: 15px; font-weight: 700;'>{total_candidates}</td>
-      </tr>
-    </table>
-  </div>
-  
-  <div style='margin-bottom: 30px;'>
-    <a href='https://speedhive.cosmoslab.dev/org/{org_id_int}/track-records/review' 
-       style='background-color: #06b6d4; color: #0a0b10; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 14px; display: inline-block;'>
-      Review and Approve
-    </a>
-  </div>
-  
-  <div style='border-top: 1px solid #222634; padding-top: 15px; color: #9ca3af; font-size: 11px;'>
-    This is an automated notification from the Speedhive tools sync pipeline.
-  </div>
-</div>"""
-
-    payload = {
-        "from": from_email,
-        "to": to_emails,
-        "subject": f"WHRRI Track Records: Review Required ({total_candidates} new candidates)",
-        "html": email_html
-    }
-
     try:
-        import urllib.request
-        import json
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {resend_api_key}",
-                "Content-Type": "application/json"
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(req) as resp:
-            resp_body = resp.read().decode("utf-8")
-            return jsonify({"success": True, "resend_response": json.loads(resp_body)})
+        resend_response = _send_resend_notification(org_id_int, candidates, resend_api_key, from_email, to_emails)
+        
+        # Calculate fingerprint and update last_notified_fingerprint
+        fingerprint_list = sorted([
+            f"{c.get('type')}:{c.get('proposed', {}).get('classAbbreviation')}:{c.get('proposed', {}).get('lapTime')}:{c.get('proposed', {}).get('date')}"
+            for c in candidates
+        ])
+        fingerprint = ",".join(fingerprint_list)
+        candidates_data["last_notified_fingerprint"] = fingerprint
+        track_records.save_json(candidates_file, candidates_data)
+
+        return jsonify({"success": True, "resend_response": resend_response})
     except Exception as exc:
         return jsonify({"error": f"Failed to send email via Resend: {str(exc)}"}), 500
 
