@@ -21,6 +21,7 @@ from app.db import (
     _prune_empty_dump_roots,
     save_org_dump,
     format_saved_at_display,
+    _list_org_dumps,
 )
 from speedhive.workflows.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
@@ -331,6 +332,71 @@ def delete_local_dump(org_id, dump_key: str = "latest"):
     return redirect(url_for("org_operations", org_id=org_id_int, notice="Deleted dump snapshot from disk."))
 
 
+def upload_local_dump(org_id):
+    try:
+        org_id_int = int(org_id)
+    except Exception:
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    if "file" not in request.files:
+        return redirect(url_for("org_operations", org_id=org_id_int, error="No file part in request."))
+    file = request.files["file"]
+    if file.filename == "":
+        return redirect(url_for("org_operations", org_id=org_id_int, error="No file selected for upload."))
+
+    if not file.filename.lower().endswith(".zip"):
+        return redirect(url_for("org_operations", org_id=org_id_int, error="Invalid file format. Please upload a ZIP archive."))
+
+    import shutil
+    import tempfile
+    from app import DB_PATH
+    from speedhive.workflows.import_sqlite_dump import import_dump_to_storage
+
+    staging_dir = Path(tempfile.mkdtemp(prefix=f"speedhive_import_{org_id_int}_"))
+    try:
+        # Save ZIP file
+        zip_path = staging_dir / "uploaded.zip"
+        file.save(zip_path)
+
+        # Unzip
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(staging_dir)
+
+        # Find where events.ndjson or events.ndjson.gz is
+        events_file = None
+        for p in staging_dir.rglob("events.ndjson*"):
+            if p.is_file():
+                events_file = p
+                break
+
+        if not events_file:
+            return redirect(url_for("org_operations", org_id=org_id_int, error="Invalid dump archive: events.ndjson not found in ZIP file."))
+
+        source_dir = events_file.parent
+        target_org_dir = staging_dir / str(org_id_int)
+        if source_dir != target_org_dir:
+            target_org_dir.mkdir(parents=True, exist_ok=True)
+            for f in source_dir.glob("*.ndjson*"):
+                if f.is_file():
+                    shutil.move(str(f), str(target_org_dir / f.name))
+
+        # Perform the import
+        summary = import_dump_to_storage(org=org_id_int, dump_dir=staging_dir, db_path=DB_PATH)
+        notice = (
+            f"Successfully imported offline dump: "
+            f"{summary.get('events', 0)} events, "
+            f"{summary.get('sessions', 0)} sessions, "
+            f"{summary.get('results', 0)} results, "
+            f"{summary.get('laps', 0)} laps, "
+            f"{summary.get('announcements', 0)} announcements."
+        )
+        return redirect(url_for("org_operations", org_id=org_id_int, notice=notice))
+    except Exception as exc:
+        return redirect(url_for("org_operations", org_id=org_id_int, error=f"Import failed: {exc}"))
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+
 def export_org_lap_records(org_id):
     try:
         org_id_int = int(org_id)
@@ -343,40 +409,21 @@ def export_org_lap_records(org_id):
         for record in get_lap_records(storage, org_id_int, max_events):
             yield dumps_ndjson_record(record) + "\n"
 
-    headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_laps_top_{max_events}.ndjson"}
-    return Response(generate(), mimetype="application/x-ndjson", headers=headers)
+    return Response(generate(), mimetype="application/x-ndjson")
 
 
 def org_operations(org_id):
-    from app.db import _list_org_dumps
     try:
         org_id_int = int(org_id)
     except Exception:
         return redirect(url_for("index", error="Invalid organization ID."))
 
     from app.db import read_organization_from_store, read_events_from_store, read_org_refresh_state
-    from app.utils import _country_name_from_value
-    from speedhive.utils.lap_analysis import first_non_empty
-
     org, _ = read_organization_from_store(org_id_int)
     if not org:
         org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-    
-    org_city = first_non_empty(
-        org_view.get("city"),
-        (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
-        (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
-    )
-    org_country = _country_name_from_value(
-        first_non_empty(
-            org_view.get("country"),
-            (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
-            (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
-        )
-    )
-    org_view["_display_location"] = ", ".join([p for p in (org_city, org_country) if p])
 
+    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
     org_refresh_state = read_org_refresh_state(org_id_int)
     events_data, events_meta = read_events_from_store(org_id_int)
     cache_status = events_meta
@@ -409,6 +456,7 @@ def register_routes(app):
     app.add_url_rule("/refresh/status/<task_id>", "refresh_status", refresh_status)
     app.add_url_rule("/refresh/stop/<task_id>", "refresh_stop", refresh_stop, methods=["POST"])
     app.add_url_rule("/org/<org_id>/dumps", "save_local", save_local, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/dumps/import", "upload_local_dump", upload_local_dump, methods=["POST"])
     app.add_url_rule("/org/<org_id>/dumps/latest.zip", "download_local_dump", download_local_dump)
     app.add_url_rule("/org/<org_id>/dumps/<dump_key>.zip", "download_local_dump", download_local_dump)
     app.add_url_rule("/org/<org_id>/dumps/<dump_key>/delete", "delete_local_dump", delete_local_dump, methods=["POST"])

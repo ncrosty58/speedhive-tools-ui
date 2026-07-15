@@ -151,7 +151,7 @@
     <!-- Offline Export Card -->
     <div class="col-lg-6">
         <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-3">Export Data</h3>
+            <h3 class="h5 fw-bold mb-3">Offline Data (Export & Import)</h3>
             
             <div class="d-flex flex-wrap gap-2 mb-3">
                 <form method="post" action="{{ url_for('save_local', org_id=org.id) }}" class="js-org-action-form d-inline" data-action-label="Generating dump...">
@@ -162,6 +162,19 @@
                     </button>
                 </form>
             </div>
+
+            <hr class="border-secondary border-opacity-25 my-3">
+
+            <h4 class="h6 fw-bold mb-2">Import Offline Dump</h4>
+            <form method="post" action="{{ url_for('upload_local_dump', org_id=org.id) }}" enctype="multipart/form-data" class="js-org-action-form" data-action-label="Importing dump...">
+                <div class="mb-3">
+                    <label for="dumpFile" class="form-label small text-secondary">Select Offline Dump ZIP file</label>
+                    <input class="form-control form-control-sm bg-dark text-white border-secondary" type="file" id="dumpFile" name="file" required accept=".zip">
+                </div>
+                <button class="btn-custom" type="submit">
+                    <i class="fa-solid fa-upload me-1"></i>Import Offline Dump
+                </button>
+            </form>
 
             {% if dump_history %}
             <div class="vstack gap-2 mt-3">

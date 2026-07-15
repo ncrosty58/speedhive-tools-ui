@@ -250,3 +250,38 @@ def test_driver_laps_page_missing(client):
     resp = client.get("/session/999999/driver/123/laps")
     assert resp.status_code == 404
     assert b"not found" in resp.data
+
+def test_upload_local_dump_success(client, monkeypatch):
+    """Test importing an offline ZIP dump successfully."""
+    import zipfile
+    import io
+    
+    # Mock import_dump_to_storage
+    mock_summary = {"events": 5, "sessions": 10, "results": 20, "laps": 100, "announcements": 2}
+    import speedhive.workflows.import_sqlite_dump as import_module
+    monkeypatch.setattr(
+        import_module,
+        "import_dump_to_storage",
+        lambda org, dump_dir, db_path: mock_summary
+    )
+
+    # Create dummy ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("777/events.ndjson", '{"id": 1, "name": "Event 1"}\n')
+        zf.writestr("777/sessions.ndjson", '{"id": 10}\n')
+
+    zip_buffer.seek(0)
+    
+    # POST file upload
+    resp = client.post(
+        "/org/777/dumps/import",
+        data={"file": (zip_buffer, "test_dump.zip")},
+        content_type="multipart/form-data",
+        follow_redirects=False
+    )
+    assert resp.status_code == 302
+    assert "notice=" in resp.headers["Location"]
+    import urllib.parse
+    decoded_location = urllib.parse.unquote_plus(resp.headers["Location"])
+    assert "imported offline dump" in decoded_location
