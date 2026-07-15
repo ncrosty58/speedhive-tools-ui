@@ -26,7 +26,7 @@ from speedhive.wrapper import SpeedhiveClient
 from speedhive.processing.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
 from speedhive.exporters.export_db_dump import export_db_dump
-from speedhive.ndjson import dumps_ndjson_record, iter_ndjson_lines
+from speedhive.ndjson import dumps_ndjson_record
 from speedhive.storage import SpeedhiveStorage
 from speedhive.processing.process_lap_analysis import (
     extract_iso_date,
@@ -43,6 +43,10 @@ from speedhive.processing.process_lap_analysis import (
 )
 
 from speedhive.processing import track_records_curation as track_records
+from speedhive.processing.track_records_files import (
+    export_curated_track_records_ndjson,
+    import_curated_track_records_ndjson,
+)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
@@ -59,9 +63,9 @@ PUBLIC_ENDPOINTS = {
     "login",
     "static",
     "org_track_records_json",         # curated feed consumed live by whrri-demo
-    "org_track_records_status",       # polled by whrri-demo GitLab CI sync job
-    "org_track_records_sync",         # triggered by whrri-demo GitLab CI sync job
-    "org_track_records_sync_status",  # polled by whrri-demo GitLab CI sync job
+    "org_track_records_status",       # polled by whrri-demo GitLab CI update job
+    "org_track_records_sync",         # triggered by whrri-demo GitLab CI update job
+    "org_track_records_sync_status",  # polled by whrri-demo GitLab CI update job
 }
 
 
@@ -1940,7 +1944,6 @@ def refresh_stop(task_id):
 
 
 @app.route("/org/<org_id>/dumps", methods=["POST"])
-@app.route("/org/<org_id>/save-local", methods=["POST"])
 def save_local(org_id):
     try:
         org_id_int = int(org_id)
@@ -1960,8 +1963,6 @@ def save_local(org_id):
 
 @app.route("/org/<org_id>/dumps/latest.zip")
 @app.route("/org/<org_id>/dumps/<dump_key>.zip")
-@app.route("/org/<org_id>/download-local-dump.zip")
-@app.route("/org/<org_id>/download-local-dump/<dump_key>.zip")
 def download_local_dump(org_id, dump_key: str = "latest"):
     try:
         org_id_int = int(org_id)
@@ -2002,8 +2003,6 @@ def download_local_dump(org_id, dump_key: str = "latest"):
 
 @app.route("/org/<org_id>/dumps/<dump_key>/delete", methods=["POST"])
 @app.route("/org/<org_id>/dumps/delete", methods=["POST"])
-@app.route("/org/<org_id>/delete-local-dump/<dump_key>", methods=["POST"])
-@app.route("/org/<org_id>/delete-local-dump", methods=["POST"])
 def delete_local_dump(org_id, dump_key: str = "latest"):
     try:
         org_id_int = int(org_id)
@@ -2860,7 +2859,6 @@ def org_operations(org_id):
 
 
 @app.route("/org/<org_id>/track-records/update/status")
-@app.route("/org/<org_id>/track-records/status")
 def org_track_records_status(org_id):
     try:
         org_id_int = int(org_id)
@@ -2874,7 +2872,6 @@ def org_track_records_status(org_id):
 
 
 @app.route("/org/<org_id>/track-records/update", methods=["POST"])
-@app.route("/org/<org_id>/track-records/sync", methods=["POST"])
 def org_track_records_sync(org_id):
     """Prepared API for a scheduled CI pipeline (or the UI button) to trigger
     a refresh-and-scan run for this org. Checks cache freshness first and
@@ -2911,7 +2908,6 @@ def org_track_records_sync(org_id):
 
 
 @app.route("/org/<org_id>/track-records/update/<task_id>")
-@app.route("/org/<org_id>/track-records/sync/<task_id>")
 def org_track_records_sync_status(org_id, task_id):
     try:
         org_id_int = int(org_id)
@@ -3081,36 +3077,22 @@ def org_track_records_curated_delete(org_id):
 
 
 @app.route("/org/<org_id>/track-records/curated.ndjson")
-@app.route("/org/<org_id>/track-records/export.ndjson")
 def org_track_records_export_ndjson(org_id):
     try:
         org_id_int = int(org_id)
     except ValueError:
         return jsonify({"error": "Invalid org_id"}), 400
-    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    curated = track_records.load_curated(p)
-
+    body = export_curated_track_records_ndjson(org_id_int, TRACK_RECORDS_ROOT)
     headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_track_records.ndjson"}
-    return Response(
-        (line + "\n" for line in iter_ndjson_lines({"records": curated.get("records", [])}, "records")),
-        mimetype="application/x-ndjson",
-        headers=headers,
-    )
-
-
-# Fields carried through on import; anything else on a line is dropped.
-_TRACK_RECORD_REQUIRED_FIELDS = ("classAbbreviation", "lapTime", "driverName", "date")
-_TRACK_RECORD_OPTIONAL_FIELDS = ("marque", "addedAt")
+    return Response(body, mimetype="application/x-ndjson", headers=headers)
 
 
 @app.route("/org/<org_id>/track-records/curated/import", methods=["POST"])
-@app.route("/org/<org_id>/track-records/import", methods=["POST"])
 def org_track_records_import(org_id):
     try:
         org_id_int = int(org_id)
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
-    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
 
     upload = request.files.get("file")
     if upload is None or not upload.filename:
@@ -3122,59 +3104,16 @@ def org_track_records_import(org_id):
     except UnicodeDecodeError:
         return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="File is not valid UTF-8 text."))
 
-    # Parse and validate every line before touching anything: all-or-nothing.
-    incoming = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as exc:
-            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
-                                    error=f"Import aborted: line {lineno} is not valid JSON ({exc.msg})."))
-        if not isinstance(obj, dict):
-            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
-                                    error=f"Import aborted: line {lineno} is not a JSON object."))
-        for field in _TRACK_RECORD_REQUIRED_FIELDS:
-            value = obj.get(field)
-            if not isinstance(value, str) or not value.strip():
-                return redirect(url_for("org_track_records_curated", org_id=org_id_int,
-                                        error=f"Import aborted: line {lineno} is missing required field '{field}'."))
-        if track_records.lap_time_to_seconds(obj["lapTime"]) is None:
-            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
-                                    error=f"Import aborted: line {lineno} has unparseable lapTime '{obj['lapTime']}' (want m:ss.mmm or ss.mmm)."))
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", obj["date"]):
-            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
-                                    error=f"Import aborted: line {lineno} has date '{obj['date']}' (want YYYY-MM-DD)."))
-        record = {field: obj[field].strip() for field in _TRACK_RECORD_REQUIRED_FIELDS}
-        for field in _TRACK_RECORD_OPTIONAL_FIELDS:
-            if obj.get(field) is not None:
-                record[field] = obj[field]
-        # deliberately no addedAt stamping here: bulk imports must not light up
-        # the consuming site's "new records" banner, which keys off addedAt
-        incoming.append(record)
+    try:
+        notice = import_curated_track_records_ndjson(
+            org_id_int,
+            TRACK_RECORDS_ROOT,
+            text,
+            replace=replace,
+        )
+    except ValueError as exc:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error=str(exc)))
 
-    if not incoming:
-        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="File contained no records."))
-
-    curated = track_records.load_curated(p)
-
-    def identity(r):
-        return (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date"))
-
-    if replace:
-        curated["records"] = incoming
-        notice = f"Replaced curated list with {len(incoming)} imported record(s)."
-    else:
-        existing = {identity(r) for r in curated.get("records", [])}
-        added = [r for r in incoming if identity(r) not in existing]
-        curated.setdefault("records", []).extend(added)
-        skipped = len(incoming) - len(added)
-        notice = f"Imported {len(added)} record(s)" + (f", skipped {skipped} duplicate(s)." if skipped else ".")
-
-    curated["date"] = utc_now().strftime("%Y-%m-%d")
-    track_records.save_curated(p, curated)
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=notice))
 
 
@@ -3229,7 +3168,6 @@ def org_track_records_rejected_restore(org_id):
 
 
 @app.route("/org/<org_id>/settings", methods=["GET", "POST"])
-@app.route("/org/<org_id>/track-records/settings", methods=["GET", "POST"])
 def org_track_records_settings(org_id):
     try:
         org_id_int = int(org_id)
