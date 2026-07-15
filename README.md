@@ -29,18 +29,18 @@ The project is structured as a modern Flask package separating concerns cleanly 
 ├── static/                     # CSS stylesheets and client-side scripts
 ├── tests/                      # UI web testing suite
 ├── app.py                      # Thin application entrypoint
-└── Makefile                    # Local build and test targets
+└── justfile                    # Local build and test targets
 ```
 
 ---
 
 ## ⚡ Background Task State Model (Gunicorn-Safe)
 
-To support multi-process web servers like Gunicorn where memory is isolated between worker processes, background task status tracking is stored on disk under the persistent `web_data/` directory:
+To support multi-process web servers like Gunicorn where memory is isolated between worker processes, background task status tracking is stored in the central SQLite database:
 
-1. **Task Persistence**: When a refresh/sync task is triggered, a task entry is created in `web_data/refresh_tasks/<task_id>.json`.
-2. **Atomic Writing**: Progress updates write atomically to the JSON state files under a thread lock.
-3. **Multi-process Visibility**: Workers across process boundaries can retrieve current background execution status by reading the task's JSON state file on disk rather than checking in-memory dictionaries.
+1. **Task Persistence**: When a refresh/sync task is triggered, a task entry is inserted into the `background_tasks` SQLite table.
+2. **Dynamic Payloads**: Core state parameters are stored as columns, while execution progress metrics are serialized inside a JSON text payload.
+3. **Multi-process Visibility**: Workers across process boundaries can check, update, and manage current background execution status by querying the shared database table rather than referencing in-memory state.
 
 ---
 
@@ -55,19 +55,19 @@ git submodule update --init --recursive
 ### 2. Install Dependencies
 Build the virtual environment, install requirements, and set up the local `speedhive-tools` package in editable mode:
 ```bash
-make install
+just install
 ```
 
 ### 3. Run the Test Suite
 Ensure the codebase is working cleanly:
 ```bash
-make test
+just test
 ```
 
 ### 4. Start the Application
 Run the local development server:
 ```bash
-make run
+just run
 ```
 The server will start on [http://localhost:8854](http://localhost:8854).
 
