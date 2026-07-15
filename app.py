@@ -1,7 +1,6 @@
 """Web app for Speedhive data with HTML frontend using speedhive-tools."""
 import json
 import os
-import re
 import sys
 import shutil
 import tempfile
