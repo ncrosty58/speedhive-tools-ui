@@ -122,6 +122,73 @@ def test_track_records_ndjson_import_rejects_bad_lines(client):
     resp = client.get("/org/556/track-records/export.ndjson")
     assert resp.get_data(as_text=True).strip() == ""
 
+
+def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
+    import json as jsonlib
+    import app as app_module
+
+    saved_at_values = iter([
+        "2026-07-15T21:30:00Z",
+        "2026-07-16T21:30:00Z",
+    ])
+
+    def fake_export_db_dump(storage, org_id, output_dir, max_events=None):
+        saved_at = next(saved_at_values)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "org_id": org_id,
+            "saved_at": saved_at,
+            "events_count": 1,
+            "sessions_count": 2,
+            "laps_records_count": 3,
+        }
+        (output_dir / "manifest.json").write_text(jsonlib.dumps(manifest), encoding="utf-8")
+        (output_dir / "events.ndjson").write_text("{}", encoding="utf-8")
+        return {"path": str(output_dir), **manifest}
+
+    monkeypatch.setattr(app_module, "export_db_dump", fake_export_db_dump)
+
+    first = client.post("/org/777/save-local", data={"max_events": "25"}, follow_redirects=False)
+    assert first.status_code == 302
+    second = client.post("/org/777/save-local", data={"max_events": "25"}, follow_redirects=False)
+    assert second.status_code == 302
+
+    latest_manifest = app_module.DUMPS_ROOT / "777" / "manifest.json"
+    archive_manifest = app_module.DUMPS_ROOT / "777" / "history" / "20260715T213000Z" / "manifest.json"
+    assert latest_manifest.exists()
+    assert archive_manifest.exists()
+
+    ops = client.get("/org/777/operations")
+    assert ops.status_code == 200
+    assert ops.data.count(b"Download ZIP") == 2
+    assert ops.data.count(b"Delete Dump") == 2
+    assert b"Current" in ops.data
+
+    latest_zip = client.get("/org/777/download-local-dump.zip")
+    assert latest_zip.status_code == 200
+    assert latest_zip.mimetype == "application/zip"
+
+    archive_zip = client.get("/org/777/download-local-dump/20260715T213000Z.zip")
+    assert archive_zip.status_code == 200
+    assert archive_zip.mimetype == "application/zip"
+
+    delete_archive = client.post("/org/777/delete-local-dump/20260715T213000Z", follow_redirects=False)
+    assert delete_archive.status_code == 302
+    assert not archive_manifest.exists()
+
+    ops_after_archive_delete = client.get("/org/777/operations")
+    assert ops_after_archive_delete.status_code == 200
+    assert ops_after_archive_delete.data.count(b"Download ZIP") == 1
+    assert ops_after_archive_delete.data.count(b"Delete Dump") == 1
+
+    delete_latest = client.post("/org/777/delete-local-dump", follow_redirects=False)
+    assert delete_latest.status_code == 302
+    assert not latest_manifest.exists()
+
+    ops_after_latest_delete = client.get("/org/777/operations")
+    assert ops_after_latest_delete.status_code == 200
+    assert b"No offline export generated yet." in ops_after_latest_delete.data
+
 def test_app_home_route(client):
     """Test that the home page (dashboard) renders successfully."""
     resp = client.get("/")

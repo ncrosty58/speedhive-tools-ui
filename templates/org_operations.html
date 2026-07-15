@@ -161,18 +161,34 @@
                         <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Generating...</span>
                     </button>
                 </form>
-                
-                {% if dump_manifest %}
-                <a class="btn-custom text-white" href="/org/{{ org.id }}/download-local-dump.zip">
-                    Download ZIP
-                </a>
-                {% endif %}
             </div>
 
-            {% if dump_manifest %}
-            <div class="mt-3 p-3 rounded bg-surface border border-secondary border-opacity-10 small">
-                <div>Manifest Date: {{ format_saved_at_display(dump_manifest.saved_at) }}</div>
-                <div class="text-secondary" style="font-size: 0.75rem;">Counts: {{ dump_manifest.events_count }} events, {{ dump_manifest.sessions_count }} sessions, {{ dump_manifest.laps_records_count }} lap blocks.</div>
+            {% if dump_history %}
+            <div class="vstack gap-2 mt-3">
+                {% for dump in dump_history %}
+                <div class="d-flex justify-content-between align-items-start gap-3 p-3 rounded bg-surface border border-secondary border-opacity-10 small">
+                    <div>
+                        <div class="fw-semibold">
+                            {{ dump.label }}
+                            {% if dump.is_latest %}
+                            <span class="badge bg-info text-dark ms-2">Current</span>
+                            {% endif %}
+                        </div>
+                        <div class="text-secondary">{{ format_saved_at_display(dump.manifest.saved_at) }}</div>
+                        <div class="text-secondary" style="font-size: 0.75rem;">Counts: {{ dump.manifest.events_count }} events, {{ dump.manifest.sessions_count }} sessions, {{ dump.manifest.laps_records_count }} lap blocks.</div>
+                    </div>
+                    <div class="d-flex flex-column gap-2 align-items-stretch">
+                        <a class="btn-custom text-white btn-sm text-nowrap" href="{{ dump.download_url }}">
+                            Download ZIP
+                        </a>
+                        <form method="post" action="{{ url_for('delete_local_dump', org_id=org.id, dump_key=dump.key) }}" onsubmit="return confirm('Delete this dump snapshot from disk?');">
+                            <button class="btn-custom-outline border-danger text-danger btn-sm w-100" type="submit">
+                                Delete Dump
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
             {% else %}
             <div class="mt-3 p-3 rounded bg-surface border border-secondary border-opacity-10 text-muted small text-center">

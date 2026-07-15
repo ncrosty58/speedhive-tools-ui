@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import shutil
 import tempfile
 import threading
 import uuid
@@ -1058,9 +1059,173 @@ def list_stored_orgs() -> List[Dict[str, Any]]:
     org_list.sort(key=lambda o: o["name"].lower())
     return org_list
 
+
+def _dump_root_for_org(org_id: int) -> Path:
+    return DUMPS_ROOT / str(org_id)
+
+
+def _dump_history_root_for_org(org_id: int) -> Path:
+    return _dump_root_for_org(org_id) / "history"
+
+
+def _dump_dir_name(saved_at: Optional[str]) -> str:
+    saved_dt = parse_iso_utc(saved_at)
+    if not saved_dt:
+        return "unknown"
+    return saved_dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _dump_manifest_path(dump_dir: Path) -> Path:
+    return dump_dir / "manifest.json"
+
+
+def _read_dump_manifest(dump_dir: Path) -> Optional[Dict[str, Any]]:
+    manifest_path = _dump_manifest_path(dump_dir)
+    if not manifest_path.exists():
+        return None
+    return read_json_file(manifest_path)
+
+
+def _archive_existing_latest_dump(org_id: int) -> Optional[Path]:
+    dump_root = _dump_root_for_org(org_id)
+    current_manifest = _read_dump_manifest(dump_root)
+    if not current_manifest:
+        return None
+
+    archive_id = _dump_dir_name(current_manifest.get("saved_at"))
+    if archive_id == "unknown":
+        archive_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    archive_root = _dump_history_root_for_org(org_id) / archive_id
+    archive_root.parent.mkdir(parents=True, exist_ok=True)
+    suffix = 2
+    while archive_root.exists():
+        archive_root = _dump_history_root_for_org(org_id) / f"{archive_id}-{suffix}"
+        suffix += 1
+    if archive_root.exists():
+        shutil.rmtree(archive_root, ignore_errors=True)
+    archive_root.mkdir(parents=True, exist_ok=True)
+
+    for child in dump_root.iterdir():
+        if child.name == "history":
+            continue
+        target = archive_root / child.name
+        if child.is_dir():
+            shutil.copytree(child, target)
+        else:
+            shutil.copy2(child, target)
+
+    return archive_root
+
+
+def _resolve_dump_dir_for_org(org_id: int, dump_key: Optional[str]) -> Optional[Path]:
+    dump_root = _dump_root_for_org(org_id)
+    if dump_key in (None, "", "latest"):
+        return dump_root
+
+    dump_dir = _dump_history_root_for_org(org_id) / dump_key
+    try:
+        dump_dir.resolve().relative_to(dump_root.resolve())
+    except Exception:
+        return None
+    return dump_dir
+
+
+def _replace_latest_dump_contents(org_id: int, source_dir: Path) -> None:
+    dump_root = _dump_root_for_org(org_id)
+    dump_root.mkdir(parents=True, exist_ok=True)
+    for child in list(dump_root.iterdir()):
+        if child.name == "history":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+
+    for child in source_dir.iterdir():
+        shutil.move(str(child), str(dump_root / child.name))
+
+
+def _delete_latest_dump_contents(org_id: int) -> None:
+    dump_root = _dump_root_for_org(org_id)
+    if not dump_root.exists():
+        return
+
+    for child in list(dump_root.iterdir()):
+        if child.name == "history":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+
+
+def _prune_empty_dump_roots(org_id: int) -> None:
+    dump_root = _dump_root_for_org(org_id)
+    history_root = _dump_history_root_for_org(org_id)
+    if history_root.exists():
+        try:
+            next(history_root.iterdir())
+        except StopIteration:
+            history_root.rmdir()
+    if dump_root.exists():
+        try:
+            next(dump_root.iterdir())
+        except StopIteration:
+            dump_root.rmdir()
+
+
+def _list_org_dumps(org_id: int) -> List[Dict[str, Any]]:
+    dump_root = _dump_root_for_org(org_id)
+    dumps: List[Dict[str, Any]] = []
+
+    latest_manifest = _read_dump_manifest(dump_root)
+    if latest_manifest:
+        dumps.append(
+            {
+                "key": "latest",
+                "is_latest": True,
+                "label": "Latest dump",
+                "download_url": url_for("download_local_dump", org_id=org_id),
+                "manifest": latest_manifest,
+            }
+        )
+
+    history_root = _dump_history_root_for_org(org_id)
+    if history_root.exists():
+        archived: List[Dict[str, Any]] = []
+        for archive_dir in history_root.iterdir():
+            if not archive_dir.is_dir():
+                continue
+            manifest = _read_dump_manifest(archive_dir)
+            if not manifest:
+                continue
+            archived.append(
+                {
+                    "key": archive_dir.name,
+                    "is_latest": False,
+                    "label": format_saved_at_display(manifest.get("saved_at")),
+                    "download_url": url_for("download_local_dump", org_id=org_id, dump_key=archive_dir.name),
+                    "manifest": manifest,
+                }
+            )
+
+        archived.sort(key=lambda dump: dump["manifest"].get("saved_at") or "", reverse=True)
+        dumps.extend(archived)
+
+    return dumps
+
 def save_org_dump(org_id: int, force_refresh: bool = False, max_events: Optional[int] = None) -> Dict[str, Any]:
-    dump_dir = DUMPS_ROOT / str(org_id)
-    return export_db_dump(storage, org_id, dump_dir, max_events)
+    dump_root = _dump_root_for_org(org_id)
+    dump_root.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=f"speedhive_org_{org_id}_", dir=str(DUMPS_ROOT)))
+    try:
+        summary = export_db_dump(storage, org_id, staging_dir, max_events)
+        _archive_existing_latest_dump(org_id)
+        _replace_latest_dump_contents(org_id, staging_dir)
+        return summary
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 def format_saved_at_display(saved_at_value: Optional[str]) -> str:
     saved_dt = parse_iso_utc(saved_at_value)
@@ -1413,10 +1578,7 @@ def index():
 
     # Get local dump manifest
     dump_manifest = None
-    dump_dir = DUMPS_ROOT / str(selected_org_id)
-    manifest_path = dump_dir / "manifest.json"
-    if manifest_path.exists():
-        dump_manifest = read_json_file(manifest_path)
+    dump_manifest = _read_dump_manifest(_dump_root_for_org(selected_org_id))
 
     # Driver search inline
     driver_query = (request.args.get("q") or "").strip()
@@ -1796,12 +1958,18 @@ def save_local(org_id):
         return redirect(url_for("org_details", org_id=org_id_int, error=f"Save-local failed: {exc}"))
 
 @app.route("/org/<org_id>/download-local-dump.zip")
-def download_local_dump(org_id):
+@app.route("/org/<org_id>/download-local-dump/<dump_key>.zip")
+def download_local_dump(org_id, dump_key: str = "latest"):
     try:
         org_id_int = int(org_id)
     except Exception:
         return redirect(url_for("index", error="Invalid organization ID."))
-    dump_dir = DUMPS_ROOT / str(org_id_int)
+    dump_root = _dump_root_for_org(org_id_int)
+    dump_dir = _resolve_dump_dir_for_org(org_id_int, dump_key)
+    if dump_dir is None:
+        return redirect(url_for("org_details", org_id=org_id_int, error="Invalid dump selection."))
+    download_name = f"speedhive_org_{org_id_int}_dump.zip" if dump_key in (None, "", "latest") else f"speedhive_org_{org_id_int}_{dump_key}.zip"
+
     if not dump_dir.exists():
         return redirect(url_for("org_details", org_id=org_id_int, error="No local dump found. Run Save Local Data first."))
 
@@ -1810,7 +1978,7 @@ def download_local_dump(org_id):
     tmp.close()
     with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in dump_dir.rglob("*"):
-            if path.is_file():
+            if path.is_file() and (dump_dir != dump_root or "history" not in path.relative_to(dump_dir).parts):
                 zf.write(path, arcname=str(path.relative_to(dump_dir.parent)))
 
     @after_this_request
@@ -1824,9 +1992,32 @@ def download_local_dump(org_id):
     return send_file(
         str(tmp_path),
         as_attachment=True,
-        download_name=f"speedhive_org_{org_id_int}_dump.zip",
+        download_name=download_name,
         mimetype="application/zip",
     )
+
+
+@app.route("/org/<org_id>/delete-local-dump/<dump_key>", methods=["POST"])
+@app.route("/org/<org_id>/delete-local-dump", methods=["POST"])
+def delete_local_dump(org_id, dump_key: str = "latest"):
+    try:
+        org_id_int = int(org_id)
+    except Exception:
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    dump_dir = _resolve_dump_dir_for_org(org_id_int, dump_key)
+    if dump_dir is None:
+        return redirect(url_for("org_operations", org_id=org_id_int, error="Invalid dump selection."))
+    if not dump_dir.exists():
+        return redirect(url_for("org_operations", org_id=org_id_int, error="No dump found to delete."))
+
+    if dump_key in (None, "", "latest"):
+        _delete_latest_dump_contents(org_id_int)
+    else:
+        shutil.rmtree(dump_dir, ignore_errors=True)
+
+    _prune_empty_dump_roots(org_id_int)
+    return redirect(url_for("org_operations", org_id=org_id_int, notice="Deleted dump snapshot from disk."))
 
 @app.route("/org/<org_id>/export-lap-records.ndjson")
 def export_org_lap_records(org_id):
@@ -2644,12 +2835,7 @@ def org_operations(org_id):
     org_refresh_state = read_org_refresh_state(org_id_int)
     events_data, events_meta = read_events_from_store(org_id_int)
     cache_status = events_meta
-    
-    dump_manifest = None
-    dump_dir = DUMPS_ROOT / str(org_id_int)
-    manifest_path = dump_dir / "manifest.json"
-    if manifest_path.exists():
-        dump_manifest = read_json_file(manifest_path)
+    dump_history = _list_org_dumps(org_id_int)
 
     running_task = _get_running_task_for_org(org_id_int)
     running_task_id = running_task["task_id"] if running_task else None
@@ -2660,7 +2846,7 @@ def org_operations(org_id):
         org_id=org_id_int,
         org_name=org_view.get("name"),
         org_refresh_state=org_refresh_state,
-        dump_manifest=dump_manifest,
+        dump_history=dump_history,
         incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
         active_tab="operations",
         cache_status=cache_status,
