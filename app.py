@@ -42,11 +42,9 @@ from speedhive.processing.process_lap_analysis import (
     safe_int,
 )
 
+from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.processing import track_records_curation as track_records
-from speedhive.processing.track_records_files import (
-    export_curated_track_records_ndjson,
-    import_curated_track_records_ndjson,
-)
+from speedhive.processing.track_records_import import import_curated_track_records_ndjson
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
