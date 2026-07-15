@@ -34,6 +34,8 @@ from speedhive.processing.process_lap_analysis import (
     safe_int,
 )
 
+import whrri_track_records
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
 
@@ -49,6 +51,7 @@ TRACK_RECORDS_DIR = WEB_DATA_ROOT / "track_records"
 WHRRI_CURATED_PATH = TRACK_RECORDS_DIR / "curated.json"
 WHRRI_CANDIDATES_PATH = TRACK_RECORDS_DIR / "candidates_pending.json"
 WHRRI_REJECTED_PATH = TRACK_RECORDS_DIR / "rejected.json"
+WHRRI_TASKS_DIR = TRACK_RECORDS_DIR / "tasks"
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS", "3"))
 
@@ -75,6 +78,71 @@ with storage.connect() as conn:
         ")"
     )
     conn.commit()
+
+# ---------------------------------------------------------------------------
+# Background track-records sync task registry. Gunicorn runs this app as
+# multiple separate WORKER PROCESSES (see Dockerfile: --workers 3), so an
+# in-memory dict here would only be visible to whichever worker happened to
+# start a given task -- a poll request landed on a different worker would see
+# nothing. Persisting task state to disk (like everything else in this app)
+# makes it visible to all workers, at the cost of a bit of file I/O.
+# ---------------------------------------------------------------------------
+_track_records_task_write_lock = threading.Lock()
+
+
+def _track_records_task_path(task_id: str) -> Path:
+    return WHRRI_TASKS_DIR / f"{task_id}.json"
+
+
+def _new_track_records_task(org_id: int) -> str:
+    task_id = str(uuid.uuid4())
+    task = {
+        "task_id": task_id,
+        "org_id": org_id,
+        "status": "running",  # running | done | error
+        "phase": "Starting",
+        "started_at": iso_utc(utc_now()),
+        "finished_at": None,
+        "error": None,
+        "result": None,
+    }
+    _write_json(_track_records_task_path(task_id), task)
+    return task_id
+
+
+def _get_track_records_task(task_id: str) -> Optional[Dict[str, Any]]:
+    return _read_json_or_default(_track_records_task_path(task_id), None)
+
+
+def _update_track_records_task(task_id: str, **kwargs) -> None:
+    with _track_records_task_write_lock:
+        path = _track_records_task_path(task_id)
+        task = _read_json_or_default(path, None)
+        if task is not None:
+            task.update(kwargs)
+            _write_json(path, task)
+
+
+def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
+    if not WHRRI_TASKS_DIR.exists():
+        return None
+    for task_file in WHRRI_TASKS_DIR.glob("*.json"):
+        task = _read_json_or_default(task_file, None)
+        if task and task.get("org_id") == org_id and task.get("status") == "running":
+            return task
+    return None
+
+
+def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
+    def report(phase):
+        _update_track_records_task(task_id, phase=phase)
+
+    try:
+        result = whrri_track_records.run_sync_and_diff(org_id, do_sync=True, full=full, force=force, progress_cb=report)
+        _update_track_records_task(task_id, status="done", finished_at=iso_utc(utc_now()), result=result)
+    except Exception as exc:
+        _update_track_records_task(task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
+
 
 # ---------------------------------------------------------------------------
 # Background refresh task registry
@@ -2431,6 +2499,63 @@ def track_records_whrri_json():
     resp.headers["Access-Control-Allow-Methods"] = "GET"
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
+
+
+@app.route("/api/org/<org_id>/track-records/status")
+def api_track_records_status(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+    status = whrri_track_records.get_cache_status(org_id_int)
+    running_task = _get_running_track_records_task_for_org(org_id_int)
+    status["task_running"] = running_task is not None
+    status["task_id"] = running_task["task_id"] if running_task else None
+    return jsonify(status)
+
+
+@app.route("/api/org/<org_id>/track-records/sync", methods=["POST"])
+def api_track_records_sync(org_id):
+    """Prepared API for CI (or the UI button) to trigger a sync+diff run.
+
+    Checks cache freshness first and returns {"skipped": true} immediately
+    (no thread spawned, no Speedhive calls) unless the cache is actually
+    stale or ?force=1 is passed -- callers can hit this on a schedule without
+    worrying about triggering an expensive sync every time.
+    """
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+
+    body = request.get_json(silent=True) or {}
+    force = request.args.get("force") in ("1", "true", "True") or bool(body.get("force"))
+    full = request.args.get("full") in ("1", "true", "True") or bool(body.get("full"))
+
+    running_task = _get_running_track_records_task_for_org(org_id_int)
+    if running_task:
+        return jsonify({"task_id": running_task["task_id"], "org_id": org_id_int, "already_running": True})
+
+    status = whrri_track_records.get_cache_status(org_id_int)
+    if not force and not status["needs_sync"]:
+        return jsonify({
+            "skipped": True,
+            "reason": f"cache is {status['age_hours']:.1f}h old, staleness threshold is {status['stale_after_hours']}h",
+            "status": status,
+        })
+
+    task_id = _new_track_records_task(org_id_int)
+    t = threading.Thread(target=_run_track_records_sync_task, args=(task_id, org_id_int, full, force), daemon=True)
+    t.start()
+    return jsonify({"task_id": task_id, "org_id": org_id_int})
+
+
+@app.route("/api/org/<org_id>/track-records/sync/<task_id>")
+def api_track_records_sync_status(org_id, task_id):
+    task = _get_track_records_task(task_id)
+    if task is None:
+        return jsonify({"error": "Unknown task_id"}), 404
+    return jsonify(task)
 
 
 if __name__ == '__main__':
