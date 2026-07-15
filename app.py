@@ -2646,6 +2646,56 @@ def org_track_records_curated_delete(org_id):
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Removed {identity[0]} — {identity[1]} by {identity[2]}."))
 
 
+@app.route("/org/<org_id>/track-records/rejected")
+def org_track_records_rejected(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    records = rejected_payload.get("rejected", [])
+    # Sort rejected records by class abbreviation, then event date
+    records = sorted(records, key=lambda r: (r.get("classAbbreviation") or "", r.get("date") or ""))
+    return render_template(
+        "track_records_rejected.html",
+        org_id=org_id_int,
+        records=records,
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/org/<org_id>/track-records/rejected/restore", methods=["POST"])
+def org_track_records_rejected_restore(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    identity = (
+        request.form.get("classAbbreviation"),
+        request.form.get("lapTime"),
+        request.form.get("driverName"),
+        request.form.get("date"),
+    )
+
+    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    before_count = len(rejected_payload.get("rejected", []))
+    rejected_payload["rejected"] = [
+        r for r in rejected_payload.get("rejected", [])
+        if (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date")) != identity
+    ]
+    removed = before_count - len(rejected_payload["rejected"])
+    if removed == 0:
+        return redirect(url_for("org_track_records_rejected", org_id=org_id_int, error="Record not found (already restored?)."))
+
+    track_records.save_json(p["rejected"], rejected_payload)
+
+    return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on sync."))
+
+
 @app.route("/org/<org_id>/track-records.json")
 def org_track_records_json(org_id):
     try:
