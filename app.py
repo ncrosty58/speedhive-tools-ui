@@ -41,7 +41,7 @@ from speedhive.processing.process_lap_analysis import (
     safe_int,
 )
 
-from speedhive import curation as track_records
+from speedhive.processing import track_records_curation as track_records
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
