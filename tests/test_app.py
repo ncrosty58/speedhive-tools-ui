@@ -80,7 +80,8 @@ def test_add_organization_page_and_validation(client):
     assert b"numeric" in resp.data
 
 def test_track_records_ndjson_import_export_roundtrip(client):
-    import io, json as jsonlib
+    import io
+    import json as jsonlib
     rec1 = {"classAbbreviation": "FP", "lapTime": "1:13.325", "driverName": "Jerry Morlewski", "date": "2026-05-24", "marque": "Triumph"}
     rec2 = {"classAbbreviation": "GT1", "lapTime": "1:08.001", "driverName": "Test Driver", "date": "2020-08-01"}
     ndjson = (jsonlib.dumps(rec1) + "\n" + jsonlib.dumps(rec2) + "\n").encode()
@@ -99,7 +100,7 @@ def test_track_records_ndjson_import_export_roundtrip(client):
 
     resp = client.get("/org/555/track-records/export.ndjson")
     assert resp.status_code == 200
-    lines = [jsonlib.loads(l) for l in resp.get_data(as_text=True).strip().splitlines()]
+    lines = [jsonlib.loads(line) for line in resp.get_data(as_text=True).strip().splitlines()]
     assert len(lines) == 2
     assert lines[0]["classAbbreviation"] == "FP"
 
