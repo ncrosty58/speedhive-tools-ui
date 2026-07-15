@@ -1,6 +1,5 @@
 import json
-from datetime import datetime
-from flask import render_template, Response
+from flask import render_template, Response, request
 from app.db import (
     read_event_from_store,
     read_event_sessions_from_store,

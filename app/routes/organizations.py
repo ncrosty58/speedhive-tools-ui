@@ -4,7 +4,7 @@ import tempfile
 import threading
 import zipfile
 from pathlib import Path
-from flask import request, redirect, url_for, render_template, jsonify, Response, send_file, after_this_request, session
+from flask import request, redirect, url_for, render_template, jsonify, Response, send_file, after_this_request
 from app import client, storage
 from app.tasks import (
     _get_running_task_for_org,
@@ -13,15 +13,12 @@ from app.tasks import (
     _get_task,
     _update_task,
     MAX_ORG_EVENTS,
-    TRACK_RECORDS_ROOT,
 )
 from app.db import (
     _dump_root_for_org,
     _resolve_dump_dir_for_org,
     _delete_latest_dump_contents,
     _prune_empty_dump_roots,
-    _dump_history_root_for_org,
-    _read_dump_manifest,
     save_org_dump,
     format_saved_at_display,
 )
@@ -167,8 +164,7 @@ def refresh_org_start(org_id):
 def clear_org_cache_files(org_id: int):
     global storage
     from app import DB_PATH
-    from app.tasks import REFRESH_TASKS_DIR, WEB_DATA_ROOT
-    import json
+    from app.tasks import WEB_DATA_ROOT
     
     legacy_cache_root = WEB_DATA_ROOT / "cache"
     dumps_root = WEB_DATA_ROOT / "saved_dumps"
@@ -223,7 +219,6 @@ def clear_org_cache_files(org_id: int):
             DB_PATH.unlink(missing_ok=True)
         except Exception:
             pass
-        from app import storage as app_storage
         import app as app_module
         app_module.storage = SpeedhiveStorage(DB_PATH)
         storage = app_module.storage
@@ -282,8 +277,6 @@ def download_local_dump(org_id, dump_key: str = "latest"):
     except Exception:
         return redirect(url_for("index", error="Invalid organization ID."))
     
-    from app.tasks import WEB_DATA_ROOT
-    dumps_root = WEB_DATA_ROOT / "saved_dumps"
     dump_root = _dump_root_for_org(org_id_int)
     dump_dir = _resolve_dump_dir_for_org(org_id_int, dump_key)
     if dump_dir is None:
@@ -355,7 +348,7 @@ def export_org_lap_records(org_id):
 
 
 def org_operations(org_id):
-    from app.db import _list_org_dumps, _dump_root_for_org, _read_dump_manifest
+    from app.db import _list_org_dumps
     try:
         org_id_int = int(org_id)
     except Exception:

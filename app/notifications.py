@@ -4,7 +4,6 @@ import sys
 import urllib.request
 import urllib.parse
 from pathlib import Path
-from typing import List, Dict, Any
 from jinja2 import Template
 
 from speedhive.workflows.track_records import curation as track_records
@@ -49,7 +48,6 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
 
 
 def _auto_notify_for_org(org_id: int) -> None:
-    from app import UI_PASSWORD
     from app.routes.organizations import TRACK_RECORDS_ROOT
     try:
         p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)

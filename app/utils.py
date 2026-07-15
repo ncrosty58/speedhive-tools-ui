@@ -136,5 +136,5 @@ def cache_meta(saved_at: Optional[datetime], source: str, error: Optional[str] =
 
 
 # Export format_seconds from lap_analysis for backward compatibility
-from speedhive.utils.lap_analysis import format_seconds
+from speedhive.utils.lap_analysis import format_seconds  # noqa: E402, F401
 

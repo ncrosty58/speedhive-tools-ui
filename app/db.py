@@ -376,7 +376,7 @@ def scan_track_records_from_synced_store(
     limit_events: Optional[int],
 ) -> tuple[List[Dict[str, Any]], int, Optional[str], Dict[str, Any]]:
     from app import storage
-    from app.utils import extract_event_datetime, parse_date_to_comparison, format_datetime_display
+    from app.utils import extract_event_datetime, parse_date_to_comparison
     from speedhive.utils.lap_analysis import parse_track_record_text
 
     records: List[Dict[str, Any]] = []

@@ -12,7 +12,7 @@ test:
 
 # Run the lint checks
 lint:
-    ./venv/bin/ruff check .
+    ./venv/bin/ruff check --exclude venv --exclude speedhive-tools .
 
 # Run the local Flask server
 run:

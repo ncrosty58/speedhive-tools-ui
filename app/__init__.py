@@ -3,7 +3,7 @@ from pathlib import Path
 from flask import Flask, session, request, redirect, url_for
 from speedhive.storage import SpeedhiveStorage
 from speedhive.wrapper import SpeedhiveClient
-from speedhive.exporters.export_db_dump import export_db_dump
+from speedhive.exporters.export_db_dump import export_db_dump  # noqa: F401
 
 
 # Shared globals
