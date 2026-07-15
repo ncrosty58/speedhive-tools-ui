@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+
+{% block title %}Track Records Settings — Org {{ org_id }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="h2 fw-bold mb-1">Track Records Settings</h1>
+            <span class="text-muted small">
+                Configure notifications and class alias mapping for organization {{ org_id }}.
+            </span>
+        </div>
+        <a class="btn-custom-outline" href="/org/{{ org_id }}">
+            <i class="fa-solid fa-arrow-left"></i> Back to Org Dashboard
+        </a>
+    </div>
+
+    {% if notice %}
+    <div class="col-12">
+        <div class="alert alert-success border-success bg-success bg-opacity-10 text-success alert-dismissible fade show mb-0" role="alert">
+            <i class="fa-solid fa-check-circle me-2"></i> {{ notice }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="col-12">
+        <div class="alert alert-danger border-danger bg-danger bg-opacity-10 text-danger alert-dismissible fade show mb-0" role="alert">
+            <i class="fa-solid fa-circle-exclamation me-2"></i> {{ error }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="col-12">
+        <form method="POST" action="{{ url_for('org_track_records_settings', org_id=org_id) }}">
+            <div class="row g-4">
+                <!-- Notifications Configuration Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-envelope"></i> Review Notifications</h3>
+                        
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enabled" name="enabled" {% if notif_config.enabled %}checked{% endif %}>
+                                <label class="form-check-label fw-semibold" for="enabled">Enable Notification Emails</label>
+                            </div>
+                            <span class="text-muted small">Send review email notifications when a sync finds new record candidates.</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="de_duplicate" name="de_duplicate" {% if notif_config.de_duplicate %}checked{% endif %}>
+                                <label class="form-check-label fw-semibold" for="de_duplicate">De-duplicate Notifications</label>
+                            </div>
+                            <span class="text-muted small">Do not send email if the pending candidates queue is unchanged.</span>
+                        </div>
+
+                        <hr class="border-secondary opacity-25">
+
+                        <div class="mb-3">
+                            <label for="resend_api_key" class="form-label fw-semibold">Resend API Key</label>
+                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="resend_api_key" name="resend_api_key" value="{{ notif_config.resend_api_key or '' }}" placeholder="re_...">
+                            <span class="text-muted small">Required to authenticate with Resend. Leave empty to fallback to server environment variables.</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="from_email" class="form-label fw-semibold">From Email Address</label>
+                            <input type="email" class="form-control bg-dark text-light border-secondary border-opacity-50" id="from_email" name="from_email" value="{{ notif_config.from_email or '' }}" placeholder="noreply@cosmoslab.dev">
+                            <span class="text-muted small">Email sender address (must be verified domain in Resend).</span>
+                        </div>
+
+                        <div class="mb-3 flex-grow-1">
+                            <label for="to_emails" class="form-label fw-semibold">Recipient Email(s)</label>
+                            <textarea class="form-control bg-dark text-light border-secondary border-opacity-50" id="to_emails" name="to_emails" rows="3" placeholder="email1@domain.com, email2@domain.com">{{ notif_config.to_emails|join(', ') if notif_config.to_emails else '' }}</textarea>
+                            <span class="text-muted small">Comma-separated email addresses to notify.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Classification Alias Mapping Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-tags"></i> Class Alias Mapping & Curation</h3>
+                        
+                        <div class="flex-grow-1 d-flex flex-column">
+                            <label for="alias_map_json" class="form-label fw-semibold">Aliases & Rules (JSON)</label>
+                            <textarea class="form-control bg-dark text-light border-secondary border-opacity-50 font-monospace flex-grow-1" id="alias_map_json" name="alias_map_json" rows="12" style="font-size: 0.85rem;">{{ alias_map_json }}</textarea>
+                            <span class="text-muted small mt-2">
+                                Define mapping of Speedhive raw session/class names to internal abbreviations, and classes that should always be flagged for review.
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="glass-card d-flex justify-content-end gap-2">
+                        <a class="btn-custom-outline py-2" href="/org/{{ org_id }}">Cancel</a>
+                        <button type="submit" class="btn-custom py-2 px-4">
+                            <i class="fa-solid fa-save me-1"></i> Save Config
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

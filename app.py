@@ -2849,6 +2849,139 @@ def org_track_records_rejected_restore(org_id):
     return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on sync."))
 
 
+@app.route("/org/<org_id>/track-records/settings", methods=["GET", "POST"])
+def org_track_records_settings(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    config_file = p["dir"] / "config.json"
+    alias_map_file = p["alias_map"]
+
+    if request.method == "POST":
+        enabled = request.form.get("enabled") == "on"
+        de_duplicate = request.form.get("de_duplicate") == "on"
+        resend_api_key = request.form.get("resend_api_key", "").strip() or None
+        from_email = request.form.get("from_email", "").strip() or None
+
+        to_emails_raw = request.form.get("to_emails", "").strip()
+        to_emails = [email.strip() for email in to_emails_raw.split(",") if email.strip()]
+
+        alias_map_json_str = request.form.get("alias_map_json", "").strip()
+
+        # Validate JSON alias mapping
+        try:
+            alias_map_data = json.loads(alias_map_json_str)
+        except Exception as exc:
+            notif_config = read_json_file(config_file) or {}
+            notif_data = notif_config.get("notifications", {})
+            return render_template(
+                "track_records_settings.html",
+                org_id=org_id_int,
+                notif_config=notif_data,
+                alias_map_json=alias_map_json_str,
+                error=f"Invalid Alias Map JSON: {str(exc)}"
+            )
+
+        # Save notifications config
+        notif_config = {
+            "notifications": {
+                "enabled": enabled,
+                "de_duplicate": de_duplicate,
+                "resend_api_key": resend_api_key,
+                "from_email": from_email,
+                "to_emails": to_emails
+            }
+        }
+        track_records.save_json(config_file, notif_config)
+
+        # Save alias map file
+        track_records.save_json(alias_map_file, alias_map_data)
+
+        return render_template(
+            "track_records_settings.html",
+            org_id=org_id_int,
+            notif_config=notif_config["notifications"],
+            alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
+            notice="Configuration saved successfully."
+        )
+
+    # GET Method: load values
+    notif_config = read_json_file(config_file) or {}
+    notif_data = notif_config.get("notifications", {
+        "enabled": True,
+        "de_duplicate": True,
+        "resend_api_key": None,
+        "from_email": None,
+        "to_emails": []
+    })
+
+    alias_map_data = read_json_file(alias_map_file) or {
+        "aliases": {},
+        "always_review": []
+    }
+    alias_map_json_str = json.dumps(alias_map_data, indent=2, ensure_ascii=False)
+
+    return render_template(
+        "track_records_settings.html",
+        org_id=org_id_int,
+        notif_config=notif_data,
+        alias_map_json=alias_map_json_str
+    )
+
+
+@app.route("/org/<org_id>/track-records/history")
+def org_track_records_history(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    tasks_dir = p["tasks"]
+
+    tasks = []
+    if tasks_dir.exists():
+        for task_file in tasks_dir.glob("*.json"):
+            try:
+                with open(task_file) as f:
+                    task_data = json.load(f)
+
+                # Pre-format duration for rendering
+                duration_str = "—"
+                if task_data.get("started_at") and task_data.get("finished_at"):
+                    try:
+                        from datetime import datetime
+                        start_t = datetime.fromisoformat(task_data["started_at"].replace("Z", "+00:00"))
+                        finish_t = datetime.fromisoformat(task_data["finished_at"].replace("Z", "+00:00"))
+                        diff = finish_t - start_t
+                        total_seconds = int(diff.total_seconds())
+                        mins = total_seconds // 60
+                        secs = total_seconds % 60
+                        if mins > 0:
+                            duration_str = f"{mins}m {secs}s"
+                        else:
+                            duration_str = f"{secs}s"
+                    except Exception:
+                        pass
+
+                task_data["duration_str"] = duration_str
+                task_data["raw_json"] = json.dumps(task_data, indent=2, ensure_ascii=False)
+                tasks.append(task_data)
+            except Exception:
+                continue
+
+    tasks = sorted(tasks, key=lambda t: t.get("started_at") or "", reverse=True)
+
+    return render_template(
+        "track_records_history.html",
+        org_id=org_id_int,
+        tasks=tasks
+    )
+
+
 @app.route("/org/<org_id>/track-records.json")
 def org_track_records_json(org_id):
     try:

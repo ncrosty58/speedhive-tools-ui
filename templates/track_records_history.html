@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+
+{% block title %}Sync History — Org {{ org_id }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="h2 fw-bold mb-1">Track Records Sync History</h1>
+            <span class="text-muted small">
+                Logs of previous background synchronization runs.
+            </span>
+        </div>
+        <a class="btn-custom-outline" href="/org/{{ org_id }}">
+            <i class="fa-solid fa-arrow-left"></i> Back to Org Dashboard
+        </a>
+    </div>
+
+    <div class="col-12">
+        <div class="glass-card">
+            {% if tasks %}
+            <div class="table-responsive">
+                <table class="table table-custom table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Started At</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                            <th>Phase / Results</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for t in tasks %}
+                        <tr>
+                            <td class="font-monospace">{{ t.started_at }}</td>
+                            <td>
+                                {% if t.finished_at %}
+                                    <!-- Simple duration calculation in minutes/seconds -->
+                                    {{ t.duration_str }}
+                                {% else %}
+                                    <span class="text-warning">Running...</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if t.status == 'done' %}
+                                    <span class="badge bg-success text-success bg-opacity-10 border border-success border-opacity-20 px-2 py-1">Success</span>
+                                {% elif t.status == 'error' %}
+                                    <span class="badge bg-danger text-danger bg-opacity-10 border border-danger border-opacity-20 px-2 py-1">Failed</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-warning bg-opacity-10 border border-warning border-opacity-20 px-2 py-1">
+                                        <i class="fa-solid fa-spinner fa-spin me-1"></i> Running
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if t.status == 'done' and t.result %}
+                                    <span class="text-success font-monospace" style="font-size: 0.85rem;">
+                                        Found {{ t.result.candidates_found // 0 }} candidate(s) 
+                                        ({{ t.result.new_record_candidates // 0 }} new records, {{ t.result.unmapped_candidates // 0 }} unmapped)
+                                    </span>
+                                {% elif t.status == 'error' %}
+                                    <span class="text-danger font-monospace" style="font-size: 0.85rem; max-width: 400px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ t.error }}">
+                                        {{ t.error }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted font-monospace" style="font-size: 0.85rem;">{{ t.phase }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn-custom-outline py-1 px-2 text-info border-info border-opacity-25" style="font-size: 0.75rem;" 
+                                        data-bs-toggle="collapse" data-bs-target="#task-details-{{ loop.index }}">
+                                    <i class="fa-solid fa-code"></i> Inspect
+                                </button>
+                            </td>
+                        </tr>
+                        <tr class="collapse-row">
+                            <td colspan="5" class="p-0 border-0">
+                                <div class="collapse" id="task-details-{{ loop.index }}">
+                                    <div class="p-3 bg-dark bg-opacity-50 border-top border-bottom border-secondary border-opacity-10 font-monospace" style="font-size: 0.8rem; max-height: 250px; overflow-y: auto;">
+                                        <pre class="mb-0 text-light">{{ t.raw_json }}</pre>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="fa-solid fa-history fa-3x mb-3 opacity-25"></i>
+                <p>No synchronization history found for this organization.</p>
+                <p class="small">Run a manual sync to generate logs.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
