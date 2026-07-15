@@ -65,6 +65,48 @@ def test_login_and_logout(anon_client):
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
 
+def test_track_records_ndjson_import_export_roundtrip(client):
+    import io, json as jsonlib
+    rec1 = {"classAbbreviation": "FP", "lapTime": "1:13.325", "driverName": "Jerry Morlewski", "date": "2026-05-24", "marque": "Triumph"}
+    rec2 = {"classAbbreviation": "GT1", "lapTime": "1:08.001", "driverName": "Test Driver", "date": "2020-08-01"}
+    ndjson = (jsonlib.dumps(rec1) + "\n" + jsonlib.dumps(rec2) + "\n").encode()
+
+    resp = client.post("/org/555/track-records/import",
+                       data={"file": (io.BytesIO(ndjson), "records.ndjson"), "mode": "merge"},
+                       content_type="multipart/form-data", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "Imported+2" in resp.headers["Location"] or "Imported%202" in resp.headers["Location"]
+
+    # re-import: both are duplicates now
+    resp = client.post("/org/555/track-records/import",
+                       data={"file": (io.BytesIO(ndjson), "records.ndjson"), "mode": "merge"},
+                       content_type="multipart/form-data")
+    assert "skipped" in resp.headers["Location"]
+
+    resp = client.get("/org/555/track-records/export.ndjson")
+    assert resp.status_code == 200
+    lines = [jsonlib.loads(l) for l in resp.get_data(as_text=True).strip().splitlines()]
+    assert len(lines) == 2
+    assert lines[0]["classAbbreviation"] == "FP"
+
+    # replace mode shrinks the list to the file contents
+    resp = client.post("/org/555/track-records/import",
+                       data={"file": (io.BytesIO((jsonlib.dumps(rec2) + "\n").encode()), "r.ndjson"), "mode": "replace"},
+                       content_type="multipart/form-data")
+    resp = client.get("/org/555/track-records/export.ndjson")
+    lines = resp.get_data(as_text=True).strip().splitlines()
+    assert len(lines) == 1
+
+def test_track_records_ndjson_import_rejects_bad_lines(client):
+    import io
+    bad = b'{"classAbbreviation": "FP", "lapTime": "not-a-time", "driverName": "X", "date": "2026-01-01"}\n'
+    resp = client.post("/org/556/track-records/import",
+                       data={"file": (io.BytesIO(bad), "bad.ndjson"), "mode": "merge"})
+    assert "error=" in resp.headers["Location"]
+    # nothing was written
+    resp = client.get("/org/556/track-records/export.ndjson")
+    assert resp.get_data(as_text=True).strip() == ""
+
 def test_app_home_route(client):
     """Test that the home page (dashboard) renders successfully."""
     resp = client.get("/")

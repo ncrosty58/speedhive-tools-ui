@@ -17,6 +17,33 @@
 
     <div class="col-12">
         <div class="glass-card">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <a class="btn-custom-outline" href="{{ url_for('org_track_records_export_ndjson', org_id=org_id) }}">
+                    <i class="fa-solid fa-download me-1"></i>Export NDJSON
+                </a>
+                <form method="POST" action="{{ url_for('org_track_records_import', org_id=org_id) }}"
+                      enctype="multipart/form-data" class="d-flex flex-wrap align-items-center gap-2 mb-0"
+                      onsubmit="return this.mode.value !== 'replace' || confirm('Replace ALL curated records with the file contents?');">
+                    <input type="file" name="file" accept=".ndjson,.jsonl,application/x-ndjson" required
+                           class="form-control form-control-custom form-control-sm" style="max-width: 280px;">
+                    <select name="mode" class="form-select form-control-custom form-select-sm" style="max-width: 160px;">
+                        <option value="merge" selected>Merge (skip dupes)</option>
+                        <option value="replace">Replace all</option>
+                    </select>
+                    <button type="submit" class="btn-custom-outline">
+                        <i class="fa-solid fa-upload me-1"></i>Import NDJSON
+                    </button>
+                </form>
+            </div>
+            <div class="text-muted mt-2" style="font-size: 0.75rem;">
+                One JSON object per line: <code>{"classAbbreviation": "FP", "lapTime": "1:13.325", "driverName": "…", "date": "YYYY-MM-DD", "marque": "…"}</code>
+                (marque/addedAt optional). Import validates every line first — a bad line aborts the whole import.
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="glass-card">
             <div class="table-responsive">
                 <table class="table table-custom table-sm mb-0">
                     <thead>

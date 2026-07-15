@@ -1,6 +1,7 @@
 """Web app for Speedhive data with HTML frontend using speedhive-tools."""
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -2870,6 +2871,102 @@ def org_track_records_curated_delete(org_id):
     track_records.save_json(p["rejected"], rejected_payload)
 
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Removed {identity[0]} — {identity[1]} by {identity[2]}."))
+
+
+@app.route("/org/<org_id>/track-records/export.ndjson")
+def org_track_records_export_ndjson(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+
+    def generate():
+        for record in curated.get("records", []):
+            yield json.dumps(record, ensure_ascii=False) + "\n"
+
+    headers = {"Content-Disposition": f"attachment; filename=org_{org_id_int}_track_records.ndjson"}
+    return Response(generate(), mimetype="application/x-ndjson", headers=headers)
+
+
+# Fields carried through on import; anything else on a line is dropped.
+_TRACK_RECORD_REQUIRED_FIELDS = ("classAbbreviation", "lapTime", "driverName", "date")
+_TRACK_RECORD_OPTIONAL_FIELDS = ("marque", "addedAt")
+
+
+@app.route("/org/<org_id>/track-records/import", methods=["POST"])
+def org_track_records_import(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="No file selected."))
+    replace = request.form.get("mode") == "replace"
+
+    try:
+        text = upload.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="File is not valid UTF-8 text."))
+
+    # Parse and validate every line before touching anything: all-or-nothing.
+    incoming = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
+                                    error=f"Import aborted: line {lineno} is not valid JSON ({exc.msg})."))
+        if not isinstance(obj, dict):
+            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
+                                    error=f"Import aborted: line {lineno} is not a JSON object."))
+        for field in _TRACK_RECORD_REQUIRED_FIELDS:
+            value = obj.get(field)
+            if not isinstance(value, str) or not value.strip():
+                return redirect(url_for("org_track_records_curated", org_id=org_id_int,
+                                        error=f"Import aborted: line {lineno} is missing required field '{field}'."))
+        if track_records.lap_time_to_seconds(obj["lapTime"]) is None:
+            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
+                                    error=f"Import aborted: line {lineno} has unparseable lapTime '{obj['lapTime']}' (want m:ss.mmm or ss.mmm)."))
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", obj["date"]):
+            return redirect(url_for("org_track_records_curated", org_id=org_id_int,
+                                    error=f"Import aborted: line {lineno} has date '{obj['date']}' (want YYYY-MM-DD)."))
+        record = {field: obj[field].strip() for field in _TRACK_RECORD_REQUIRED_FIELDS}
+        for field in _TRACK_RECORD_OPTIONAL_FIELDS:
+            if obj.get(field) is not None:
+                record[field] = obj[field]
+        # deliberately no addedAt stamping here: bulk imports must not light up
+        # the consuming site's "new records" banner, which keys off addedAt
+        incoming.append(record)
+
+    if not incoming:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="File contained no records."))
+
+    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+
+    def identity(r):
+        return (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date"))
+
+    if replace:
+        curated["records"] = incoming
+        notice = f"Replaced curated list with {len(incoming)} imported record(s)."
+    else:
+        existing = {identity(r) for r in curated.get("records", [])}
+        added = [r for r in incoming if identity(r) not in existing]
+        curated.setdefault("records", []).extend(added)
+        skipped = len(incoming) - len(added)
+        notice = f"Imported {len(added)} record(s)" + (f", skipped {skipped} duplicate(s)." if skipped else ".")
+
+    curated["date"] = utc_now().strftime("%Y-%m-%d")
+    track_records.save_json(p["curated"], curated)
+    return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=notice))
 
 
 @app.route("/org/<org_id>/track-records/rejected")
