@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 from app.utils import iso_utc, utc_now
-from speedhive.analysis.lap_analysis import safe_int
+from speedhive.utils.lap_analysis import safe_int
 
 
 # Paths and Constants

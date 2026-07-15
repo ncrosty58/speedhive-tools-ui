@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
-from speedhive.analysis.lap_analysis import first_non_empty, extract_iso_date
+from speedhive.utils.lap_analysis import first_non_empty, extract_iso_date
 
 
 def parse_date_to_comparison(dt_str):
@@ -136,5 +136,5 @@ def cache_meta(saved_at: Optional[datetime], source: str, error: Optional[str] =
 
 
 # Export format_seconds from lap_analysis for backward compatibility
-from speedhive.analysis.lap_analysis import format_seconds
+from speedhive.utils.lap_analysis import format_seconds
 

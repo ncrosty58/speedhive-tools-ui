@@ -28,7 +28,7 @@ from app.db import (
 from speedhive.workflows.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
 from speedhive.ndjson import dumps_ndjson_record
-from speedhive.analysis.lap_analysis import safe_int
+from speedhive.utils.lap_analysis import safe_int
 from speedhive.storage import SpeedhiveStorage
 
 DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS", "3"))
@@ -363,7 +363,7 @@ def org_operations(org_id):
 
     from app.db import read_organization_from_store, read_events_from_store, read_org_refresh_state
     from app.utils import _country_name_from_value
-    from speedhive.analysis.lap_analysis import first_non_empty
+    from speedhive.utils.lap_analysis import first_non_empty
 
     org, _ = read_organization_from_store(org_id_int)
     if not org:

@@ -21,7 +21,7 @@ from app.utils import (
     format_datetime_display,
 )
 from app.tasks import WEB_DATA_ROOT, MAX_ORG_EVENTS
-from speedhive.analysis.lap_analysis import (
+from speedhive.utils.lap_analysis import (
     first_non_empty,
     normalize_search_text,
     name_match_score,

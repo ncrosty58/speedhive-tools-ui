@@ -11,7 +11,7 @@ from app.utils import (
     utc_now,
 )
 from app.tasks import WEB_DATA_ROOT
-from speedhive.analysis.lap_analysis import first_non_empty
+from speedhive.utils.lap_analysis import first_non_empty
 
 
 def org_stats(org_id):
@@ -230,7 +230,7 @@ def generate_org_stats(org_id):
         return redirect(url_for("org_stats", **redirect_args))
 
     try:
-        from speedhive.analysis.lap_analysis import (
+        from speedhive.utils.lap_analysis import (
             compute_laps_and_enriched,
             compute_laps_and_enriched_from_storage,
         )
@@ -351,7 +351,7 @@ def driver_stats_breakdown(org_id, driver_name):
         return redirect(url_for("org_stats", org_id=org_id_int, error="No synced session data available."))
 
     try:
-        from speedhive.analysis.lap_analysis import (
+        from speedhive.utils.lap_analysis import (
             compute_laps_and_enriched,
             compute_laps_and_enriched_from_storage,
             normalize_name,

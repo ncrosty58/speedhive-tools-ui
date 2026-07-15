@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-from speedhive.analysis.lap_analysis import first_non_empty, safe_int
+from speedhive.utils.lap_analysis import first_non_empty, safe_int
 from app.utils import cache_meta, utc_now, parse_iso_utc, iso_utc
 
 # Constants
@@ -377,7 +377,7 @@ def scan_track_records_from_synced_store(
 ) -> tuple[List[Dict[str, Any]], int, Optional[str], Dict[str, Any]]:
     from app import storage
     from app.utils import extract_event_datetime, parse_date_to_comparison, format_datetime_display
-    from speedhive.analysis.lap_analysis import parse_track_record_text
+    from speedhive.utils.lap_analysis import parse_track_record_text
 
     records: List[Dict[str, Any]] = []
     events_scanned = 0

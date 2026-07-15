@@ -11,7 +11,7 @@ from app.db import (
     read_laps_from_store,
 )
 from app.utils import format_datetime_display, extract_event_datetime
-from speedhive.analysis.lap_analysis import (
+from speedhive.utils.lap_analysis import (
     first_non_empty,
     normalize_result_row,
     build_lap_chart_from_laps,
@@ -257,7 +257,7 @@ def lap_times(session_id, driver_id):
                     sec = parse_time_value(time_str)
                     if sec is not None and sec > 0:
                         times.append((lap, sec))
-            from speedhive.analysis.lap_analysis import filter_outliers_iqr
+            from speedhive.utils.lap_analysis import filter_outliers_iqr
             filtered_seconds = filter_outliers_iqr([t[1] for t in times])
             filtered_seconds_pool = list(filtered_seconds)
             for lap, sec in times:

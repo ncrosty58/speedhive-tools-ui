@@ -100,7 +100,7 @@ def create_app() -> Flask:
     def inject_global_data():
         from flask import request, session
         from datetime import datetime
-        from speedhive.analysis.lap_analysis import parse_time_value
+        from speedhive.utils.lap_analysis import parse_time_value
         from app.db import list_stored_orgs, format_saved_at_display, store_status_label
 
         org_list = list_stored_orgs()
