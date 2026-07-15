@@ -43,9 +43,9 @@ def test_login_required_for_ui(anon_client):
 
 def test_public_track_records_feed_stays_open(anon_client):
     """The curated feed and CI sync endpoints must not require a login."""
-    resp = anon_client.get("/org/123/track-records.json")
+    resp = anon_client.get("/org/123/track-records/curated.json")
     assert resp.status_code == 200
-    resp = anon_client.get("/org/123/track-records/status")
+    resp = anon_client.get("/org/123/track-records/update/status")
     assert resp.status_code in (200, 502)  # may fail upstream, but not a login redirect
 
 def test_login_wrong_password(anon_client):
@@ -86,40 +86,40 @@ def test_track_records_ndjson_import_export_roundtrip(client):
     rec2 = {"classAbbreviation": "GT1", "lapTime": "1:08.001", "driverName": "Test Driver", "date": "2020-08-01"}
     ndjson = (jsonlib.dumps(rec1) + "\n" + jsonlib.dumps(rec2) + "\n").encode()
 
-    resp = client.post("/org/555/track-records/import",
+    resp = client.post("/org/555/track-records/curated/import",
                        data={"file": (io.BytesIO(ndjson), "records.ndjson"), "mode": "merge"},
                        content_type="multipart/form-data", follow_redirects=False)
     assert resp.status_code == 302
     assert "Imported+2" in resp.headers["Location"] or "Imported%202" in resp.headers["Location"]
 
     # re-import: both are duplicates now
-    resp = client.post("/org/555/track-records/import",
+    resp = client.post("/org/555/track-records/curated/import",
                        data={"file": (io.BytesIO(ndjson), "records.ndjson"), "mode": "merge"},
                        content_type="multipart/form-data")
     assert "skipped" in resp.headers["Location"]
 
-    resp = client.get("/org/555/track-records/export.ndjson")
+    resp = client.get("/org/555/track-records/curated.ndjson")
     assert resp.status_code == 200
     lines = [jsonlib.loads(line) for line in resp.get_data(as_text=True).strip().splitlines()]
     assert len(lines) == 2
     assert lines[0]["classAbbreviation"] == "FP"
 
     # replace mode shrinks the list to the file contents
-    resp = client.post("/org/555/track-records/import",
+    resp = client.post("/org/555/track-records/curated/import",
                        data={"file": (io.BytesIO((jsonlib.dumps(rec2) + "\n").encode()), "r.ndjson"), "mode": "replace"},
                        content_type="multipart/form-data")
-    resp = client.get("/org/555/track-records/export.ndjson")
+    resp = client.get("/org/555/track-records/curated.ndjson")
     lines = resp.get_data(as_text=True).strip().splitlines()
     assert len(lines) == 1
 
 def test_track_records_ndjson_import_rejects_bad_lines(client):
     import io
     bad = b'{"classAbbreviation": "FP", "lapTime": "not-a-time", "driverName": "X", "date": "2026-01-01"}\n'
-    resp = client.post("/org/556/track-records/import",
+    resp = client.post("/org/556/track-records/curated/import",
                        data={"file": (io.BytesIO(bad), "bad.ndjson"), "mode": "merge"})
     assert "error=" in resp.headers["Location"]
     # nothing was written
-    resp = client.get("/org/556/track-records/export.ndjson")
+    resp = client.get("/org/556/track-records/curated.ndjson")
     assert resp.get_data(as_text=True).strip() == ""
 
 
@@ -148,9 +148,9 @@ def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
 
     monkeypatch.setattr(app_module, "export_db_dump", fake_export_db_dump)
 
-    first = client.post("/org/777/save-local", data={"max_events": "25"}, follow_redirects=False)
+    first = client.post("/org/777/dumps", data={"max_events": "25"}, follow_redirects=False)
     assert first.status_code == 302
-    second = client.post("/org/777/save-local", data={"max_events": "25"}, follow_redirects=False)
+    second = client.post("/org/777/dumps", data={"max_events": "25"}, follow_redirects=False)
     assert second.status_code == 302
 
     latest_manifest = app_module.DUMPS_ROOT / "777" / "manifest.json"
@@ -164,15 +164,15 @@ def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
     assert ops.data.count(b"Delete Dump") == 2
     assert b"Current" in ops.data
 
-    latest_zip = client.get("/org/777/download-local-dump.zip")
+    latest_zip = client.get("/org/777/dumps/latest.zip")
     assert latest_zip.status_code == 200
     assert latest_zip.mimetype == "application/zip"
 
-    archive_zip = client.get("/org/777/download-local-dump/20260715T213000Z.zip")
+    archive_zip = client.get("/org/777/dumps/20260715T213000Z.zip")
     assert archive_zip.status_code == 200
     assert archive_zip.mimetype == "application/zip"
 
-    delete_archive = client.post("/org/777/delete-local-dump/20260715T213000Z", follow_redirects=False)
+    delete_archive = client.post("/org/777/dumps/20260715T213000Z/delete", follow_redirects=False)
     assert delete_archive.status_code == 302
     assert not archive_manifest.exists()
 
@@ -181,7 +181,7 @@ def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
     assert ops_after_archive_delete.data.count(b"Download ZIP") == 1
     assert ops_after_archive_delete.data.count(b"Delete Dump") == 1
 
-    delete_latest = client.post("/org/777/delete-local-dump", follow_redirects=False)
+    delete_latest = client.post("/org/777/dumps/delete", follow_redirects=False)
     assert delete_latest.status_code == 302
     assert not latest_manifest.exists()
 

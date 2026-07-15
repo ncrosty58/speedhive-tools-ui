@@ -106,7 +106,7 @@ To work on the core scraping or data-processing logic, changes should be made wi
 2. Commit and push inside the `speedhive-tools/` repository first.
 3. Reference the updated commit inside the parent `speedhive-tools-ui` repository.
 
-Track-record file actions (`export.ndjson`, `import`, `curated`, `rejected`) are exposed from the UI under the Operations page. The Settings page is intentionally limited to notification and alias configuration.
+Track-record file actions (`curated.ndjson`, `curated/import`, `curated`, `rejected`, and `dumps`) are exposed from the UI under Operations and Settings. The Settings page is intentionally limited to notification and alias configuration.
 
 ## 📄 License
 This project is licensed under the [MIT License](file:///opt/speedhive-tools-ui/speedhive-tools/LICENSE).

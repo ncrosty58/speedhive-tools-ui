@@ -54,7 +54,7 @@ UI_PASSWORD = os.environ.get("SPEEDHIVE_UI_PASSWORD")
 
 # Endpoints that stay open without a login session. These are machine-facing:
 # whrri-demo fetches the curated feed directly from browsers, and its GitLab CI
-# schedule drives the status/sync endpoints unauthenticated.
+# schedule drives the update/status endpoints unauthenticated.
 PUBLIC_ENDPOINTS = {
     "login",
     "static",
@@ -1939,6 +1939,7 @@ def refresh_stop(task_id):
 
 
 
+@app.route("/org/<org_id>/dumps", methods=["POST"])
 @app.route("/org/<org_id>/save-local", methods=["POST"])
 def save_local(org_id):
     try:
@@ -1955,8 +1956,10 @@ def save_local(org_id):
         )
         return redirect(url_for("org_details", org_id=org_id_int, notice=notice))
     except Exception as exc:
-        return redirect(url_for("org_details", org_id=org_id_int, error=f"Save-local failed: {exc}"))
+        return redirect(url_for("org_details", org_id=org_id_int, error=f"Dump generation failed: {exc}"))
 
+@app.route("/org/<org_id>/dumps/latest.zip")
+@app.route("/org/<org_id>/dumps/<dump_key>.zip")
 @app.route("/org/<org_id>/download-local-dump.zip")
 @app.route("/org/<org_id>/download-local-dump/<dump_key>.zip")
 def download_local_dump(org_id, dump_key: str = "latest"):
@@ -1971,7 +1974,7 @@ def download_local_dump(org_id, dump_key: str = "latest"):
     download_name = f"speedhive_org_{org_id_int}_dump.zip" if dump_key in (None, "", "latest") else f"speedhive_org_{org_id_int}_{dump_key}.zip"
 
     if not dump_dir.exists():
-        return redirect(url_for("org_details", org_id=org_id_int, error="No local dump found. Run Save Local Data first."))
+        return redirect(url_for("org_details", org_id=org_id_int, error="No local dump found. Generate an offline dump first."))
 
     tmp = tempfile.NamedTemporaryFile(prefix=f"speedhive_org_{org_id_int}_", suffix=".zip", delete=False)
     tmp_path = Path(tmp.name)
@@ -1997,6 +2000,8 @@ def download_local_dump(org_id, dump_key: str = "latest"):
     )
 
 
+@app.route("/org/<org_id>/dumps/<dump_key>/delete", methods=["POST"])
+@app.route("/org/<org_id>/dumps/delete", methods=["POST"])
 @app.route("/org/<org_id>/delete-local-dump/<dump_key>", methods=["POST"])
 @app.route("/org/<org_id>/delete-local-dump", methods=["POST"])
 def delete_local_dump(org_id, dump_key: str = "latest"):
@@ -2854,6 +2859,7 @@ def org_operations(org_id):
     )
 
 
+@app.route("/org/<org_id>/track-records/update/status")
 @app.route("/org/<org_id>/track-records/status")
 def org_track_records_status(org_id):
     try:
@@ -2867,6 +2873,7 @@ def org_track_records_status(org_id):
     return jsonify(status)
 
 
+@app.route("/org/<org_id>/track-records/update", methods=["POST"])
 @app.route("/org/<org_id>/track-records/sync", methods=["POST"])
 def org_track_records_sync(org_id):
     """Prepared API for a scheduled CI pipeline (or the UI button) to trigger
@@ -2903,6 +2910,7 @@ def org_track_records_sync(org_id):
     return jsonify({"task_id": task_id, "org_id": org_id_int})
 
 
+@app.route("/org/<org_id>/track-records/update/<task_id>")
 @app.route("/org/<org_id>/track-records/sync/<task_id>")
 def org_track_records_sync_status(org_id, task_id):
     try:
@@ -2933,6 +2941,7 @@ def org_track_records_review(org_id):
     )
 
 
+@app.route("/org/<org_id>/track-records/review/approve", methods=["POST"])
 @app.route("/org/<org_id>/track-records/review/apply", methods=["POST"])
 def org_track_records_review_apply(org_id):
     try:
@@ -3025,6 +3034,7 @@ def org_track_records_curated(org_id):
     )
 
 
+@app.route("/org/<org_id>/track-records/curated/remove", methods=["POST"])
 @app.route("/org/<org_id>/track-records/curated/delete", methods=["POST"])
 def org_track_records_curated_delete(org_id):
     try:
@@ -3070,6 +3080,7 @@ def org_track_records_curated_delete(org_id):
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Removed {identity[0]} — {identity[1]} by {identity[2]}."))
 
 
+@app.route("/org/<org_id>/track-records/curated.ndjson")
 @app.route("/org/<org_id>/track-records/export.ndjson")
 def org_track_records_export_ndjson(org_id):
     try:
@@ -3092,6 +3103,7 @@ _TRACK_RECORD_REQUIRED_FIELDS = ("classAbbreviation", "lapTime", "driverName", "
 _TRACK_RECORD_OPTIONAL_FIELDS = ("marque", "addedAt")
 
 
+@app.route("/org/<org_id>/track-records/curated/import", methods=["POST"])
 @app.route("/org/<org_id>/track-records/import", methods=["POST"])
 def org_track_records_import(org_id):
     try:
@@ -3216,6 +3228,7 @@ def org_track_records_rejected_restore(org_id):
     return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on the next scan."))
 
 
+@app.route("/org/<org_id>/settings", methods=["GET", "POST"])
 @app.route("/org/<org_id>/track-records/settings", methods=["GET", "POST"])
 def org_track_records_settings(org_id):
     try:
@@ -3349,6 +3362,7 @@ def org_track_records_history(org_id):
     )
 
 
+@app.route("/org/<org_id>/track-records/curated.json")
 @app.route("/org/<org_id>/track-records.json")
 def org_track_records_json(org_id):
     try:

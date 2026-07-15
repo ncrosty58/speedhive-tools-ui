@@ -17,7 +17,7 @@
             <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}">Overview</a>
             <a class="btn-custom {% if active_tab == 'stats' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/stats">Stats</a>
             <a class="btn-custom {% if active_tab == 'operations' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/operations">Operations</a>
-            <a class="btn-custom-outline py-2 px-3" href="/org/{{ org.id }}/track-records/settings"><i class="fa-solid fa-cog me-1"></i>Settings</a>
+            <a class="btn-custom-outline py-2 px-3" href="{{ url_for('org_track_records_settings', org_id=org.id) }}"><i class="fa-solid fa-cog me-1"></i>Settings</a>
         </div>
     </div>
 
@@ -154,7 +154,7 @@
             <h3 class="h5 fw-bold mb-3">Export Data</h3>
             
             <div class="d-flex flex-wrap gap-2 mb-3">
-                <form method="post" action="/org/{{ org.id }}/save-local" class="js-org-action-form d-inline" data-action-label="Generating dump...">
+                <form method="post" action="{{ url_for('save_local', org_id=org.id) }}" class="js-org-action-form d-inline" data-action-label="Generating dump...">
                     <input type="hidden" name="max_events" value="25">
                     <button class="btn-custom-outline" type="submit">
                         <span class="js-btn-label">Generate Offline Dump</span>
@@ -456,7 +456,7 @@
 
         function fetchTrackRecordsStatus(orgId) {
             if (!trackRecordsStatus) return;
-            fetch("/org/" + orgId + "/track-records/status")
+            fetch("/org/" + orgId + "/track-records/update/status")
                 .then(function (r) { return r.json(); })
                 .then(renderTrackRecordsStatus)
                 .catch(function () {
@@ -466,7 +466,7 @@
 
         function pollTrackRecordsTask(orgId, taskId) {
             const poll = setInterval(function () {
-                fetch("/org/" + orgId + "/track-records/sync/" + taskId)
+                fetch("/org/" + orgId + "/track-records/update/" + taskId)
                     .then(function (r) { return r.json(); })
                     .then(function (task) {
                         if (trackRecordsPhase) trackRecordsPhase.textContent = task.phase || "Updating...";
@@ -488,7 +488,7 @@
                 setTrackRecordsButtonBusy(true);
                 if (trackRecordsPhase) trackRecordsPhase.textContent = "Starting update...";
 
-                fetch("/org/" + trOrgId + "/track-records/sync?force=1", { method: "POST" })
+                fetch("/org/" + trOrgId + "/track-records/update?force=1", { method: "POST" })
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
                         if (data.error) {
