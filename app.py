@@ -13,8 +13,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 from flask import Flask, Response, after_this_request, jsonify, redirect, render_template, request, send_file, url_for, session
 
-# Insert local speedhive-tools src folder to sys.path so we can import speedhive directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "src"))
+# Prefer the properly installed speedhive-tools package (pip installs it from
+# the submodule; see requirements.txt). Fall back to the submodule source tree
+# for ad-hoc dev runs where it isn't installed.
+try:
+    import speedhive  # noqa: F401
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "src"))
 
 from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_org_cache import refresh_org_cache as refresh_org_cache_bundle
@@ -35,7 +40,7 @@ from speedhive.processing.process_lap_analysis import (
     safe_int,
 )
 
-import track_records
+from speedhive import curation as track_records
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
