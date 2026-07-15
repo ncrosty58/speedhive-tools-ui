@@ -123,46 +123,122 @@ def rejected_key(classAbbreviation, lapTime, driverName, date):
     return (classAbbreviation, lapTime, driverName, date)
 
 
-def get_cache_status(org_id, db_path, track_records_root):
-    """Freshness info for the Speedhive cache -- no network calls."""
-    from speedhive.storage import SpeedhiveStorage
+import time
 
+_online_status_cache = {}
+
+
+def get_cache_status(org_id, db_path, track_records_root, client=None):
+    """Freshness info for the Speedhive cache -- queries Speedhive dynamically if client is provided."""
+    from speedhive.storage import SpeedhiveStorage
+    
     p = paths_for_org(track_records_root, org_id)
     db_path = Path(db_path)
 
     candidates_payload = load_json(p["candidates"], {"candidates": []})
     pending_candidates = len(candidates_payload.get("candidates", []))
 
-    if not db_path.exists():
-        return {
-            "org_id": org_id,
-            "last_synced_at": None,
-            "age_hours": None,
-            "needs_sync": True,
-            "stale_after_hours": DEFAULT_STALE_AFTER_HOURS,
-            "pending_candidates": pending_candidates,
-        }
-
-    storage = SpeedhiveStorage(db_path)
-    state = storage.get_org_status(org_id) or {}
-    last_refresh_at = state.get("last_refresh_at")
+    stale_after_hours = DEFAULT_STALE_AFTER_HOURS
+    
+    last_refresh_at = None
     age_hours = None
-    needs_sync = True
-    if last_refresh_at:
+    needs_sync_local = True
+    
+    if db_path.exists():
         try:
-            last_dt = datetime.fromisoformat(str(last_refresh_at).replace("Z", "+00:00"))
-            age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
-            needs_sync = age_hours >= DEFAULT_STALE_AFTER_HOURS
+            storage = SpeedhiveStorage(db_path)
+            state = storage.get_org_status(org_id) or {}
+            last_refresh_at = state.get("last_refresh_at")
+            if last_refresh_at:
+                last_dt = datetime.fromisoformat(str(last_refresh_at).replace("Z", "+00:00"))
+                age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
+                needs_sync_local = age_hours >= stale_after_hours
         except Exception:
             pass
+
+    # Check if we have a fresh cached result (within 5 minutes)
+    now = time.time()
+    if org_id in _online_status_cache:
+        cached_time, cached_needs_sync, cached_check_source = _online_status_cache[org_id]
+        if now - cached_time < 300:  # 5 minutes
+            return {
+                "org_id": org_id,
+                "last_synced_at": last_refresh_at,
+                "age_hours": age_hours,
+                "needs_sync": cached_needs_sync,
+                "stale_after_hours": stale_after_hours,
+                "pending_candidates": pending_candidates,
+                "check_source": f"{cached_check_source} (cached)"
+            }
+
+    needs_sync = needs_sync_local
+    check_source = "local_age"
+
+    if client and db_path.exists():
+        try:
+            # Query Speedhive's latest 5 events for this organization
+            online_events = client.get_events(org_id, limit=5) or []
+            if online_events:
+                storage = SpeedhiveStorage(db_path)
+                cached_events = storage.get_events(org_id) or []
+                cached_ids = {e.get("id") for e in cached_events if e.get("id")}
+                
+                # 1. Check for new event IDs not present in cache
+                has_new_events = False
+                for event in online_events:
+                    eid = event.get("id")
+                    if eid and eid not in cached_ids:
+                        has_new_events = True
+                        break
+                
+                if has_new_events:
+                    needs_sync = True
+                    check_source = "new_events_found"
+                else:
+                    # 2. Check if any online event has been updated since our last sync
+                    if last_refresh_at:
+                        last_dt = datetime.fromisoformat(str(last_refresh_at).replace("Z", "+00:00"))
+                        has_updates = False
+                        for event in online_events:
+                            updated_at = event.get("updatedAt")
+                            if updated_at:
+                                try:
+                                    updated_dt = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+                                    if updated_dt > last_dt:
+                                        has_updates = True
+                                        break
+                                except Exception:
+                                    pass
+                        
+                        if has_updates:
+                            needs_sync = True
+                            check_source = "event_updates_found"
+                        else:
+                            # Local cache matches Speedhive latest events perfectly!
+                            needs_sync = False
+                            check_source = "online_match"
+                    else:
+                        needs_sync = True
+                        check_source = "never_synced"
+            else:
+                needs_sync = False
+                check_source = "no_online_events"
+                
+            # Cache the status check
+            _online_status_cache[org_id] = (now, needs_sync, check_source)
+            
+        except Exception as exc:
+            print(f"[StatusCheck] Failed to fetch online status for Org {org_id}: {str(exc)}", file=sys.stderr)
+            check_source = f"local_age_fallback ({str(exc)})"
 
     return {
         "org_id": org_id,
         "last_synced_at": last_refresh_at,
         "age_hours": age_hours,
         "needs_sync": needs_sync,
-        "stale_after_hours": DEFAULT_STALE_AFTER_HOURS,
+        "stale_after_hours": stale_after_hours,
         "pending_candidates": pending_candidates,
+        "check_source": check_source
     }
 
 

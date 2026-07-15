@@ -2590,7 +2590,7 @@ def org_track_records_status(org_id):
         org_id_int = int(org_id)
     except ValueError:
         return jsonify({"error": "Invalid org_id"}), 400
-    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT)
+    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT, client=client)
     running_task = _get_running_track_records_task_for_org(org_id_int)
     status["task_running"] = running_task is not None
     status["task_id"] = running_task["task_id"] if running_task else None
@@ -2618,11 +2618,12 @@ def org_track_records_sync(org_id):
     if running_task:
         return jsonify({"task_id": running_task["task_id"], "org_id": org_id_int, "already_running": True})
 
-    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT)
+    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT, client=client)
     if not force and not status["needs_sync"]:
+        age_str = f"{status['age_hours']:.1f}h" if status.get('age_hours') is not None else "unknown age"
         return jsonify({
             "skipped": True,
-            "reason": f"cache is {status['age_hours']:.1f}h old, staleness threshold is {status['stale_after_hours']}h",
+            "reason": f"sync skipped (needs_sync is false, cache is {age_str} old, source: {status.get('check_source')})",
             "status": status,
         })
 
