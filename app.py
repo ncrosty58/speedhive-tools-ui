@@ -34,8 +34,6 @@ from speedhive.processing.process_lap_analysis import (
     safe_int,
 )
 
-import whrri_track_records
-
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
 
@@ -47,11 +45,6 @@ WEB_DATA_ROOT = Path(os.environ.get("SPEEDHIVE_WEB_DATA_DIR", APP_ROOT / "web_da
 LEGACY_CACHE_ROOT = WEB_DATA_ROOT / "cache"
 DUMPS_ROOT = WEB_DATA_ROOT / "saved_dumps"
 DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", WEB_DATA_ROOT / "speedhive.db"))
-TRACK_RECORDS_DIR = WEB_DATA_ROOT / "track_records"
-WHRRI_CURATED_PATH = TRACK_RECORDS_DIR / "curated.json"
-WHRRI_CANDIDATES_PATH = TRACK_RECORDS_DIR / "candidates_pending.json"
-WHRRI_REJECTED_PATH = TRACK_RECORDS_DIR / "rejected.json"
-WHRRI_TASKS_DIR = TRACK_RECORDS_DIR / "tasks"
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS", "3"))
 
@@ -78,71 +71,6 @@ with storage.connect() as conn:
         ")"
     )
     conn.commit()
-
-# ---------------------------------------------------------------------------
-# Background track-records sync task registry. Gunicorn runs this app as
-# multiple separate WORKER PROCESSES (see Dockerfile: --workers 3), so an
-# in-memory dict here would only be visible to whichever worker happened to
-# start a given task -- a poll request landed on a different worker would see
-# nothing. Persisting task state to disk (like everything else in this app)
-# makes it visible to all workers, at the cost of a bit of file I/O.
-# ---------------------------------------------------------------------------
-_track_records_task_write_lock = threading.Lock()
-
-
-def _track_records_task_path(task_id: str) -> Path:
-    return WHRRI_TASKS_DIR / f"{task_id}.json"
-
-
-def _new_track_records_task(org_id: int) -> str:
-    task_id = str(uuid.uuid4())
-    task = {
-        "task_id": task_id,
-        "org_id": org_id,
-        "status": "running",  # running | done | error
-        "phase": "Starting",
-        "started_at": iso_utc(utc_now()),
-        "finished_at": None,
-        "error": None,
-        "result": None,
-    }
-    _write_json(_track_records_task_path(task_id), task)
-    return task_id
-
-
-def _get_track_records_task(task_id: str) -> Optional[Dict[str, Any]]:
-    return _read_json_or_default(_track_records_task_path(task_id), None)
-
-
-def _update_track_records_task(task_id: str, **kwargs) -> None:
-    with _track_records_task_write_lock:
-        path = _track_records_task_path(task_id)
-        task = _read_json_or_default(path, None)
-        if task is not None:
-            task.update(kwargs)
-            _write_json(path, task)
-
-
-def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
-    if not WHRRI_TASKS_DIR.exists():
-        return None
-    for task_file in WHRRI_TASKS_DIR.glob("*.json"):
-        task = _read_json_or_default(task_file, None)
-        if task and task.get("org_id") == org_id and task.get("status") == "running":
-            return task
-    return None
-
-
-def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
-    def report(phase):
-        _update_track_records_task(task_id, phase=phase)
-
-    try:
-        result = whrri_track_records.run_sync_and_diff(org_id, do_sync=True, full=full, force=force, progress_cb=report)
-        _update_track_records_task(task_id, status="done", finished_at=iso_utc(utc_now()), result=result)
-    except Exception as exc:
-        _update_track_records_task(task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
-
 
 # ---------------------------------------------------------------------------
 # Background refresh task registry
@@ -2396,166 +2324,6 @@ def org_operations(org_id):
         cache_status=cache_status,
         running_task_id=running_task_id,
     )
-
-
-def _read_json_or_default(path, default):
-    if not Path(path).exists():
-        return default
-    with open(path) as f:
-        return json.load(f)
-
-
-def _write_json(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-
-
-def _candidate_identity(candidate):
-    p = candidate["proposed"]
-    return (p.get("classAbbreviation"), p.get("lapTime"), p.get("driverName"), p.get("date"))
-
-
-@app.route("/track-records/review")
-def track_records_review():
-    payload = _read_json_or_default(WHRRI_CANDIDATES_PATH, {"generated_at": None, "org_id": None, "candidates": []})
-    return render_template(
-        "track_records_review.html",
-        active_tab="track-records-review",
-        generated_at=payload.get("generated_at"),
-        candidates=payload.get("candidates", []),
-        notice=request.args.get("notice"),
-        error=request.args.get("error"),
-    )
-
-
-@app.route("/track-records/review/apply", methods=["POST"])
-def track_records_review_apply():
-    identity = (
-        request.form.get("orig_classAbbreviation"),
-        request.form.get("orig_lapTime"),
-        request.form.get("orig_driverName"),
-        request.form.get("orig_date"),
-    )
-    final_record = {
-        "classAbbreviation": (request.form.get("classAbbreviation") or "").strip(),
-        "lapTime": (request.form.get("lapTime") or "").strip(),
-        "driverName": (request.form.get("driverName") or "").strip(),
-        "marque": (request.form.get("marque") or "").strip() or None,
-        "date": (request.form.get("date") or "").strip(),
-    }
-    if not final_record["classAbbreviation"] or not final_record["lapTime"] or not final_record["date"]:
-        return redirect(url_for("track_records_review", error="Class, lap time, and date are required to approve a candidate."))
-
-    curated = _read_json_or_default(WHRRI_CURATED_PATH, {"date": None, "records": []})
-    curated["records"].append(final_record)
-    curated["date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    _write_json(WHRRI_CURATED_PATH, curated)
-
-    payload = _read_json_or_default(WHRRI_CANDIDATES_PATH, {"generated_at": None, "org_id": None, "candidates": []})
-    payload["candidates"] = [c for c in payload.get("candidates", []) if _candidate_identity(c) != identity]
-    _write_json(WHRRI_CANDIDATES_PATH, payload)
-
-    return redirect(url_for("track_records_review", notice=f"Approved {final_record['classAbbreviation']} — {final_record['lapTime']} by {final_record['driverName']}."))
-
-
-@app.route("/track-records/review/reject", methods=["POST"])
-def track_records_review_reject():
-    identity = (
-        request.form.get("orig_classAbbreviation"),
-        request.form.get("orig_lapTime"),
-        request.form.get("orig_driverName"),
-        request.form.get("orig_date"),
-    )
-
-    rejected_payload = _read_json_or_default(WHRRI_REJECTED_PATH, {"rejected": []})
-    rejected_payload.setdefault("rejected", []).append({
-        "classAbbreviation": identity[0],
-        "lapTime": identity[1],
-        "driverName": identity[2],
-        "date": identity[3],
-        "rejected_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-    })
-    _write_json(WHRRI_REJECTED_PATH, rejected_payload)
-
-    payload = _read_json_or_default(WHRRI_CANDIDATES_PATH, {"generated_at": None, "org_id": None, "candidates": []})
-    payload["candidates"] = [c for c in payload.get("candidates", []) if _candidate_identity(c) != identity]
-    _write_json(WHRRI_CANDIDATES_PATH, payload)
-
-    return redirect(url_for("track_records_review", notice=f"Rejected {identity[0]} — {identity[1]} by {identity[2]}."))
-
-
-@app.route("/track-records/whrri.json")
-def track_records_whrri_json():
-    curated = _read_json_or_default(WHRRI_CURATED_PATH, {"date": None, "records": []})
-    body = json.dumps(curated, ensure_ascii=False)
-    resp = Response(body, mimetype="application/json")
-    # Public, read-only, non-sensitive data (lap times) with no cookies/auth involved,
-    # and the consuming site's domain is expected to change (cosmoslab.dev -> waterfordhills.com)
-    # -- a wildcard avoids needing a code change/redeploy here when that happens.
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "GET"
-    resp.headers["Cache-Control"] = "public, max-age=300"
-    return resp
-
-
-@app.route("/api/org/<org_id>/track-records/status")
-def api_track_records_status(org_id):
-    try:
-        org_id_int = int(org_id)
-    except ValueError:
-        return jsonify({"error": "Invalid org_id"}), 400
-    status = whrri_track_records.get_cache_status(org_id_int)
-    running_task = _get_running_track_records_task_for_org(org_id_int)
-    status["task_running"] = running_task is not None
-    status["task_id"] = running_task["task_id"] if running_task else None
-    return jsonify(status)
-
-
-@app.route("/api/org/<org_id>/track-records/sync", methods=["POST"])
-def api_track_records_sync(org_id):
-    """Prepared API for CI (or the UI button) to trigger a sync+diff run.
-
-    Checks cache freshness first and returns {"skipped": true} immediately
-    (no thread spawned, no Speedhive calls) unless the cache is actually
-    stale or ?force=1 is passed -- callers can hit this on a schedule without
-    worrying about triggering an expensive sync every time.
-    """
-    try:
-        org_id_int = int(org_id)
-    except ValueError:
-        return jsonify({"error": "Invalid org_id"}), 400
-
-    body = request.get_json(silent=True) or {}
-    force = request.args.get("force") in ("1", "true", "True") or bool(body.get("force"))
-    full = request.args.get("full") in ("1", "true", "True") or bool(body.get("full"))
-
-    running_task = _get_running_track_records_task_for_org(org_id_int)
-    if running_task:
-        return jsonify({"task_id": running_task["task_id"], "org_id": org_id_int, "already_running": True})
-
-    status = whrri_track_records.get_cache_status(org_id_int)
-    if not force and not status["needs_sync"]:
-        return jsonify({
-            "skipped": True,
-            "reason": f"cache is {status['age_hours']:.1f}h old, staleness threshold is {status['stale_after_hours']}h",
-            "status": status,
-        })
-
-    task_id = _new_track_records_task(org_id_int)
-    t = threading.Thread(target=_run_track_records_sync_task, args=(task_id, org_id_int, full, force), daemon=True)
-    t.start()
-    return jsonify({"task_id": task_id, "org_id": org_id_int})
-
-
-@app.route("/api/org/<org_id>/track-records/sync/<task_id>")
-def api_track_records_sync_status(org_id, task_id):
-    task = _get_track_records_task(task_id)
-    if task is None:
-        return jsonify({"error": "Unknown task_id"}), 404
-    return jsonify(task)
 
 
 if __name__ == '__main__':
