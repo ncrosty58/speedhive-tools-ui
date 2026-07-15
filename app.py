@@ -2529,6 +2529,11 @@ def org_track_records_review_apply(org_id):
         "driverName": (request.form.get("driverName") or "").strip(),
         "marque": (request.form.get("marque") or "").strip() or None,
         "date": (request.form.get("date") or "").strip(),
+        # When this was approved (distinct from `date`, the on-track event date) --
+        # a monthly sync + manual review cadence means an event can easily be
+        # 30-60+ days old by approval time, so "recently added" needs its own
+        # timestamp rather than assuming the event date is recent.
+        "addedAt": iso_utc(utc_now()),
     }
     if not final_record["classAbbreviation"] or not final_record["lapTime"] or not final_record["date"]:
         return redirect(url_for("org_track_records_review", org_id=org_id_int, error="Class, lap time, and date are required to approve a candidate."))
@@ -2575,6 +2580,70 @@ def org_track_records_review_reject(org_id):
     track_records.save_json(p["candidates"], payload)
 
     return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Rejected {identity[0]} — {identity[1]} by {identity[2]}."))
+
+
+@app.route("/org/<org_id>/track-records/curated")
+def org_track_records_curated(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    records = sorted(curated.get("records", []), key=lambda r: (r.get("classAbbreviation") or "", r.get("date") or ""))
+    return render_template(
+        "track_records_curated.html",
+        org_id=org_id_int,
+        curated_date=curated.get("date"),
+        records=records,
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/org/<org_id>/track-records/curated/delete", methods=["POST"])
+def org_track_records_curated_delete(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    identity = (
+        request.form.get("classAbbreviation"),
+        request.form.get("lapTime"),
+        request.form.get("driverName"),
+        request.form.get("date"),
+    )
+
+    curated = read_json_file(p["curated"]) or {"date": None, "records": []}
+    before_count = len(curated.get("records", []))
+    curated["records"] = [
+        r for r in curated.get("records", [])
+        if (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date")) != identity
+    ]
+    removed = before_count - len(curated["records"])
+    if removed == 0:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="Record not found (already removed?)."))
+
+    curated["date"] = utc_now().strftime("%Y-%m-%d")
+    track_records.save_json(p["curated"], curated)
+
+    # Prevent the same announcement from immediately re-surfacing as a "new"
+    # candidate on the next sync -- the underlying Speedhive data is still
+    # there, so without this it would just get re-proposed right away.
+    rejected_payload = read_json_file(p["rejected"]) or {"rejected": []}
+    rejected_payload.setdefault("rejected", []).append({
+        "classAbbreviation": identity[0],
+        "lapTime": identity[1],
+        "driverName": identity[2],
+        "date": identity[3],
+        "rejected_at": iso_utc(utc_now()),
+        "reason": "deleted_from_curated",
+    })
+    track_records.save_json(p["rejected"], rejected_payload)
+
+    return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Removed {identity[0]} — {identity[1]} by {identity[2]}."))
 
 
 @app.route("/org/<org_id>/track-records.json")

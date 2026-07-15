@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+
+{% block title %}Curated Track Records — Org {{ org_id }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+        <div>
+            <h1 class="h2 fw-bold mb-1">Curated Track Records</h1>
+            <span class="text-muted small">
+                {% if curated_date %}As of {{ curated_date }}{% endif %} &bull;
+                <a href="{{ url_for('org_track_records_review', org_id=org_id) }}">Review pending candidates</a>
+            </span>
+        </div>
+        <span class="text-muted small">{{ records|length }} record(s)</span>
+    </div>
+
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="table-responsive">
+                <table class="table table-custom table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Class</th>
+                            <th>Lap Time</th>
+                            <th>Driver</th>
+                            <th>Marque</th>
+                            <th>Date</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in records %}
+                        <tr>
+                            <td>{{ r.classAbbreviation }}</td>
+                            <td>{{ r.lapTime }}</td>
+                            <td>{{ r.driverName }}</td>
+                            <td>{{ r.marque or '—' }}</td>
+                            <td>{{ r.date }}</td>
+                            <td class="text-end">
+                                <form method="POST" action="{{ url_for('org_track_records_curated_delete', org_id=org_id) }}"
+                                      onsubmit="return confirm('Remove this record? It will not automatically reappear on future syncs.');">
+                                    <input type="hidden" name="classAbbreviation" value="{{ r.classAbbreviation }}">
+                                    <input type="hidden" name="lapTime" value="{{ r.lapTime }}">
+                                    <input type="hidden" name="driverName" value="{{ r.driverName }}">
+                                    <input type="hidden" name="date" value="{{ r.date }}">
+                                    <button type="submit" class="btn-custom-outline border-danger text-danger py-1 px-2" style="font-size: 0.75rem;">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
