@@ -1,5 +1,6 @@
 services:
   web:
+    container_name: speedhive-tools-ui
     build: .
     restart: unless-stopped
     environment:
