@@ -23,12 +23,12 @@ except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "speedhive-tools", "src"))
 
 from speedhive.wrapper import SpeedhiveClient
-from speedhive.processing.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
+from speedhive.workflows.refresh_org_cache import refresh_org_cache as refresh_org_cache_bundle
 from speedhive.exporters.export_lap_records import get_lap_records
 from speedhive.exporters.export_db_dump import export_db_dump
 from speedhive.ndjson import dumps_ndjson_record
 from speedhive.storage import SpeedhiveStorage
-from speedhive.processing.process_lap_analysis import (
+from speedhive.analysis.lap_analysis import (
     extract_iso_date,
     parse_time_value,
     parse_track_record_text,
@@ -43,8 +43,8 @@ from speedhive.processing.process_lap_analysis import (
 )
 
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
-from speedhive.processing import track_records_curation as track_records
-from speedhive.processing.track_records_import import import_curated_track_records_ndjson
+from speedhive.workflows.track_records import curation as track_records
+from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "speedhive-tools-secret-key-34399")
@@ -416,7 +416,7 @@ def _get_running_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
 
 def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int) -> None:
     """Run the org refresh in a background thread with progress updates."""
-    from speedhive.processing.refresh_org_cache import (
+    from speedhive.workflows.refresh_org_cache import (
         _event_ids_from_rows, _sorted_event_ids_for_backfill,
         _parse_iso_utc,
     )
@@ -466,7 +466,7 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
         current_event_id_set = set(current_event_ids)
         new_event_ids = sorted(current_event_id_set - previous_event_ids)
 
-        from speedhive.processing.refresh_org_cache import _safe_int
+        from speedhive.workflows.refresh_org_cache import _safe_int
         refresh_event_ids: set
         if mode == "full":
             refresh_event_ids = set(current_event_id_set)
@@ -695,7 +695,7 @@ def format_datetime_display(value: Any, include_time: bool = True) -> Optional[s
         pass
     return text
 
-# format_gap_display, safe_int, and normalize_result_row are now imported from speedhive.processing.process_lap_analysis
+# format_gap_display, safe_int, and normalize_result_row are now imported from speedhive.analysis.lap_analysis
 
 
 
@@ -2275,7 +2275,7 @@ def lap_times(session_id, driver_id):
                     sec = parse_time_value(time_str)
                     if sec is not None and sec > 0:
                         times.append((lap, sec))
-            from speedhive.processing.process_lap_analysis import filter_outliers_iqr
+            from speedhive.analysis.lap_analysis import filter_outliers_iqr
             filtered_seconds = filter_outliers_iqr([t[1] for t in times])
             filtered_seconds_pool = list(filtered_seconds)
             for lap, sec in times:
@@ -2570,7 +2570,7 @@ def generate_org_stats(org_id):
         return redirect(url_for("org_stats", **redirect_args))
 
     try:
-        from speedhive.processing.process_lap_analysis import (
+        from speedhive.analysis.lap_analysis import (
             compute_laps_and_enriched,
             compute_laps_and_enriched_from_storage,
         )
@@ -2691,7 +2691,7 @@ def driver_stats_breakdown(org_id, driver_name):
 
     try:
         import re
-        from speedhive.processing.process_lap_analysis import (
+        from speedhive.analysis.lap_analysis import (
             compute_laps_and_enriched,
             compute_laps_and_enriched_from_storage,
             normalize_name,
