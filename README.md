@@ -11,6 +11,7 @@ Built using **Flask**, **SQLite**, and styled with a custom responsive **dark-mo
 - **Dashboard & Search**: Seamlessly search for racing organizations (tracks/clubs) and drivers.
 - **Detailed Event & Session Views**: Inspect championships, qualifying sessions, races, and practice runs with full driver listings.
 - **Background Sync Engine**: Perform full or incremental data syncs from Speedhive to a local SQLite database in the background, with real-time task progress monitoring (percentage complete, active session count) and the ability to stop running syncs at any time.
+- **Track Record Workflow**: Refresh data, scan track-record candidates, and manage curated/rejected records from Operations; import/export lives in the same Operations area, while Settings is for notifications and class aliases.
 - **Advanced Consistency & Stats**:
   - Analyze driver consistency (averages, best times, Coefficient of Variation).
   - Identify the most and least consistent drivers in a class.
@@ -24,13 +25,13 @@ Built using **Flask**, **SQLite**, and styled with a custom responsive **dark-mo
 
 ## 📁 Repository Structure
 
-- [**`app.py`**](file:///opt/speedhive_data/app.py): The main Flask application containing routes, background sync task registries, data export logic, and page controllers.
-- [**`templates/`**](file:///opt/speedhive_data/templates/): Jinja2 HTML templates styled with a premium custom dark-theme glassmorphism design:
+- [**`app.py`**](file:///opt/speedhive-tools-ui/app.py): The main Flask application containing routes, background sync task registries, data export logic, and page controllers.
+- [**`templates/`**](file:///opt/speedhive-tools-ui/templates/): Jinja2 HTML templates styled with a premium custom dark-theme glassmorphism design:
   - `base.html`: Main layout, navigation, and custom CSS styling.
   - `org_operations.html`: Control center for running, stopping, and monitoring background sync tasks.
   - `org_stats.html`: Statistics, lap analysis, and driver consistency leaderboard.
   - `event.html`, `results.html`: Session classifications, event views, and lap tables.
-- [**`speedhive-tools/`**](file:///opt/speedhive_data/speedhive-tools/): Git submodule referencing the core Python library for Mylaps Speedhive API scraping, database storage, and lap-processing algorithms.
+- [**`speedhive-tools/`**](file:///opt/speedhive-tools-ui/speedhive-tools/): Git submodule referencing the core Python library for Mylaps Speedhive API scraping, database storage, curation, and CLI tooling.
 - `speedhive_tools.py`: A legacy helper module containing standard REST-based wrappers for the Mylaps Speedhive JSON API.
 - `requirements.txt`: Python package dependencies for Flask, HTTPX, and general requirements.
 - `Dockerfile` / `docker-compose.yml`: Ready-to-use deployment manifests.
@@ -104,6 +105,8 @@ To work on the core scraping or data-processing logic, changes should be made wi
 1. Make changes inside `speedhive-tools/`.
 2. Commit and push inside the `speedhive-tools/` repository first.
 3. Reference the updated commit inside the parent `speedhive-tools-ui` repository.
+
+Track-record file actions (`export.ndjson`, `import`, `curated`, `rejected`) are exposed from the UI under the Operations page. The Settings page is intentionally limited to notification and alias configuration.
 
 ## 📄 License
 This project is licensed under the [MIT License](file:///opt/speedhive-tools-ui/speedhive-tools/LICENSE).
