@@ -2714,5 +2714,146 @@ def org_track_records_json(org_id):
     return resp
 
 
+@app.route("/org/<org_id>/track-records/notify", methods=["POST"])
+def org_track_records_notify(org_id):
+    """Sends a Speedhive-themed notification email via Resend API.
+    All credentials and recipient lists are passed dynamically in the POST request body
+    or resolved from the server's environment variables (no hardcoding in the app).
+    """
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+
+    body = request.get_json(silent=True) or {}
+
+    # Simple security token check
+    env_secret = os.environ.get("SYNC_SECRET")
+    secret = request.args.get("secret") or body.get("secret")
+    if env_secret and secret != env_secret:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    # Extract credentials and destination from request or env
+    resend_api_key = body.get("resend_api_key") or os.environ.get("RESEND_API_KEY")
+    from_email = body.get("from_email") or os.environ.get("NOTIFICATION_FROM_EMAIL")
+
+    to_emails = body.get("to_emails")
+    if not to_emails:
+        env_to = os.environ.get("NOTIFICATION_TO_EMAILS")
+        if env_to:
+            if env_to.strip().startswith("["):
+                try:
+                    to_emails = json.loads(env_to)
+                except Exception:
+                    to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
+            else:
+                to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
+
+    if isinstance(to_emails, str):
+        to_emails = [email.strip() for email in to_emails.split(",") if email.strip()]
+
+    # Validate inputs
+    if not resend_api_key:
+        return jsonify({"error": "Missing resend_api_key (neither provided in POST body nor environment)"}), 400
+    if not from_email:
+        return jsonify({"error": "Missing from_email (neither provided in POST body nor environment)"}), 400
+    if not to_emails:
+        return jsonify({"error": "Missing to_emails (neither provided in POST body nor environment)"}), 400
+
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    candidates_file = p["candidates"]
+
+    if not candidates_file.exists():
+        return jsonify({"skipped": True, "reason": "No pending candidates file found"}), 200
+
+    try:
+        with open(candidates_file) as f:
+            candidates_data = json.load(f)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to read candidates file: {str(exc)}"}), 500
+
+    candidates = candidates_data.get("candidates", [])
+    if not candidates:
+        return jsonify({"skipped": True, "reason": "No pending candidates to notify about"}), 200
+
+    new_records = 0
+    unmapped = 0
+    for c in candidates:
+        if c.get("type") == "new_record":
+            new_records += 1
+        elif c.get("type") == "unmapped":
+            unmapped += 1
+
+    total_candidates = len(candidates)
+
+    email_html = f"""<div style='background-color: #0a0b10; color: #f3f4f6; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #222634; border-radius: 4px;'>
+  <div style='border-bottom: 1px solid #222634; padding-bottom: 15px; margin-bottom: 25px;'>
+    <span style='color: #06b6d4; font-size: 20px; font-weight: bold; letter-spacing: -0.02em;'>Speedhive-tools</span>
+    <span style='color: #9ca3af; font-size: 20px; font-weight: 300;'> | Organization {org_id_int}</span>
+  </div>
+  
+  <h2 style='color: #f3f4f6; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 12px; letter-spacing: -0.01em;'>Track Records Review Required</h2>
+  
+  <p style='color: #9ca3af; font-size: 15px; line-height: 1.6; margin-bottom: 25px;'>
+    The automatic sync has detected new track records or unmapped classifications that require human verification.
+  </p>
+  
+  <div style='background-color: #12141d; border: 1px solid #222634; border-radius: 4px; padding: 20px; margin-bottom: 30px;'>
+    <h3 style='color: #06b6d4; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0; margin-bottom: 15px;'>Pending Candidates</h3>
+    
+    <table style='width: 100%; border-collapse: collapse;'>
+      <tr>
+        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px;'>New Record Candidates</td>
+        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600;'>{new_records}</td>
+      </tr>
+      <tr>
+        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px; border-top: 1px solid #222634;'>Unmapped Classifications</td>
+        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600; border-top: 1px solid #222634;'>{unmapped}</td>
+      </tr>
+      <tr style='border-top: 1px solid #222634;'>
+        <td style='padding: 8px 0 0 0; color: #f3f4f6; font-size: 14px; font-weight: 600;'>Total Review Queue</td>
+        <td style='padding: 8px 0 0 0; text-align: right; color: #06b6d4; font-size: 15px; font-weight: 700;'>{total_candidates}</td>
+      </tr>
+    </table>
+  </div>
+  
+  <div style='margin-bottom: 30px;'>
+    <a href='https://speedhive.cosmoslab.dev/org/{org_id_int}/track-records/review' 
+       style='background-color: #06b6d4; color: #0a0b10; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 14px; display: inline-block;'>
+      Review and Approve
+    </a>
+  </div>
+  
+  <div style='border-top: 1px solid #222634; padding-top: 15px; color: #9ca3af; font-size: 11px;'>
+    This is an automated notification from the Speedhive tools sync pipeline.
+  </div>
+</div>"""
+
+    payload = {
+        "from": from_email,
+        "to": to_emails,
+        "subject": f"WHRRI Track Records: Review Required ({total_candidates} new candidates)",
+        "html": email_html
+    }
+
+    try:
+        import urllib.request
+        import json
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req) as resp:
+            resp_body = resp.read().decode("utf-8")
+            return jsonify({"success": True, "resend_response": json.loads(resp_body)})
+    except Exception as exc:
+        return jsonify({"error": f"Failed to send email via Resend: {str(exc)}"}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8854, debug=True)
