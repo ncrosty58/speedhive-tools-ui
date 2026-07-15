@@ -45,6 +45,10 @@ WEB_DATA_ROOT = Path(os.environ.get("SPEEDHIVE_WEB_DATA_DIR", APP_ROOT / "web_da
 LEGACY_CACHE_ROOT = WEB_DATA_ROOT / "cache"
 DUMPS_ROOT = WEB_DATA_ROOT / "saved_dumps"
 DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", WEB_DATA_ROOT / "speedhive.db"))
+TRACK_RECORDS_DIR = WEB_DATA_ROOT / "track_records"
+WHRRI_CURATED_PATH = TRACK_RECORDS_DIR / "curated.json"
+WHRRI_CANDIDATES_PATH = TRACK_RECORDS_DIR / "candidates_pending.json"
+WHRRI_REJECTED_PATH = TRACK_RECORDS_DIR / "rejected.json"
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 DEFAULT_INCREMENTAL_BACKFILL_EVENTS = int(os.environ.get("SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS", "3"))
 
@@ -2324,6 +2328,109 @@ def org_operations(org_id):
         cache_status=cache_status,
         running_task_id=running_task_id,
     )
+
+
+def _read_json_or_default(path, default):
+    if not Path(path).exists():
+        return default
+    with open(path) as f:
+        return json.load(f)
+
+
+def _write_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def _candidate_identity(candidate):
+    p = candidate["proposed"]
+    return (p.get("classAbbreviation"), p.get("lapTime"), p.get("driverName"), p.get("date"))
+
+
+@app.route("/track-records/review")
+def track_records_review():
+    payload = _read_json_or_default(WHRRI_CANDIDATES_PATH, {"generated_at": None, "org_id": None, "candidates": []})
+    return render_template(
+        "track_records_review.html",
+        active_tab="track-records-review",
+        generated_at=payload.get("generated_at"),
+        candidates=payload.get("candidates", []),
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/track-records/review/apply", methods=["POST"])
+def track_records_review_apply():
+    identity = (
+        request.form.get("orig_classAbbreviation"),
+        request.form.get("orig_lapTime"),
+        request.form.get("orig_driverName"),
+        request.form.get("orig_date"),
+    )
+    final_record = {
+        "classAbbreviation": (request.form.get("classAbbreviation") or "").strip(),
+        "lapTime": (request.form.get("lapTime") or "").strip(),
+        "driverName": (request.form.get("driverName") or "").strip(),
+        "marque": (request.form.get("marque") or "").strip() or None,
+        "date": (request.form.get("date") or "").strip(),
+    }
+    if not final_record["classAbbreviation"] or not final_record["lapTime"] or not final_record["date"]:
+        return redirect(url_for("track_records_review", error="Class, lap time, and date are required to approve a candidate."))
+
+    curated = _read_json_or_default(WHRRI_CURATED_PATH, {"date": None, "records": []})
+    curated["records"].append(final_record)
+    curated["date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    _write_json(WHRRI_CURATED_PATH, curated)
+
+    payload = _read_json_or_default(WHRRI_CANDIDATES_PATH, {"generated_at": None, "org_id": None, "candidates": []})
+    payload["candidates"] = [c for c in payload.get("candidates", []) if _candidate_identity(c) != identity]
+    _write_json(WHRRI_CANDIDATES_PATH, payload)
+
+    return redirect(url_for("track_records_review", notice=f"Approved {final_record['classAbbreviation']} — {final_record['lapTime']} by {final_record['driverName']}."))
+
+
+@app.route("/track-records/review/reject", methods=["POST"])
+def track_records_review_reject():
+    identity = (
+        request.form.get("orig_classAbbreviation"),
+        request.form.get("orig_lapTime"),
+        request.form.get("orig_driverName"),
+        request.form.get("orig_date"),
+    )
+
+    rejected_payload = _read_json_or_default(WHRRI_REJECTED_PATH, {"rejected": []})
+    rejected_payload.setdefault("rejected", []).append({
+        "classAbbreviation": identity[0],
+        "lapTime": identity[1],
+        "driverName": identity[2],
+        "date": identity[3],
+        "rejected_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    })
+    _write_json(WHRRI_REJECTED_PATH, rejected_payload)
+
+    payload = _read_json_or_default(WHRRI_CANDIDATES_PATH, {"generated_at": None, "org_id": None, "candidates": []})
+    payload["candidates"] = [c for c in payload.get("candidates", []) if _candidate_identity(c) != identity]
+    _write_json(WHRRI_CANDIDATES_PATH, payload)
+
+    return redirect(url_for("track_records_review", notice=f"Rejected {identity[0]} — {identity[1]} by {identity[2]}."))
+
+
+@app.route("/track-records/whrri.json")
+def track_records_whrri_json():
+    curated = _read_json_or_default(WHRRI_CURATED_PATH, {"date": None, "records": []})
+    body = json.dumps(curated, ensure_ascii=False)
+    resp = Response(body, mimetype="application/json")
+    # Public, read-only, non-sensitive data (lap times) with no cookies/auth involved,
+    # and the consuming site's domain is expected to change (cosmoslab.dev -> waterfordhills.com)
+    # -- a wildcard avoids needing a code change/redeploy here when that happens.
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET"
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
 
 
 if __name__ == '__main__':
