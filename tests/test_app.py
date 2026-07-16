@@ -525,3 +525,30 @@ def test_class_pace_settings_route_persists_config(client):
         "classes": ["FA", "GT1"],
         "regression": True,
     }
+
+
+def test_org_participation_page_renders(client):
+    resp = client.get("/org/999999/stats/participation")
+    assert resp.status_code == 200
+    assert b"No Synced Session Data" in resp.data
+
+
+def test_generate_class_pace_redirect_to_participation(client):
+    resp = client.post(
+        "/org/999999/stats/class-pace/generate",
+        data={"redirect_to": "org_participation", "session_types": ["race"]},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/org/999999/stats/participation" in resp.headers["Location"]
+
+
+def test_generate_class_pace_redirect_to_falls_back_for_unrecognized_value(client):
+    resp = client.post(
+        "/org/999999/stats/class-pace/generate",
+        data={"redirect_to": "some_other_endpoint_not_allowed", "session_types": ["race"]},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/org/999999/stats/class-pace" in resp.headers["Location"]
+    assert "participation" not in resp.headers["Location"]

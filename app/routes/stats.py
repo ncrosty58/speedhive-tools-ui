@@ -541,7 +541,6 @@ def org_class_pace(org_id):
         "regression": bool(class_pace_settings.get("regression")),
     }
     available_classes = chart_data.get("classes", []) if chart_data else []
-    participation_data = chart_data.get("participation") if chart_data else None
 
     table_rows = None
     if chart_data:
@@ -571,10 +570,79 @@ def org_class_pace(org_id):
         chart_data=chart_data,
         class_pace_config=class_pace_config,
         available_classes=available_classes,
-        participation_data=participation_data,
         table_rows=table_rows,
         active_tab="stats",
         active_stats_tab="class_pace",
+        session_types=session_types_list,
+        session_types_str=session_types_str,
+        ignore_outliers=ignore_outliers,
+    )
+
+
+def org_participation(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+
+    session_types_raw = request.args.getlist("session_types")
+    if len(session_types_raw) == 1 and "," in session_types_raw[0]:
+        session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
+    elif session_types_raw:
+        session_types_list = [t.strip() for t in session_types_raw if t.strip()]
+    else:
+        session_types_list = []
+
+    session_types_list = [t for t in session_types_list if t in ("race", "qualifying", "practice")]
+    if not session_types_list:
+        session_types_list = ["race"]
+
+    session_types_list.sort()
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"classpace_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    org_view = get_org_view(org_id_int)
+    has_db_stats = storage.org_has_sessions(org_id_int)
+
+    if not has_db_stats:
+        return render_template(
+            "participation.html",
+            org=org_view,
+            org_id=org_id_int,
+            manifest_exists=False,
+            active_tab="stats",
+            active_stats_tab="participation",
+            session_types=session_types_list,
+            session_types_str=session_types_str,
+            ignore_outliers=ignore_outliers,
+        )
+
+    participation_data = None
+    calculated_at = None
+    try:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+                (org_id_int, session_types_key)
+            ).fetchone()
+        if row:
+            participation_data = json.loads(row["payload"]).get("participation")
+            calculated_at = row["calculated_at"]
+    except Exception as e:
+        current_app.logger.warning(f"Error loading participation stats from DB for org {org_id_int}: {e}")
+
+    return render_template(
+        "participation.html",
+        org=org_view,
+        org_id=org_id_int,
+        manifest_exists=True,
+        has_persisted_stats=bool(participation_data),
+        calculated_at=calculated_at,
+        participation_data=participation_data,
+        active_tab="stats",
+        active_stats_tab="participation",
         session_types=session_types_list,
         session_types_str=session_types_str,
         ignore_outliers=ignore_outliers,
@@ -613,6 +681,14 @@ def generate_org_class_pace(org_id):
 
     ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
 
+    # Both the Class Pace and Participation tabs share this one computation
+    # (they're cached together in the same org_stats row), so each page's own
+    # Generate/Recalculate button can send you back to itself instead of
+    # always bouncing to Class Pace.
+    redirect_endpoint = request.form.get("redirect_to") or "org_class_pace"
+    if redirect_endpoint not in ("org_class_pace", "org_participation"):
+        redirect_endpoint = "org_class_pace"
+
     session_types_raw = request.form.getlist("session_types") or request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
         session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
@@ -634,7 +710,7 @@ def generate_org_class_pace(org_id):
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
         if ignore_outliers:
             redirect_args["ignore_outliers"] = "1"
-        return redirect(url_for("org_class_pace", **redirect_args))
+        return redirect(url_for(redirect_endpoint, **redirect_args))
 
     try:
         from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
@@ -666,12 +742,12 @@ def generate_org_class_pace(org_id):
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
         if ignore_outliers:
             redirect_args["ignore_outliers"] = "1"
-        return redirect(url_for("org_class_pace", **redirect_args))
+        return redirect(url_for(redirect_endpoint, **redirect_args))
 
     redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
     if ignore_outliers:
         redirect_args["ignore_outliers"] = "1"
-    return redirect(url_for("org_class_pace", **redirect_args))
+    return redirect(url_for(redirect_endpoint, **redirect_args))
 
 
 def register_routes(app):
@@ -681,3 +757,4 @@ def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats/class-pace", "org_class_pace", org_class_pace)
     app.add_url_rule("/org/<org_id>/stats/class-pace/generate", "generate_org_class_pace", generate_org_class_pace, methods=["POST"])
     app.add_url_rule("/org/<org_id>/stats/class-pace/settings", "set_class_pace_config", set_class_pace_config, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/stats/participation", "org_participation", org_participation)

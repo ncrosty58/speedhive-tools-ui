@@ -199,55 +199,16 @@
                     </div>
                 </div>
             {% endif %}
-
-            <!-- Total Participation -->
-            {% if participation_data and participation_data.years %}
-                <div class="col-12">
-                    <div class="glass-card">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                            <h3 class="h5 fw-bold mb-0"><i class="fa-solid fa-users text-info"></i> Total Participation by Year</h3>
-                            <span class="text-muted small">Distinct racers, all classes combined</span>
-                        </div>
-                        <div class="position-relative" style="height: 280px;">
-                            <canvas id="participationChart"></canvas>
-                        </div>
-                        <details class="mt-3">
-                            <summary class="h6 fw-semibold mb-0" style="cursor: pointer;">
-                                <i class="fa-solid fa-table text-info me-1"></i>View as table
-                            </summary>
-                            <div class="table-custom-container mt-3">
-                                <table class="table table-custom mb-0 small">
-                                    <thead>
-                                        <tr>
-                                            <th>Year</th>
-                                            <th>Distinct Racers</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for year in participation_data.years %}
-                                            <tr>
-                                                <td class="fw-semibold text-secondary">{{ year }}</td>
-                                                <td>{{ participation_data.distinct_drivers[loop.index0] }}</td>
-                                            </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </details>
-                    </div>
-                </div>
-            {% endif %}
         {% endif %}
     {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
-{% if (chart_data and chart_data.classes) or (participation_data and participation_data.years) %}
+{% if chart_data and chart_data.classes %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener("DOMContentLoaded", function () {
-    {% if chart_data and chart_data.classes %}
     (function () {
         const chartData = {{ chart_data | tojson }};
         const classPaceConfig = {{ class_pace_config | tojson }};
@@ -393,58 +354,6 @@
             }
         });
     })();
-    {% endif %}
-
-    {% if participation_data and participation_data.years %}
-    (function () {
-        const participationData = {{ participation_data | tojson }};
-        const rootStyles = window.getComputedStyle(document.documentElement);
-        const brand = rootStyles.getPropertyValue("--brand").trim() || "#06b6d4";
-
-        const ctx = document.getElementById("participationChart");
-        if (!ctx) return;
-
-        new Chart(ctx.getContext("2d"), {
-            type: "bar",
-            data: {
-                labels: participationData.years,
-                datasets: [{
-                    label: "Distinct Racers",
-                    data: participationData.distinct_drivers,
-                    backgroundColor: brand,
-                    borderRadius: 4,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: "#141b32",
-                        titleColor: "#f8fafc",
-                        bodyColor: "#e2e8f0",
-                        borderColor: "#1e293b",
-                        borderWidth: 1,
-                        padding: 10,
-                        cornerRadius: 8,
-                    }
-                },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { color: "#64748b" }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: "rgba(255, 255, 255, 0.03)" },
-                        ticks: { color: "#64748b", precision: 0 }
-                    }
-                }
-            }
-        });
-    })();
-    {% endif %}
     });
 </script>
 {% endif %}
