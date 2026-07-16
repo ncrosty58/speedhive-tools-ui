@@ -39,36 +39,41 @@ def _new_task(org_id: int, mode: str) -> str:
     return task_id
 
 
-def _get_task(task_id: str) -> Optional[Dict[str, Any]]:
+def _fetch_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """Read a task row. Caller must already hold _tasks_lock."""
     from app import storage
+    with storage.connect() as conn:
+        row = conn.execute(
+            "SELECT org_id, task_type, status, payload, started_at, finished_at FROM background_tasks WHERE task_id = ?",
+            (task_id,)
+        ).fetchone()
+        if not row:
+            return None
+        task = {
+            "task_id": task_id,
+            "org_id": row["org_id"],
+            "task_type": row["task_type"],
+            "status": row["status"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+        }
+        if row["payload"]:
+            try:
+                task.update(json.loads(row["payload"]))
+            except Exception:
+                pass
+        return task
+
+
+def _get_task(task_id: str) -> Optional[Dict[str, Any]]:
     with _tasks_lock:
-        with storage.connect() as conn:
-            row = conn.execute(
-                "SELECT org_id, task_type, status, payload, started_at, finished_at FROM background_tasks WHERE task_id = ?",
-                (task_id,)
-            ).fetchone()
-            if not row:
-                return None
-            task = {
-                "task_id": task_id,
-                "org_id": row["org_id"],
-                "task_type": row["task_type"],
-                "status": row["status"],
-                "started_at": row["started_at"],
-                "finished_at": row["finished_at"],
-            }
-            if row["payload"]:
-                try:
-                    task.update(json.loads(row["payload"]))
-                except Exception:
-                    pass
-            return task
+        return _fetch_task(task_id)
 
 
 def _update_task(task_id: str, **kwargs) -> None:
     from app import storage
     with _tasks_lock:
-        task = _get_task(task_id)
+        task = _fetch_task(task_id)
         if not task:
             return
         

@@ -1,9 +1,11 @@
+import json
 import os
 from pathlib import Path
 from flask import Flask, session, request, redirect, url_for
 from speedhive.storage import SpeedhiveStorage
 from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_db_dump import export_db_dump  # noqa: F401
+from app.utils import iso_utc, utc_now
 
 
 # Shared globals
@@ -77,6 +79,27 @@ def create_app() -> Flask:
             ")"
         )
         conn.commit()
+
+        # Any task still 'running'/'stopping' at process startup belongs to a
+        # daemon thread from a previous process (a restart, a crash) that no
+        # longer exists and will never update it again -- mark it failed so
+        # the UI doesn't show it as perpetually in-progress and callers can retry.
+        orphaned = conn.execute(
+            "SELECT task_id, payload FROM background_tasks WHERE status IN ('running', 'stopping')"
+        ).fetchall()
+        if orphaned:
+            finished_at = iso_utc(utc_now())
+            for row in orphaned:
+                try:
+                    payload = json.loads(row["payload"]) if row["payload"] else {}
+                except Exception:
+                    payload = {}
+                payload["error"] = "Interrupted by server restart"
+                conn.execute(
+                    "UPDATE background_tasks SET status = 'error', finished_at = ?, payload = ? WHERE task_id = ?",
+                    (finished_at, json.dumps(payload, ensure_ascii=False), row["task_id"]),
+                )
+            conn.commit()
         
     # Configure global request hook
     app.before_request(require_login)
