@@ -1,111 +1,123 @@
-# Speedhive Tools UI
+# speedhive-tools-ui
 
-A professional Flask-based Web UI and background scanning pipeline for Speedhive racing data, powered by the `speedhive-tools` engine submodule.
-
-This application provides tools to scrape organizations, browse events and sessions, view interactive lap time charts with outlier filtering, calculate driver consistency statistics, and automatically run track record review workflows with email notifications.
-
----
-
-## 🏗️ Repository Architecture
-
-The project is structured as a modern Flask package separating concerns cleanly between database persistence, background worker tasks, notification templating, and route handlers.
-
-```
-├── app/                        # Main application package
-│   ├── __init__.py             # Flask App Factory and application setup
-│   ├── db.py                   # Data persistence, cache managers, and dump generation
-│   ├── utils.py                # Text parser utilities, display formatters, and helpers
-│   ├── tasks.py                # Disk-backed background worker tasks
-│   ├── notifications.py        # Jinja2 template rendering and Resend email dispatcher
-│   └── routes/                 # Decoupled web routes
-│       ├── auth.py             # Login/logout authentication endpoints
-│       ├── dashboard.py        # Dashboard main page and searches
-│       ├── organizations.py    # Organization refresh, cache clean, and dump management
-│       ├── sessions.py         # Event list, session results, and lap traces
-│       ├── track_records.py    # Track record curation review, reject list, and sync API
-│       └── stats.py            # Consistency rankings and driver percentiles
-├── speedhive-tools/            # Submodule containing the scraper API & mathematical models
-├── templates/                  # Jinja2 web layout files
-├── static/                     # CSS stylesheets and client-side scripts
-├── tests/                      # UI web testing suite
-├── app.py                      # Thin application entrypoint
-└── justfile                    # Local build and test targets
-```
+A password-gated Flask dashboard for [MyLaps Speedhive](https://speedhive.com)
+racing data: browse organizations, events and session results, chart lap
+times with outlier filtering, rank driver consistency, and run a background
+track-record curation pipeline with email notifications. Built on the
+[`speedhive-tools`](https://github.com/ncrosty58/speedhive-tools) engine,
+vendored here as a git submodule.
 
 ---
 
-## ⚡ Background Task State Model (Gunicorn-Safe)
+## Architecture
 
-To support multi-process web servers like Gunicorn where memory is isolated between worker processes, background task status tracking is stored in the central SQLite database:
+```
+├── app/
+│   ├── __init__.py           # Flask app factory; owns the shared SpeedhiveStorage + SpeedhiveClient
+│   ├── db.py                 # Read-through cache helpers, offline dump management
+│   ├── tasks.py              # Background task execution + SQLite-backed task state
+│   ├── notifications.py      # Resend email dispatch for track-record review
+│   ├── utils.py              # Formatting/parsing helpers shared by routes
+│   └── routes/
+│       ├── auth.py           # Login / logout
+│       ├── dashboard.py      # Home page, org/driver search
+│       ├── organizations.py  # Org add, refresh (sync), cache clear, offline dump import/export
+│       ├── sessions.py       # Event/session results, lap-time charts
+│       ├── stats.py          # Consistency rankings, per-driver percentile breakdown
+│       └── track_records.py  # Track-record sync, review/approve/reject, curated list, settings
+├── templates/                 # Jinja2 templates (incl. templates/emails/)
+├── static/                    # CSS/JS
+├── speedhive-tools/            # Submodule: the scraping/storage/CLI engine
+├── tests/                      # UI test suite
+├── app.py                      # WSGI entrypoint (`app:app`)
+├── Dockerfile / docker-compose.yml
+└── justfile                    # install / test / lint / run
+```
 
-1. **Task Persistence**: When a refresh/sync task is triggered, a task entry is inserted into the `background_tasks` SQLite table.
-2. **Dynamic Payloads**: Core state parameters are stored as columns, while execution progress metrics are serialized inside a JSON text payload.
-3. **Multi-process Visibility**: Workers across process boundaries can check, update, and manage current background execution status by querying the shared database table rather than referencing in-memory state.
+The app holds one shared `SpeedhiveStorage` instance (`app.storage`), built
+once in `create_app()` against `SPEEDHIVE_DB_PATH`, and passes it into
+`speedhive-tools` workflow functions (`refresh_org_cache`, `refresh_and_scan`,
+`import_dump_to_storage`, ...) rather than re-opening the database on every
+call.
+
+## Background task model
+
+Refreshes and track-record scans run in daemon threads, not a separate worker
+process. Because Gunicorn runs multiple worker processes with isolated
+memory, task progress can't live in an in-process dict — it's written to a
+`background_tasks` table in the same SQLite database instead, so any worker
+process can poll a task's status regardless of which process started it.
+
+Two task types share this table: `refresh_org` (data sync) and
+`track_records` (curation scan). Progress is polled from the browser via
+`/refresh/status/<task_id>` and `/org/<id>/track-records/update/<task_id>`.
+
+## Track-record curation
+
+Speedhive announcers flag new track/class records inside session
+announcements. The pipeline extracts those, normalizes classification codes
+against a per-org alias map, and diffs them against a curated NDJSON file —
+new or faster results land in a pending-review queue
+(`/org/<id>/track-records/review`), never written to the curated list
+automatically. Approving or rejecting a candidate is a manual step in the UI.
+If Resend credentials are configured, new candidates trigger a review-request
+email automatically after a scan completes.
 
 ---
 
-## 🚀 Running Locally
+## Running locally
 
-### 1. Initialize Submodules
-Ensure the core library submodule is populated:
 ```bash
-git submodule update --init --recursive
+git submodule update --init --recursive   # pull in the speedhive-tools engine
+just install                                # venv + deps + editable speedhive-tools install
+just test                                   # run the test suite
+just run                                    # http://localhost:8854
 ```
 
-### 2. Install Dependencies
-Build the virtual environment, install requirements, and set up the local `speedhive-tools` package in editable mode:
-```bash
-just install
-```
+`SPEEDHIVE_UI_PASSWORD` must be set (e.g. in a `.env` file) or every route
+except login will redirect to it.
 
-### 3. Run the Test Suite
-Ensure the codebase is working cleanly:
-```bash
-just test
-```
+## Docker
 
-### 4. Start the Application
-Run the local development server:
-```bash
-just run
-```
-The server will start on [http://localhost:8854](http://localhost:8854).
-
----
-
-## 🐳 Docker Deployment
-
-The application is pre-configured for Docker Compose. Start the container in detached mode:
 ```bash
 docker compose up -d --build
 ```
 
----
+`docker-compose.yml` builds the image from the `Dockerfile`, mounts
+`./web_data` for persistent SQLite/dump storage, and reads
+`SPEEDHIVE_UI_PASSWORD` from the environment (put it in a gitignored `.env`
+file next to `docker-compose.yml`).
 
-## ⚙️ Configuration Variables
-
-Configuration is handled using environment variables, which can be defined in a `.env` file at the repository root:
+## Configuration
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `SPEEDHIVE_WEB_DATA_DIR` | Directory on disk to store database, task logs, and local files. | `./web_data` |
-| `SPEEDHIVE_DB_PATH` | Full file path to the SQLite cache database. | `<SPEEDHIVE_WEB_DATA_DIR>/speedhive.db` |
-| `SPEEDHIVE_UI_PASSWORD` | Password required to access the application. | *Required (e.g. `test-password`)* |
-| `SPEEDHIVE_PORT` | The port the web server binds to when executed directly. | `8854` |
-| `SPEEDHIVE_MAX_ORG_EVENTS` | Maximum number of events to process per organization. | `150` |
-| `SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS` | Number of events backfilled during incremental scans. | `3` |
-| `FLASK_SECRET_KEY` | Private secret key used to secure Flask session cookies. | *Pre-configured fallback* |
-| `RESEND_API_KEY` | API token for Resend to send track record review notifications. | *Optional* |
-| `NOTIFICATION_FROM_EMAIL` | Sender address for review notification emails. | *Optional* |
-| `NOTIFICATION_TO_EMAILS` | Comma-separated list of recipient addresses for notifications. | *Optional* |
+| `SPEEDHIVE_UI_PASSWORD` | Password gating the whole app | *required* |
+| `SPEEDHIVE_WEB_DATA_DIR` | Root dir for the SQLite cache, task history, and saved dumps | `./web_data` |
+| `SPEEDHIVE_DB_PATH` | Full path to the SQLite cache file | `<SPEEDHIVE_WEB_DATA_DIR>/speedhive.db` |
+| `SPEEDHIVE_PORT` | Port for `flask run` / the dev server | `8854` |
+| `SPEEDHIVE_MAX_ORG_EVENTS` | Cap on events processed per org per sync | `150` |
+| `SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS` | Recent events re-checked during an incremental sync | `3` |
+| `FLASK_SECRET_KEY` | Session cookie signing key | *pre-configured fallback — override in production* |
+| `TRACK_RECORDS_STALE_HOURS` | Cache age before a track-record scan triggers an auto-refresh | `20` |
+| `SYNC_SECRET` | Shared secret required by the external `/org/<id>/track-records/notify` webhook | *optional* |
+| `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS` | Resend email credentials for track-record review notifications | *optional* |
+| `GOTIFY_URL`, `GOTIFY_APP_TOKEN` | Push notification when new track-record candidates are found | *optional* |
 
 ---
 
-## 🛠️ Submodule Development
+## Working on the `speedhive-tools` submodule
 
-If you make modifications to the scraper library or mathematical consistency code under the `speedhive-tools/` submodule, compile and run the local tests there first:
+Library, storage, and CLI code lives in the `speedhive-tools/` submodule (its
+own repo). Make changes there, run its own test suite, commit and push
+inside the submodule first, then commit the updated submodule pointer here:
+
 ```bash
 cd speedhive-tools
 pytest
+git commit -am "..." && git push
+
+cd ..
+git add speedhive-tools
+git commit -m "Bump speedhive-tools submodule reference"
 ```
-Remember to commit changes in the submodule directory before committing the updated submodule pointer in the parent repository.

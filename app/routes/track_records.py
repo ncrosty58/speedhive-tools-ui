@@ -3,7 +3,7 @@ import json
 import threading
 from datetime import datetime
 from flask import request, redirect, url_for, render_template, jsonify, Response
-from app import client
+from app import client, storage
 from app.tasks import (
     _get_running_track_records_task_for_org,
     _new_track_records_task,
@@ -21,8 +21,6 @@ from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
 
-from app import DB_PATH
-
 
 def _track_records_candidate_identity(candidate):
     proposed = candidate.get("proposed", {})
@@ -39,7 +37,7 @@ def org_track_records_status(org_id):
         org_id_int = int(org_id)
     except ValueError:
         return jsonify({"error": "Invalid org_id"}), 400
-    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT, client=client)
+    status = track_records.get_cache_status(org_id_int, storage, TRACK_RECORDS_ROOT, client=client)
     running_task = _get_running_track_records_task_for_org(org_id_int)
     status["task_running"] = running_task is not None
     status["task_id"] = running_task["task_id"] if running_task else None
@@ -60,7 +58,7 @@ def org_track_records_sync(org_id):
     if running_task:
         return jsonify({"task_id": running_task["task_id"], "org_id": org_id_int, "already_running": True})
 
-    status = track_records.get_cache_status(org_id_int, DB_PATH, TRACK_RECORDS_ROOT, client=client)
+    status = track_records.get_cache_status(org_id_int, storage, TRACK_RECORDS_ROOT, client=client)
     if not force and not status["needs_sync"]:
         age_str = f"{status['age_hours']:.1f}h" if status.get('age_hours') is not None else "unknown age"
         return jsonify({
@@ -398,7 +396,6 @@ def org_track_records_history(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    from app import storage
     tasks = []
     try:
         with storage.connect() as conn:

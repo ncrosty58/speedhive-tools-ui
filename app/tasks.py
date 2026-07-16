@@ -189,19 +189,18 @@ def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, A
 
 
 def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
-    from app import client
+    from app import client, storage
     from app.notifications import _auto_notify_for_org
     from speedhive.workflows.track_records import curation as track_records
-    
+
     def report(phase):
         _update_track_records_task(org_id, task_id, phase=phase)
 
     try:
-        from app import DB_PATH
         outcome = track_records.refresh_and_scan(
             org_id,
             client,
-            DB_PATH,
+            storage,
             TRACK_RECORDS_ROOT,
             mode="full" if full else "incremental",
             force=force,

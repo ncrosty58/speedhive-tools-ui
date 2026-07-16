@@ -98,7 +98,6 @@ def refresh_org(org_id):
         return redirect(url_for("org_details", org_id=org_id_int, notice="A refresh is already running for this organization."))
 
     try:
-        from app import DB_PATH
         summary = refresh_org_cache_bundle(
             client=client,
             org_id=org_id_int,
@@ -106,7 +105,7 @@ def refresh_org(org_id):
             max_events=MAX_ORG_EVENTS,
             recent_backfill_events=backfill_events if mode == "incremental" else 0,
             cleanup_on_full=True,
-            db_path=DB_PATH,
+            storage=storage,
         )
         refreshed = format_saved_at_display(summary.get("last_refresh_at"))
         mode_label = "Full" if mode == "full" else "Incremental"
@@ -349,7 +348,6 @@ def upload_local_dump(org_id):
 
     import shutil
     import tempfile
-    from app import DB_PATH
     from speedhive.workflows.import_sqlite_dump import import_dump_to_storage
 
     staging_dir = Path(tempfile.mkdtemp(prefix=f"speedhive_import_{org_id_int}_"))
@@ -381,7 +379,7 @@ def upload_local_dump(org_id):
                     shutil.move(str(f), str(target_org_dir / f.name))
 
         # Perform the import
-        summary = import_dump_to_storage(org=org_id_int, dump_dir=staging_dir, db_path=DB_PATH)
+        summary = import_dump_to_storage(org=org_id_int, dump_dir=staging_dir, storage=storage)
         notice = (
             f"Successfully imported offline dump: "
             f"{summary.get('events', 0)} events, "
