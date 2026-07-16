@@ -20,7 +20,7 @@ from app.utils import (
     read_json_file,
 )
 from app.notifications import _send_resend_notification
-from app.env_config import get_org_env_var, set_org_env_var
+from app.env_config import get_org_env_var, get_org_env_var_override, has_global_default, set_org_env_var
 from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
@@ -409,23 +409,41 @@ def org_track_records_rejected_restore(org_id):
 
 def _read_org_settings(org_id_int):
     """Non-secret toggles come from config.json; credential-shaped values
-    (Resend, Gemini) come from per-org env vars -- see app/env_config.py."""
+    (Resend, Gemini) come from per-org env vars -- see app/env_config.py.
+
+    Form fields are populated with this org's OWN override only (never the
+    shared fallback's actual value -- that would look like it belongs to
+    this org, and silently pin it as an org-specific override on next save).
+    `*_uses_shared_default` flags let the template show "using a shared
+    default" instead, when this org has no override of its own.
+    """
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
     config_file = p["dir"] / "config.json"
     notif_config = read_json_file(config_file) or {}
     toggles = notif_config.get("notifications", {"enabled": True, "de_duplicate": True})
     parsing_data = notif_config.get("parsing", {"engine": "regex"})
 
+    resend_api_key = get_org_env_var_override("RESEND_API_KEY", org_id_int)
+    from_email = get_org_env_var_override("NOTIFICATION_FROM_EMAIL", org_id_int)
+    to_emails_raw = get_org_env_var_override("NOTIFICATION_TO_EMAILS", org_id_int)
     notif_data = {
         "enabled": toggles.get("enabled", True),
         "de_duplicate": toggles.get("de_duplicate", True),
-        "resend_api_key": get_org_env_var("RESEND_API_KEY", org_id_int),
-        "from_email": get_org_env_var("NOTIFICATION_FROM_EMAIL", org_id_int),
-        "to_emails": [e.strip() for e in (get_org_env_var("NOTIFICATION_TO_EMAILS", org_id_int) or "").split(",") if e.strip()],
+        "resend_api_key": resend_api_key,
+        "from_email": from_email,
+        "to_emails": [e.strip() for e in (to_emails_raw or "").split(",") if e.strip()],
+        "resend_api_key_uses_shared_default": not resend_api_key and has_global_default("RESEND_API_KEY"),
+        "from_email_uses_shared_default": not from_email and has_global_default("NOTIFICATION_FROM_EMAIL"),
+        "to_emails_uses_shared_default": not to_emails_raw and has_global_default("NOTIFICATION_TO_EMAILS"),
     }
+
+    gemini_api_key = get_org_env_var_override("GEMINI_API_KEY", org_id_int)
+    gemini_model = get_org_env_var_override("GEMINI_MODEL", org_id_int)
     llm_config = {
-        "gemini_api_key": get_org_env_var("GEMINI_API_KEY", org_id_int),
-        "gemini_model": get_org_env_var("GEMINI_MODEL", org_id_int),
+        "gemini_api_key": gemini_api_key,
+        "gemini_model": gemini_model,
+        "gemini_api_key_uses_shared_default": not gemini_api_key and has_global_default("GEMINI_API_KEY"),
+        "gemini_model_uses_shared_default": not gemini_model and has_global_default("GEMINI_MODEL"),
     }
     return notif_data, parsing_data, llm_config
 

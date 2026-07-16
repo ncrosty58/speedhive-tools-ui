@@ -31,7 +31,22 @@ def org_settings_path() -> str:
 
 
 def get_org_env_var(name: str, org_id: int) -> Optional[str]:
+    """The effective value for actually USING a setting: this org's own
+    override if set, otherwise the shared bare-name fallback."""
     return os.environ.get(f"{name}_{org_id}") or os.environ.get(name)
+
+
+def get_org_env_var_override(name: str, org_id: int) -> Optional[str]:
+    """This org's own explicit value only -- never the shared fallback. Use
+    this (not get_org_env_var) to populate a settings form field: showing
+    the shared/global secret's value in a per-org field would look like it
+    belongs to this org, and silently pins it as an org-specific override
+    the next time the form is saved."""
+    return os.environ.get(f"{name}_{org_id}")
+
+
+def has_global_default(name: str) -> bool:
+    return bool(os.environ.get(name))
 
 
 def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
