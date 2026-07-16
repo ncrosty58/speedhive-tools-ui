@@ -477,13 +477,20 @@ def _effective_config_summary(org_id_int):
         ("Gemini Model", "GEMINI_MODEL", False),
     ):
         value, source = get_org_env_var_with_source(env_name, org_id_int)
-        if env_name == "GEMINI_MODEL" and not value:
+        if source == "org":
+            source_label = f"{env_name}_{org_id_int}"
+        elif source == "global":
+            source_label = env_name
+        elif env_name == "GEMINI_MODEL" and not value:
             from speedhive.llm import DEFAULT_MODEL
-            value, source = DEFAULT_MODEL, "default"
+            value, source, source_label = DEFAULT_MODEL, "default", "code default (not an env var)"
+        else:
+            source_label = None
         rows.append({
             "label": label,
             "configured": bool(value),
             "source": source,  # "org" | "global" | "default" | None
+            "source_label": source_label,
             "display": _mask_secret(value) if is_secret else value,
         })
     return rows

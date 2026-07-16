@@ -63,12 +63,8 @@
                                 {% endif %}
                             </td>
                             <td class="font-monospace">{{ row.display or '—' }}</td>
-                            <td class="text-muted">
-                                {% if row.source == 'org' %}This organization
-                                {% elif row.source == 'global' %}Shared server-wide default
-                                {% elif row.source == 'default' %}Built-in default
-                                {% else %}—
-                                {% endif %}
+                            <td class="text-muted font-monospace" style="font-size: 0.8rem;">
+                                {{ row.source_label or '—' }}
                             </td>
                         </tr>
                         {% endfor %}
