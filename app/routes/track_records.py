@@ -531,6 +531,8 @@ def org_track_records_settings(org_id):
             ("GEMINI_MODEL", gemini_model),
         ]:
             if val:
+                if val.startswith("••••"):
+                    continue
                 config_data["overrides"][key] = val
                 os.environ[f"{key}_{org_id_int}"] = val
             else:
