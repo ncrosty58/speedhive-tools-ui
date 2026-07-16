@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from flask import render_template, request, session, redirect, url_for
+from flask import render_template, request, session, redirect, url_for, jsonify
 from app import client
 from app.db import (
     list_stored_orgs,
@@ -278,6 +278,66 @@ def track_records_redirect():
     return redirect(url_for("index", org_id=org_id, classification=classification))
 
 
+def track_records_export_json():
+    """JSON export of the raw announcer-flagged records shown on the Dashboard's
+    Track Records tab (same filters/data as scan_track_records_from_synced_store).
+    This is the ad-hoc scan of synced session data, not the curated review list --
+    see /org/<org_id>/track-records/curated.json for the human-approved records.
+    """
+    try:
+        org_id_int = int(request.args.get("org_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid or missing org_id"}), 400
+
+    classification = (request.args.get("classification") or "").strip()
+    driver_filter = (request.args.get("driver_filter") or "").strip()
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
+    start_date = parse_date_to_comparison(start_date_str)
+    end_date = parse_date_to_comparison(end_date_str)
+
+    limit_events_str = request.args.get("limit_events")
+    limit_events = int(limit_events_str) if limit_events_str and limit_events_str.isdigit() else 0
+    if limit_events == 0:
+        limit_events = None
+
+    org_refresh_state = read_org_refresh_state(org_id_int)
+    if not org_refresh_state.get("last_refresh_at"):
+        return jsonify({
+            "org_id": org_id_int,
+            "record_count": 0,
+            "records": [],
+            "error": "Organization has not been synced yet.",
+        })
+
+    try:
+        records, events_scanned_count, records_error, _ = scan_track_records_from_synced_store(
+            org_id=org_id_int,
+            classification=classification,
+            start_date=start_date,
+            end_date=end_date,
+            limit_events=limit_events,
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    if driver_filter and records:
+        norm_filter = normalize_search_text(driver_filter)
+        records = [r for r in records if norm_filter in normalize_search_text(r.get("driver") or "")]
+
+    return jsonify({
+        "org_id": org_id_int,
+        "classification": classification or None,
+        "driver_filter": driver_filter or None,
+        "start_date": start_date_str or None,
+        "end_date": end_date_str or None,
+        "events_scanned": events_scanned_count,
+        "record_count": len(records),
+        "records": records,
+        "error": records_error,
+    })
+
+
 def org_search_redirect():
     org_id = request.args.get("org_id", "")
     if org_id:
@@ -295,5 +355,6 @@ def driver_search_redirect():
 def register_routes(app):
     app.add_url_rule("/", "index", index)
     app.add_url_rule("/track-records", "track_records_redirect", track_records_redirect)
+    app.add_url_rule("/track-records/export.json", "track_records_export_json", track_records_export_json)
     app.add_url_rule("/org-search", "org_search_redirect", org_search_redirect)
     app.add_url_rule("/driver-search", "driver_search_redirect", driver_search_redirect)
