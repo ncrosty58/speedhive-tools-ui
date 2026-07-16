@@ -63,6 +63,24 @@ automatically. Approving or rejecting a candidate is a manual step in the UI.
 If Resend credentials are configured, new candidates trigger a review-request
 email automatically after a scan completes.
 
+Announcements can be parsed two ways, set per-org in
+`/org/<id>/track-records/settings`:
+
+- **LLM (Gemini)** — the default. Tolerates announcer phrasing beyond the one
+  exact template the regex parser matches. Requires a Gemini API key, entered
+  in Settings (or via the `GEMINI_API_KEY` env var as a fallback). Parses an
+  org's entire announcement history in a single call, and caches results per
+  announcement so repeat scans only pay for genuinely new announcements
+  instead of re-parsing everything every time.
+- **Regex** — the original zero-dependency parser, for orgs that don't want
+  to use an LLM or haven't configured a key.
+
+Either way, extractions the parser itself flags as unreliable (an
+unrecognized/ambiguous classification, or a low-confidence LLM extraction)
+are routed straight to the Rejected list rather than the review queue —
+restorable from there if that call was wrong, but not presented as something
+to decide on.
+
 ---
 
 ## Running locally
@@ -102,6 +120,7 @@ file next to `docker-compose.yml`).
 | `TRACK_RECORDS_STALE_HOURS` | Cache age before a track-record scan triggers an auto-refresh | `20` |
 | `SYNC_SECRET` | Shared secret required by the external `/org/<id>/track-records/notify` webhook | *optional* |
 | `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS` | Resend email credentials for track-record review notifications | *optional* |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Fallback for the LLM track-record parser if not set in Track Records Settings | *optional — `gemini-2.5-flash`* |
 | `GOTIFY_URL`, `GOTIFY_APP_TOKEN` | Push notification when new track-record candidates are found | *optional* |
 
 ---
