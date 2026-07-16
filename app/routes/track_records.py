@@ -310,7 +310,24 @@ def org_track_records_rejected_restore(org_id):
 
     track_records.save_rejected(p, rejected_payload)
 
-    return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=f"Restored {identity[0]} — {identity[1]} by {identity[2]}. It is now eligible to be proposed again on the next scan."))
+    base_notice = f"Restored {identity[0]} — {identity[1]} by {identity[2]}."
+    try:
+        track_records.run_sync_and_diff(org_id_int, storage, TRACK_RECORDS_ROOT)
+        reappeared = any(
+            c.get("proposed", {}).get("classAbbreviation") == identity[0]
+            and c.get("proposed", {}).get("lapTime") == identity[1]
+            and c.get("proposed", {}).get("driverName") == identity[2]
+            for c in track_records.load_candidates(p).get("candidates", [])
+        )
+        notice = (
+            f"{base_notice} It's back in the review queue."
+            if reappeared
+            else f"{base_notice} Rescanned, but it isn't a candidate right now (a curated time may already be faster)."
+        )
+    except Exception as exc:
+        notice = f"{base_notice} Automatic rescan failed ({exc}); it'll reappear on the next scan instead."
+
+    return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=notice))
 
 
 def org_track_records_settings(org_id):
