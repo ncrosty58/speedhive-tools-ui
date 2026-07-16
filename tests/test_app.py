@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -357,3 +358,55 @@ def test_settings_page_overrides_and_fallback(client, monkeypatch):
     assert get_org_env_var("RESEND_API_KEY", org_id) == "re_global_key"
     assert get_org_env_var_override("RESEND_API_KEY", org_id) is None
     assert get_org_env_var("GEMINI_MODEL", org_id) == "gemini-2.5-flash"
+
+
+def test_auto_notify_sends_email_for_pending_candidates(monkeypatch):
+    """Regression test for a NameError that silently swallowed every
+    auto-notification: _auto_notify_for_org referenced an undefined `p`
+    instead of computing it via paths_for_org, so the review-queue email
+    never actually sent even when everything was configured correctly."""
+    from app import data_root
+    from app.notifications import _auto_notify_for_org
+    from speedhive.workflows.track_records import curation as track_records
+    from speedhive.stores.track_records import paths_for_org
+
+    org_id = 555
+    settings_file = Path(data_root) / "orgs" / str(org_id) / "settings.json"
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    settings_file.write_text(json.dumps({
+        "notifications": {"enabled": True, "de_duplicate": True},
+        "overrides": {
+            "RESEND_API_KEY": "re_test_key",
+            "NOTIFICATION_FROM_EMAIL": "from@domain.com",
+            "NOTIFICATION_TO_EMAILS": "to@domain.com",
+        },
+    }))
+
+    p = paths_for_org(Path(data_root) / "orgs", org_id)
+    track_records.save_candidates(p, {
+        "generated_at": "2026-01-01T00:00:00Z",
+        "org_id": org_id,
+        "candidates": [{
+            "type": "new_record",
+            "proposed": {"classAbbreviation": "FA", "lapTime": "1:01.861", "date": "2026-01-01"},
+        }],
+    })
+
+    sent = {}
+
+    def fake_send(org_id_int, candidates, resend_api_key, from_email, to_emails):
+        sent["called"] = True
+        sent["candidates"] = candidates
+        return {"id": "fake-email-id"}
+
+    monkeypatch.setattr("app.notifications._send_resend_notification", fake_send)
+
+    _auto_notify_for_org(org_id)
+
+    assert sent.get("called") is True, "the NameError bug would have prevented this from ever being reached"
+    assert len(sent["candidates"]) == 1
+
+    # De-duplication: a second call with the same pending candidates must not re-send.
+    sent.clear()
+    _auto_notify_for_org(org_id)
+    assert "called" not in sent

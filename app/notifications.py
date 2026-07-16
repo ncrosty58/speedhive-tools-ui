@@ -47,7 +47,6 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
 
 
 def _auto_notify_for_org(org_id: int) -> None:
-    import os
     from app.tasks import TRACK_RECORDS_ROOT
     try:
         from app import data_root
@@ -55,6 +54,8 @@ def _auto_notify_for_org(org_id: int) -> None:
         if not settings_file.exists():
             print(f"[Notifier] Org {org_id} settings.json missing. Skipping auto-notification.")
             return
+
+        p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)
 
         with open(settings_file) as f:
             config = json.load(f)

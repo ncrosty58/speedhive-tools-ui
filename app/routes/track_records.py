@@ -25,8 +25,6 @@ from speedhive.settings import (
     get_org_env_var,
     get_org_env_var_override,
     get_org_env_var_with_source,
-    has_global_default,
-    set_org_env_var,
 )
 from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
