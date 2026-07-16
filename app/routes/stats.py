@@ -9,7 +9,7 @@ from app.utils import (
     iso_utc,
     utc_now,
 )
-from app.tasks import DATA_ROOT
+from app.tasks import DATA_ROOT, TRACK_RECORDS_ROOT
 from speedhive.settings import get_stats_min_laps, read_org_settings
 from speedhive.utils.lap_analysis import first_non_empty
 
@@ -698,22 +698,30 @@ def generate_org_class_pace(org_id):
             compute_participation_by_class_year,
             compute_participation_by_year,
         )
+        from speedhive.workflows.track_records import curation as track_records
 
         _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
         session_map = load_session_types_from_storage(storage, org_id_int)
         results_map = storage.load_results_payloads(org_id_int)
+        # Same alias map (and resolution logic) track-record curation uses,
+        # so "Spec Miata" and "SM" group together consistently everywhere,
+        # not just in curated records -- see analyze_class_pace docstrings.
+        alias_map_path = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)["alias_map"]
+        alias_map = track_records.load_json(alias_map_path, {"aliases": {}, "always_review": []})
         # Cache every qualifying class here, uncapped -- the chart's own
         # inline class picker and the 8-class display cap (validated
         # categorical palette in class_pace.html, see dataviz skill) are both
         # applied at display time in org_class_pace, over this same cached
         # payload, so neither needs a recompute to change what's shown.
-        chart_data = compute_avg_lap_by_class_year(enriched, session_map, results_map, session_types=session_types_list, max_classes=None)
+        chart_data = compute_avg_lap_by_class_year(
+            enriched, session_map, results_map, session_types=session_types_list, max_classes=None, alias_map=alias_map
+        )
         # Combined-across-classes participation trend, and the per-class
         # breakdown behind it, cached alongside the per-class pace data since
         # they all share the same Generate/Recalculate action.
         chart_data["participation"] = compute_participation_by_year(enriched, session_map, session_types=session_types_list)
         chart_data["participation_by_class"] = compute_participation_by_class_year(
-            enriched, session_map, results_map, session_types=session_types_list, max_classes=10
+            enriched, session_map, results_map, session_types=session_types_list, max_classes=10, alias_map=alias_map
         )
 
         calculated_at = iso_utc(utc_now())

@@ -149,6 +149,7 @@
                             </button>
                         </div>
                         <p class="text-muted small mb-3" id="class-participation-caption">Top {{ participation_by_class.classes|length }} classes by average racers per year they ran. Click a bar to see that class's participation by year.</p>
+                        <p class="text-muted small mb-3">Seeing the same class split across two names (e.g. "SM" and "Spec Miata")? Merge them in <a href="{{ url_for('org_track_records_settings', org_id=org.id) }}">Settings &rarr; Class Alias Mapping</a> &mdash; the same alias list used for track-record curation.</p>
                         <div class="position-relative" style="height: 420px;">
                             <canvas id="classParticipationChart"></canvas>
                         </div>
