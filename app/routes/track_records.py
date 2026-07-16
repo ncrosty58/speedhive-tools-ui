@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from flask import request, redirect, url_for, render_template, jsonify, Response
 from app import client, storage
-from app.db import get_org_view, get_available_class_pace_classes
+from app.db import get_org_view
 from app.tasks import (
     _get_running_track_records_task_for_org,
     _new_track_records_task,
@@ -445,7 +445,6 @@ def _read_org_settings(org_id_int):
     toggles = config_data.get("notifications", {"enabled": True, "de_duplicate": True})
     parsing_data = config_data.get("parsing", {"engine": "regex"})
     stats_data = config_data.get("stats", {"min_laps": 20})
-    class_pace_data = config_data.get("class_pace", {"classes": [], "regression": False})
 
     env_settings = {
         "RESEND_API_KEY": _get_setting_info("RESEND_API_KEY", org_id_int, is_secret=True),
@@ -459,7 +458,7 @@ def _read_org_settings(org_id_int):
         "enabled": toggles.get("enabled", True),
         "de_duplicate": toggles.get("de_duplicate", True),
     }
-    return notif_data, parsing_data, stats_data, class_pace_data, env_settings
+    return notif_data, parsing_data, stats_data, env_settings
 
 
 def org_track_records_settings(org_id):
@@ -492,13 +491,10 @@ def org_track_records_settings(org_id):
         except ValueError:
             min_laps = 20
 
-        class_pace_classes = request.form.getlist("class_pace_classes")
-        class_pace_regression = request.form.get("class_pace_regression") == "on"
-
         try:
             alias_map_data = json.loads(alias_map_json_str)
         except Exception as exc:
-            notif_data, parsing_data, stats_data, class_pace_data, env_settings = _read_org_settings(org_id_int)
+            notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)
             return render_template(
                 "track_records_settings.html",
                 org=get_org_view(org_id_int),
@@ -509,8 +505,6 @@ def org_track_records_settings(org_id):
                 alias_map_json=alias_map_json_str,
                 parsing_config=parsing_data,
                 stats_config=stats_data,
-                class_pace_config=class_pace_data,
-                available_classes=get_available_class_pace_classes(org_id_int),
                 env_settings=env_settings,
                 error=f"Invalid Alias Map JSON: {str(exc)}"
             )
@@ -520,10 +514,6 @@ def org_track_records_settings(org_id):
         config_data["notifications"] = {"enabled": enabled, "de_duplicate": de_duplicate}
         config_data["parsing"] = {"engine": parser_engine}
         config_data["stats"] = {"min_laps": min_laps}
-        config_data["class_pace"] = {
-            "classes": class_pace_classes,
-            "regression": class_pace_regression,
-        }
 
         if "overrides" not in config_data:
             config_data["overrides"] = {}
@@ -550,7 +540,7 @@ def org_track_records_settings(org_id):
         track_records.save_json(settings_file, config_data)
         track_records.save_json(alias_map_file, alias_map_data)
 
-        notif_data, parsing_data, stats_data, class_pace_data, env_settings = _read_org_settings(org_id_int)
+        notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)
         return render_template(
             "track_records_settings.html",
             org=get_org_view(org_id_int),
@@ -561,13 +551,11 @@ def org_track_records_settings(org_id):
             alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
             parsing_config=parsing_data,
             stats_config=stats_data,
-            class_pace_config=class_pace_data,
-            available_classes=get_available_class_pace_classes(org_id_int),
             env_settings=env_settings,
             notice="Configuration saved successfully."
         )
 
-    notif_data, parsing_data, stats_data, class_pace_data, env_settings = _read_org_settings(org_id_int)
+    notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)
     alias_map_data = read_json_file(alias_map_file) or {
         "aliases": {},
         "always_review": []
@@ -584,8 +572,6 @@ def org_track_records_settings(org_id):
         alias_map_json=alias_map_json_str,
         parsing_config=parsing_data,
         stats_config=stats_data,
-        class_pace_config=class_pace_data,
-        available_classes=get_available_class_pace_classes(org_id_int),
         env_settings=env_settings
     )
 

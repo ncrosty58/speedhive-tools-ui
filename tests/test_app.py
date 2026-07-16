@@ -501,17 +501,20 @@ def test_select_classes_for_chart_truncates_selection_to_8():
     assert result["classes"] == classes[:MAX_DISPLAYED_CLASSES]
 
 
-def test_settings_page_persists_class_pace_config(client, monkeypatch):
+def test_class_pace_settings_route_persists_config(client):
     org_id = 888
     resp = client.post(
-        f"/org/{org_id}/settings",
+        f"/org/{org_id}/stats/class-pace/settings",
         data={
             "class_pace_classes": ["FA", "GT1"],
             "class_pace_regression": "on",
-            "alias_map_json": '{"aliases": {}, "always_review": []}',
+            "session_types": ["race"],
         },
+        follow_redirects=False,
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 302
+    assert f"/org/{org_id}/stats/class-pace" in resp.headers["Location"]
+    assert "session_types=race" in resp.headers["Location"]
 
     from app import data_root
     settings_file = Path(data_root) / "orgs" / str(org_id) / "settings.json"

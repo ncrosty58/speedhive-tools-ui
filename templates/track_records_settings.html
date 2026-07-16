@@ -141,45 +141,6 @@
                     </div>
                 </div>
 
-                <!-- Class Pace Chart Card -->
-                <div class="col-lg-6">
-                    <div class="glass-card h-100 d-flex flex-column">
-                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-chart-area"></i> Class Pace Chart</h3>
-                        <span class="text-muted small mb-3">
-                            Configure which classes appear on the Class Pace chart and its optional trend overlays.
-                        </span>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Classes to Display</label>
-                            {% if available_classes %}
-                                <div class="row row-cols-2 row-cols-md-3 g-2">
-                                    {% for cls in available_classes %}
-                                    <div class="col">
-                                        <div class="form-check mb-0">
-                                            <input class="form-check-input" type="checkbox" name="class_pace_classes" id="class_pace_{{ loop.index }}" value="{{ cls }}" {% if cls in class_pace_config.classes %}checked{% endif %}>
-                                            <label class="form-check-label small" for="class_pace_{{ loop.index }}">{{ cls }}</label>
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                                <span class="text-muted small mt-2 d-block">Leave all unchecked for automatic top-8 by lap volume. At most 8 are ever shown.</span>
-                            {% else %}
-                                <span class="text-muted small d-block">Generate the Class Pace chart first (Stats &rarr; Class Pace) to see available classes here.</span>
-                            {% endif %}
-                        </div>
-
-                        <hr class="border-secondary opacity-25">
-
-                        <div class="mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" id="class_pace_regression" name="class_pace_regression" {% if class_pace_config.regression %}checked{% endif %}>
-                                <label class="form-check-label fw-semibold" for="class_pace_regression">Show Linear Regression Trend Line</label>
-                            </div>
-                            <span class="text-muted small">Overlay a straight-line best fit per class across all years.</span>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="col-12">
                     <div class="glass-card d-flex justify-content-end gap-2">
                         <a class="btn-custom-outline py-2" href="{{ url_for('org_track_records_curated', org_id=org_id) }}">Cancel</a>

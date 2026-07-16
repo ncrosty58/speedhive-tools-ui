@@ -99,6 +99,55 @@
                 </div>
             </div>
         {% else %}
+            <!-- Chart Settings -->
+            <div class="col-12">
+                <div class="glass-card">
+                    <details>
+                        <summary class="h6 fw-semibold mb-0" style="cursor: pointer;">
+                            <i class="fa-solid fa-sliders text-info me-1"></i>Chart Settings
+                        </summary>
+                        <form method="post" action="/org/{{ org.id }}/stats/class-pace/settings" class="mt-3">
+                            {% for st in session_types %}
+                                <input type="hidden" name="session_types" value="{{ st }}">
+                            {% endfor %}
+                            {% if ignore_outliers %}
+                                <input type="hidden" name="ignore_outliers" value="1">
+                            {% endif %}
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold small">Classes to Display</label>
+                                {% if available_classes %}
+                                    <div class="row row-cols-2 row-cols-md-4 g-2">
+                                        {% for cls in available_classes %}
+                                        <div class="col">
+                                            <div class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox" name="class_pace_classes" id="class_pace_{{ loop.index }}" value="{{ cls }}" {% if cls in class_pace_config.classes %}checked{% endif %}>
+                                                <label class="form-check-label small" for="class_pace_{{ loop.index }}">{{ cls }}</label>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    <span class="text-muted small mt-2 d-block">Leave all unchecked for automatic top-8 by lap volume. At most 8 are ever shown.</span>
+                                {% else %}
+                                    <span class="text-muted small d-block">No classes found yet.</span>
+                                {% endif %}
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="class_pace_regression" name="class_pace_regression" {% if class_pace_config.regression %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold small" for="class_pace_regression">Show Linear Regression Trend Line</label>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn-custom py-1 px-3">
+                                <i class="fa-solid fa-save me-1"></i>Save
+                            </button>
+                        </form>
+                    </details>
+                </div>
+            </div>
+
             <!-- Chart -->
             <div class="col-12">
                 <div class="glass-card">

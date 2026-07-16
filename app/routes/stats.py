@@ -537,8 +537,10 @@ def org_class_pace(org_id):
 
     class_pace_settings = read_org_settings(org_id_int).get("class_pace", {})
     class_pace_config = {
+        "classes": class_pace_settings.get("classes") or [],
         "regression": bool(class_pace_settings.get("regression")),
     }
+    available_classes = chart_data.get("classes", []) if chart_data else []
 
     table_rows = None
     if chart_data:
@@ -567,6 +569,7 @@ def org_class_pace(org_id):
         calculated_at=calculated_at,
         chart_data=chart_data,
         class_pace_config=class_pace_config,
+        available_classes=available_classes,
         table_rows=table_rows,
         active_tab="stats",
         active_stats_tab="class_pace",
@@ -574,6 +577,30 @@ def org_class_pace(org_id):
         session_types_str=session_types_str,
         ignore_outliers=ignore_outliers,
     )
+
+
+def set_class_pace_config(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    from speedhive.settings import write_org_settings
+
+    classes = request.form.getlist("class_pace_classes")
+    regression = request.form.get("class_pace_regression") == "on"
+
+    config_data = read_org_settings(org_id_int)
+    config_data["class_pace"] = {"classes": classes, "regression": regression}
+    write_org_settings(org_id_int, config_data)
+
+    redirect_args = {"org_id": org_id_int}
+    session_types = request.form.getlist("session_types")
+    if session_types:
+        redirect_args["session_types"] = session_types
+    if request.form.get("ignore_outliers"):
+        redirect_args["ignore_outliers"] = "1"
+    return redirect(url_for("org_class_pace", **redirect_args))
 
 
 def generate_org_class_pace(org_id):
@@ -648,3 +675,4 @@ def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats/driver/<driver_name>", "driver_stats_breakdown", driver_stats_breakdown)
     app.add_url_rule("/org/<org_id>/stats/class-pace", "org_class_pace", org_class_pace)
     app.add_url_rule("/org/<org_id>/stats/class-pace/generate", "generate_org_class_pace", generate_org_class_pace, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/stats/class-pace/settings", "set_class_pace_config", set_class_pace_config, methods=["POST"])
