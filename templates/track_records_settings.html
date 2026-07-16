@@ -72,7 +72,11 @@
                             <div class="mt-2" style="font-size: 0.82rem;">
                                 {% if env_settings.RESEND_API_KEY.source == 'org' %}
                                     <div>
-                                        <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% if env_settings.RESEND_API_KEY.has_global %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% else %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
+                                        {% endif %}
                                     </div>
                                     <div class="text-light-emphasis font-monospace mt-1">
                                         Effective: {{ env_settings.RESEND_API_KEY.display_effective }}
@@ -103,7 +107,11 @@
                             <div class="mt-2" style="font-size: 0.82rem;">
                                 {% if env_settings.NOTIFICATION_FROM_EMAIL.source == 'org' %}
                                     <div>
-                                        <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% if env_settings.NOTIFICATION_FROM_EMAIL.has_global %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% else %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
+                                        {% endif %}
                                     </div>
                                     <div class="text-light-emphasis font-monospace mt-1">
                                         Effective: {{ env_settings.NOTIFICATION_FROM_EMAIL.display_effective }}
@@ -134,7 +142,11 @@
                             <div class="mt-2" style="font-size: 0.82rem;">
                                 {% if env_settings.NOTIFICATION_TO_EMAILS.source == 'org' %}
                                     <div>
-                                        <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% if env_settings.NOTIFICATION_TO_EMAILS.has_global %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% else %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
+                                        {% endif %}
                                     </div>
                                     <div class="text-light-emphasis font-monospace mt-1">
                                         Effective: {{ env_settings.NOTIFICATION_TO_EMAILS.display_effective }}
@@ -190,7 +202,11 @@
                             <div class="mt-2" style="font-size: 0.82rem;">
                                 {% if env_settings.GEMINI_API_KEY.source == 'org' %}
                                     <div>
-                                        <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% if env_settings.GEMINI_API_KEY.has_global %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% else %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
+                                        {% endif %}
                                     </div>
                                     <div class="text-light-emphasis font-monospace mt-1">
                                         Effective: {{ env_settings.GEMINI_API_KEY.display_effective }}
@@ -221,7 +237,11 @@
                             <div class="mt-2" style="font-size: 0.82rem;">
                                 {% if env_settings.GEMINI_MODEL.source == 'org' %}
                                     <div>
-                                        <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% if env_settings.GEMINI_MODEL.has_global %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
+                                        {% else %}
+                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
+                                        {% endif %}
                                     </div>
                                     <div class="text-light-emphasis font-monospace mt-1">
                                         Effective: {{ env_settings.GEMINI_MODEL.display_effective }}
