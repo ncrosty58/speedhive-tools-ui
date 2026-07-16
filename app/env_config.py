@@ -48,7 +48,7 @@ def get_org_env_var_override(name: str, org_id: int) -> Optional[str]:
     belongs to this org, and silently pins it as an org-specific override
     the next time the form is saved."""
     from app import web_data_root
-    config_path = web_data_root / "track_records" / str(org_id) / "config.json"
+    config_path = web_data_root / "orgs" / str(org_id) / "settings.json"
     if config_path.exists():
         try:
             with open(config_path) as f:
@@ -81,11 +81,11 @@ def get_org_env_var_with_source(name: str, org_id: int):
 
 
 def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
-    """Persist `value` under the org-scoped overrides block in its config.json,
+    """Persist `value` under the org-scoped overrides block in its settings.json,
     and apply it to the current process environment immediately so the
     already-running app reflects the change without needing a restart."""
     from app import web_data_root
-    config_path = web_data_root / "track_records" / str(org_id) / "config.json"
+    config_path = web_data_root / "orgs" / str(org_id) / "settings.json"
     
     config = {}
     if config_path.exists():

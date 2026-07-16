@@ -1,17 +1,17 @@
 {% extends 'base.html' %}
 
-{% block title %}Track Records Settings | {{ org.name }}{% endblock %}
+{% block title %}General Settings & Aliases | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
     {% include "_org_nav.html" %}
-    {% include "_track_records_subnav.html" %}
+    {% include "_settings_subnav.html" %}
 
     <div class="col-12 d-flex justify-content-between align-items-center">
         <div>
-            <h1 class="h4 fw-bold mb-1">Track Records Settings</h1>
+            <h1 class="h4 fw-bold mb-1">General Settings</h1>
             <span class="text-muted small">
-                Notification and class alias mapping used by the Track Records scan.
+                Notification thresholds, API credentials, and class alias mapping.
             </span>
         </div>
     </div>
@@ -255,6 +255,24 @@
                                 <option value="llm" {% if parsing_config.engine == 'llm' %}selected{% endif %}>LLM (Gemini)</option>
                             </select>
                             <span class="text-muted small">Records the parser is unsure about (ambiguous classification, low-confidence LLM extraction) are auto-filed to Rejected instead of the review queue — restore them from the Rejected tab if that's wrong.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Settings Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-chart-line"></i> Stats Settings</h3>
+                        <span class="text-muted small mb-3">
+                            Configure how statistical calculations and rankings are generated for {{ org.name }}.
+                        </span>
+
+                        <div class="mb-3">
+                            <label for="stats_min_laps" class="form-label fw-semibold">Minimum Laps</label>
+                            <input type="number" class="form-control bg-dark text-light border-secondary border-opacity-50" id="stats_min_laps" name="stats_min_laps" value="{{ stats_config.min_laps or 20 }}" min="1">
+                            <span class="text-muted small mt-2 d-block">
+                                Minimum number of laps required in a session to include a driver in the consistency rankings and driver stats.
+                            </span>
                         </div>
                     </div>
                 </div>

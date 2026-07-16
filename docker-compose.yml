@@ -4,7 +4,7 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      - SPEEDHIVE_WEB_DATA_DIR=/app/web_data
+      - SPEEDHIVE_DATA_DIR=/app/data
       # site login password; value lives in the gitignored .env file
       - SPEEDHIVE_UI_PASSWORD=${SPEEDHIVE_UI_PASSWORD}
       # event-count cap applied to every sync (incremental and full); value lives in .env
@@ -16,4 +16,4 @@ services:
     ports:
       - "8854:8854"
     volumes:
-      - ./web_data:/app/web_data
+      - ./data:/app/data

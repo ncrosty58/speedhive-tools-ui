@@ -1,6 +1,7 @@
 import os
 import json
 import threading
+from pathlib import Path
 from datetime import datetime
 from flask import request, redirect, url_for, render_template, jsonify, Response
 from app import client, storage
@@ -444,11 +445,12 @@ def _get_setting_info(name: str, org_id: int, is_secret: bool = False, default_f
 
 
 def _read_org_settings(org_id_int):
-    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    config_file = p["dir"] / "config.json"
-    config_data = read_json_file(config_file) or {}
+    from app import web_data_root
+    settings_file = Path(web_data_root) / "orgs" / str(org_id_int) / "settings.json"
+    config_data = read_json_file(settings_file) or {}
     toggles = config_data.get("notifications", {"enabled": True, "de_duplicate": True})
     parsing_data = config_data.get("parsing", {"engine": "regex"})
+    stats_data = config_data.get("stats", {"min_laps": 20})
 
     env_settings = {
         "RESEND_API_KEY": _get_setting_info("RESEND_API_KEY", org_id_int, is_secret=True),
@@ -462,7 +464,7 @@ def _read_org_settings(org_id_int):
         "enabled": toggles.get("enabled", True),
         "de_duplicate": toggles.get("de_duplicate", True),
     }
-    return notif_data, parsing_data, env_settings
+    return notif_data, parsing_data, stats_data, env_settings
 
 
 def org_track_records_settings(org_id):
@@ -471,8 +473,9 @@ def org_track_records_settings(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
 
+    from app import web_data_root
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    config_file = p["dir"] / "config.json"
+    settings_file = Path(web_data_root) / "orgs" / str(org_id_int) / "settings.json"
     alias_map_file = p["alias_map"]
 
     if request.method == "POST":
@@ -488,30 +491,35 @@ def org_track_records_settings(org_id):
         gemini_model = request.form.get("gemini_model", "").strip() or None
 
         alias_map_json_str = request.form.get("alias_map_json", "").strip()
-
         parser_engine = "llm" if request.form.get("parser_engine") == "llm" else "regex"
+        try:
+            min_laps = int(request.form.get("stats_min_laps") or "20")
+        except ValueError:
+            min_laps = 20
 
         try:
             alias_map_data = json.loads(alias_map_json_str)
         except Exception as exc:
-            notif_data, parsing_data, env_settings = _read_org_settings(org_id_int)
+            notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)
             return render_template(
                 "track_records_settings.html",
                 org=get_org_view(org_id_int),
                 org_id=org_id_int,
-                active_tab="track_records",
-                active_track_tab="settings",
+                active_tab="settings",
+                active_settings_tab="general",
                 notif_config=notif_data,
                 alias_map_json=alias_map_json_str,
                 parsing_config=parsing_data,
+                stats_config=stats_data,
                 env_settings=env_settings,
                 error=f"Invalid Alias Map JSON: {str(exc)}"
             )
 
-        # Safely preserve other keys in config.json while updating toggles/overrides
-        config_data = read_json_file(config_file) or {}
+        # Safely preserve other keys in settings.json while updating toggles/overrides
+        config_data = read_json_file(settings_file) or {}
         config_data["notifications"] = {"enabled": enabled, "de_duplicate": de_duplicate}
         config_data["parsing"] = {"engine": parser_engine}
+        config_data["stats"] = {"min_laps": min_laps}
 
         if "overrides" not in config_data:
             config_data["overrides"] = {}
@@ -533,24 +541,25 @@ def org_track_records_settings(org_id):
         if not config_data["overrides"]:
             config_data.pop("overrides", None)
 
-        track_records.save_json(config_file, config_data)
+        track_records.save_json(settings_file, config_data)
         track_records.save_json(alias_map_file, alias_map_data)
 
-        notif_data, parsing_data, env_settings = _read_org_settings(org_id_int)
+        notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)
         return render_template(
             "track_records_settings.html",
             org=get_org_view(org_id_int),
             org_id=org_id_int,
-            active_tab="track_records",
-            active_track_tab="settings",
+            active_tab="settings",
+            active_settings_tab="general",
             notif_config=notif_data,
             alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
             parsing_config=parsing_data,
+            stats_config=stats_data,
             env_settings=env_settings,
             notice="Configuration saved successfully."
         )
 
-    notif_data, parsing_data, env_settings = _read_org_settings(org_id_int)
+    notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)
     alias_map_data = read_json_file(alias_map_file) or {
         "aliases": {},
         "always_review": []
@@ -561,11 +570,12 @@ def org_track_records_settings(org_id):
         "track_records_settings.html",
         org=get_org_view(org_id_int),
         org_id=org_id_int,
-        active_tab="track_records",
-        active_track_tab="settings",
+        active_tab="settings",
+        active_settings_tab="general",
         notif_config=notif_data,
         alias_map_json=alias_map_json_str,
         parsing_config=parsing_data,
+        stats_config=stats_data,
         env_settings=env_settings
     )
 

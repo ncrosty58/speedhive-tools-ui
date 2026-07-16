@@ -9,8 +9,5 @@
         <a class="btn-custom {% if active_track_tab == 'history' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_history', org_id=org.id) }}">
             <i class="fa-solid fa-history me-1"></i>Scan History
         </a>
-        <a class="btn-custom {% if active_track_tab == 'settings' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_settings', org_id=org.id) }}">
-            <i class="fa-solid fa-cog me-1"></i>Settings
-        </a>
     </div>
 </div>

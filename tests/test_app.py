@@ -293,14 +293,14 @@ def test_settings_page_overrides_and_fallback(client, monkeypatch):
     from app import web_data_root
 
     org_id = 777
-    config_file = Path(web_data_root) / "track_records" / str(org_id) / "config.json"
+    config_file = Path(web_data_root) / "orgs" / str(org_id) / "settings.json"
     if config_file.exists():
         config_file.unlink()
 
     # 1. Fetch settings page
     resp = client.get(f"/org/{org_id}/settings")
     assert resp.status_code == 200
-    assert b"Track Records Settings" in resp.data
+    assert b"General Settings" in resp.data
 
     # Set a global environment variable for fallback testing
     monkeypatch.setenv("RESEND_API_KEY", "re_global_key")

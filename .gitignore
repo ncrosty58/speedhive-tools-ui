@@ -1,6 +1,7 @@
 .aider*
 .env
 web_data/
+data/
 __pycache__/
 *.pyc
 venv/

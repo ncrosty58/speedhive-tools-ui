@@ -16,7 +16,11 @@ storage = None
 UI_PASSWORD = None
 
 app_root = Path(__file__).resolve().parent.parent
-web_data_root = Path(os.environ.get("SPEEDHIVE_WEB_DATA_DIR", app_root / "web_data"))
+web_data_root = Path(
+    os.environ.get("SPEEDHIVE_DATA_DIR") or
+    os.environ.get("SPEEDHIVE_WEB_DATA_DIR") or
+    (app_root / "data")
+)
 DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", web_data_root / "speedhive.db"))
 DUMPS_ROOT = web_data_root / "saved_dumps"
 

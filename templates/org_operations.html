@@ -1,10 +1,11 @@
 {% extends 'base.html' %}
 
-{% block title %}Data | {{ org.name }}{% endblock %}
+{% block title %}Settings & Data | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
     {% include "_org_nav.html" %}
+    {% include "_settings_subnav.html" %}
 
     <!-- Live Sync Card -->
     <div class="col-lg-6">
