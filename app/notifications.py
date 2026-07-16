@@ -50,8 +50,8 @@ def _auto_notify_for_org(org_id: int) -> None:
     import os
     from app.tasks import TRACK_RECORDS_ROOT
     try:
-        from app import web_data_root
-        settings_file = Path(web_data_root) / "orgs" / str(org_id) / "settings.json"
+        from app import data_root
+        settings_file = Path(data_root) / "orgs" / str(org_id) / "settings.json"
         if not settings_file.exists():
             print(f"[Notifier] Org {org_id} settings.json missing. Skipping auto-notification.")
             return

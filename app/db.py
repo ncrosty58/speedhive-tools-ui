@@ -483,8 +483,8 @@ def scan_track_records_from_synced_store(
 
 # Dump file helpers
 def _dump_root_for_org(org_id: int) -> Path:
-    from app.tasks import WEB_DATA_ROOT
-    return WEB_DATA_ROOT / "saved_dumps" / str(org_id)
+    from app.tasks import DATA_ROOT
+    return DATA_ROOT / "saved_dumps" / str(org_id)
 
 
 def _dump_history_root_for_org(org_id: int) -> Path:
@@ -650,9 +650,9 @@ def save_org_dump(org_id: int, force_refresh: bool = False, max_events: Optional
     import shutil
     import tempfile
     from app import storage, export_db_dump
-    from app.tasks import WEB_DATA_ROOT
+    from app.tasks import DATA_ROOT
     
-    dumps_root = WEB_DATA_ROOT / "saved_dumps"
+    dumps_root = DATA_ROOT / "saved_dumps"
     dump_root = _dump_root_for_org(org_id)
     dump_root.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix=f"speedhive_org_{org_id}_", dir=str(dumps_root)))

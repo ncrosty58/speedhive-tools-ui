@@ -1,159 +1,105 @@
 # speedhive-tools-ui
 
-A password-gated Flask dashboard for [MyLaps Speedhive](https://speedhive.com)
-racing data: browse organizations, events and session results, chart lap
-times with outlier filtering, rank driver consistency, and run a background
-track-record curation pipeline with email notifications. Built on the
-[`speedhive-tools`](https://github.com/ncrosty58/speedhive-tools) engine,
-vendored here as a git submodule.
+A password-gated Flask dashboard for exploring and curating [MyLaps Speedhive](https://speedhive.com) racing data. It wraps the [`speedhive-tools`](https://github.com/ncrosty58/speedhive-tools) scraping/analysis engine (vendored here as a git submodule) with a browsable UI, a local SQLite cache, background sync jobs, and an announcer-text track-records review workflow.
 
----
+## What it does
+
+- **Organization dashboard** — add a Speedhive organization by ID, browse its events/sessions/results, and search for a driver's results across recently cached events.
+- **Session detail views** — per-session results, lap charts, announcer messages, and per-driver lap-time traces (with optional IQR outlier filtering).
+- **Local sync cache** — a background thread pulls organizations/events/sessions/results/laps/announcements from Speedhive into a SQLite database (`app/db.py`, `app/tasks.py`), incrementally or via a full re-sync, with live progress reporting and a stop button.
+- **Consistency & class-pace analytics** — computed driver-consistency rankings and per-class average-pace-by-year charts (`app/routes/stats.py`), backed by the `speedhive-tools` analyzers and cached in the `org_stats` table.
+- **Track records curation** — scans synced announcer text for lap-record callouts, proposes candidates for review, and maintains curated/rejected lists per organization (`app/routes/track_records.py`), with an optional Gemini-LLM parser as an alternative to the regex parser.
+- **Email notifications** — sends a Resend email when new track-record candidates appear, with per-organization or global sender/recipient configuration and fingerprint-based de-duplication (`app/notifications.py`).
+- **Offline dumps** — export/import a organization's cache as a portable NDJSON ZIP archive for backup or migration between installs (`app/routes/organizations.py`).
 
 ## Architecture
 
 ```
 ├── app/
-│   ├── __init__.py           # Flask app factory; owns the shared SpeedhiveStorage + SpeedhiveClient
-│   ├── db.py                 # Read-through cache helpers, offline dump management
-│   ├── tasks.py              # Background task execution + SQLite-backed task state
-│   ├── notifications.py      # Resend email dispatch for track-record review
-│   ├── utils.py              # Formatting/parsing helpers shared by routes
+│   ├── __init__.py           # Flask app factory, shared SpeedhiveStorage/client globals, org-context injection
+│   ├── db.py                 # Cache-first read/write helpers between the Speedhive API and SQLite storage
+│   ├── env_config.py         # Per-org vs. global settings resolution (env vars backed by data/org_settings.env)
+│   ├── notifications.py      # Resend email dispatch for the track-records review queue
+│   ├── tasks.py              # Background threads for org refresh and track-records sync/scan, task-state persistence
+│   ├── utils.py              # Date/time, cache-metadata, and JSON file helpers
 │   └── routes/
-│       ├── auth.py           # Login / logout
-│       ├── dashboard.py      # Home page, org/driver search
-│       ├── organizations.py  # Org add, refresh (sync), cache clear, offline dump import/export
-│       ├── sessions.py       # Event/session results, lap-time charts
-│       ├── stats.py          # Consistency rankings, per-driver percentile breakdown
-│       └── track_records.py  # Track-record sync, review/approve/reject, curated list, settings
-├── templates/                 # Jinja2 templates (incl. templates/emails/)
-├── static/                    # CSS/JS
-├── speedhive-tools/            # Submodule: the scraping/storage/CLI engine
-├── tests/                      # UI test suite
-├── app.py                      # WSGI entrypoint (`app:app`)
+│       ├── auth.py           # Single shared-password login/logout
+│       ├── dashboard.py      # Home dashboard, driver search, live "lap records" browser
+│       ├── organizations.py  # Add org, refresh/clear cache, offline dump export/import/download
+│       ├── sessions.py       # Event/session/results/lap-times views
+│       ├── stats.py          # Consistency rankings, driver breakdown, class-pace charts
+│       └── track_records.py  # Curated/review/rejected track-records workflow, per-org settings
+├── templates/                 # Jinja2 templates (Bootstrap-based UI)
+├── static/                    # CSS/JS assets
+├── data/                      # Gitignored: SQLite DB, per-org settings, saved dumps
+├── speedhive-tools/            # Submodule: the scraping/storage/analysis engine and CLI
+├── tests/                      # Flask route/integration tests
+├── app.py                      # WSGI entry point
 ├── Dockerfile / docker-compose.yml
-└── justfile                    # install / test / lint / run
+└── justfile / Makefile         # Local dev commands (install, run, test, lint)
 ```
 
-The app holds one shared `SpeedhiveStorage` instance (`app.storage`), built
-once in `create_app()` against `SPEEDHIVE_DB_PATH`, and passes it into
-`speedhive-tools` workflow functions (`refresh_org_cache`, `refresh_and_scan`,
-`import_dump_to_storage`, ...) rather than re-opening the database on every
-call.
+The app never talks to Speedhive directly from a template — every route reads through `app/db.py`, which serves from the SQLite cache when available and falls back to a live API call (via the shared `speedhive.wrapper.SpeedhiveClient`) otherwise, persisting the result for next time.
 
-## Background task model
+## Configuration
 
-Refreshes and track-record scans run in daemon threads, not a separate worker
-process. Because Gunicorn runs multiple worker processes with isolated
-memory, task progress can't live in an in-process dict — it's written to a
-`background_tasks` table in the same SQLite database instead, so any worker
-process can poll a task's status regardless of which process started it.
+Configured via environment variables (loaded from a `.env` file at the repo root) and per-organization `settings.json` files under `data/orgs/<org_id>/`.
 
-Two task types share this table: `refresh_org` (data sync) and
-`track_records` (curation scan). Progress is polled from the browser via
-`/refresh/status/<task_id>` and `/org/<id>/track-records/update/<task_id>`.
+### Environment variables
 
-## Track-record curation
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `SPEEDHIVE_UI_PASSWORD` | Shared password protecting the whole site. | **required** |
+| `SPEEDHIVE_DATA_DIR` | Root directory for the SQLite cache, dumps, and per-org settings. | `./data` |
+| `SPEEDHIVE_DB_PATH` | Explicit path to the SQLite cache file. | `<SPEEDHIVE_DATA_DIR>/speedhive.db` |
+| `SPEEDHIVE_PORT` | Port for the Flask dev server. | `8854` |
+| `SPEEDHIVE_MAX_ORG_EVENTS` | Cap on events fetched/refreshed per organization. | `150` |
+| `SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS` | Recent-events re-checked on every incremental refresh. | `3` |
+| `FLASK_SECRET_KEY` | Flask session-cookie signing key. | built-in fallback |
 
-Speedhive announcers flag new track/class records inside session
-announcements. The pipeline extracts those, normalizes classification codes
-against a per-org alias map, and diffs them against a curated NDJSON file —
-new or faster results land in a pending-review queue
-(`/org/<id>/track-records/review`), never written to the curated list
-automatically. If Resend credentials are configured, new candidates trigger
-a review-request email automatically after a scan completes.
+### Shared vs. per-organization settings
 
-Both are configured at `/org/<id>/track-records/settings` and stored as
-environment variables (see Configuration below), not in a config file — so
-a value set through the Settings UI is also what a `speedhive ...` CLI
-invocation sees, not just this web app:
+Two integrations — Resend email and Gemini LLM parsing — can be configured either **globally** (bare env var, e.g. `RESEND_API_KEY` in `.env`) or **per organization** (via the Settings page, stored as `overrides` in `data/orgs/<org_id>/settings.json` and exposed to the process as `RESEND_API_KEY_<org_id>`). An org's own override always wins; otherwise the global value is used as a fallback. See `app/env_config.py` for the resolution logic.
 
-- **Gemini key/model** — per-organization (`GEMINI_API_KEY_<org_id>`,
-  `GEMINI_MODEL_<org_id>`), falling back to a bare, non-suffixed env var
-  (`GEMINI_API_KEY`, `GEMINI_MODEL`) as a shared default when an org hasn't
-  set its own.
-- **Resend credentials** — shared app-wide (`RESEND_API_KEY`,
-  `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS`), one set of values
-  for every organization, not one per org.
+A per-org `settings.json` also controls:
+- `notifications`: `enabled` / `de_duplicate` — whether and how often to email on new track-record candidates.
+- `parsing.engine`: `"regex"` (default) or `"llm"` — how announcer text is parsed for track records.
+- `stats.min_laps`: minimum lap count for a driver to appear in consistency rankings.
 
-Announcements can be parsed two ways, set per-org in Settings
-("Announcer Parser"):
+A template is provided at [settings.json.example](settings.json.example).
 
-- **Regex** — the default for every org. Zero dependencies, only matches one
-  exact announcer phrasing.
-- **LLM (Gemini)** — opt-in per org. Tolerates announcer phrasing beyond that
-  one template. Parses an org's entire announcement history in a single
-  call, and caches results per announcement so repeat scans only pay for
-  genuinely new announcements instead of re-parsing everything every time.
-
-Either way, extractions the parser itself flags as unreliable (an
-unrecognized/ambiguous classification, or a low-confidence LLM extraction)
-are routed straight to the Rejected list rather than the review queue —
-restorable from there if that call was wrong, but not presented as something
-to decide on.
-
----
-
-## Running locally
+## Local development
 
 ```bash
-git submodule update --init --recursive   # pull in the speedhive-tools engine
-just install                                # venv + deps + editable speedhive-tools install
-just test                                   # run the test suite
-just run                                    # http://localhost:8854
+git clone https://github.com/ncrosty58/speedhive-tools-ui.git
+cd speedhive-tools-ui
+git submodule update --init --recursive
+
+just install   # creates venv/, installs requirements.txt + speedhive-tools in editable mode
 ```
 
-`SPEEDHIVE_UI_PASSWORD` must be set (e.g. in a `.env` file) or every route
-except login will redirect to it.
+Create a `.env` file at the repo root with at least `SPEEDHIVE_UI_PASSWORD`, then:
 
-## Docker
+```bash
+just run       # flask run --host=0.0.0.0 --port=8854
+just test      # pytest
+just lint      # ruff check
+```
+
+`justfile` and `Makefile` provide the same commands if you don't have `just` installed.
+
+## Docker deployment
 
 ```bash
 docker compose up -d --build
 ```
 
-`docker-compose.yml` builds the image from the `Dockerfile`, mounts
-`./web_data` for persistent SQLite/dump storage, and reads
-`SPEEDHIVE_UI_PASSWORD` from the environment (put it in a gitignored `.env`
-file next to `docker-compose.yml`).
+The container mounts `./data` onto `/app/data` so the SQLite cache, per-org settings, and saved dumps persist across rebuilds. `SPEEDHIVE_UI_PASSWORD` and `SPEEDHIVE_MAX_ORG_EVENTS` are passed through from the host's `.env` file (see `docker-compose.yml`). The image is served by gunicorn on port `8854`.
 
-## Configuration
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `SPEEDHIVE_UI_PASSWORD` | Password gating the whole app | *required* |
-| `SPEEDHIVE_WEB_DATA_DIR` | Root dir for the SQLite cache, task history, and saved dumps | `./web_data` |
-| `SPEEDHIVE_DB_PATH` | Full path to the SQLite cache file | `<SPEEDHIVE_WEB_DATA_DIR>/speedhive.db` |
-| `SPEEDHIVE_PORT` | Port for `flask run` / the dev server | `8854` |
-| `SPEEDHIVE_MAX_ORG_EVENTS` | Cap on events processed per org per sync | `150` |
-| `SPEEDHIVE_INCREMENTAL_BACKFILL_EVENTS` | Recent events re-checked during an incremental sync | `3` |
-| `FLASK_SECRET_KEY` | Session cookie signing key | *pre-configured fallback — override in production* |
-| `TRACK_RECORDS_STALE_HOURS` | Cache age before a track-record scan triggers an auto-refresh | `20` |
-| `SYNC_SECRET` | Shared secret required by the external `/org/<id>/track-records/notify` webhook | *optional* |
-| `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS` | Resend email credentials, shared across all organizations, set via Track Records Settings | *optional* |
-| `GEMINI_API_KEY_<org_id>`, `GEMINI_MODEL_<org_id>` | Per-org Gemini credentials, set via Track Records Settings (bare `GEMINI_API_KEY`/`GEMINI_MODEL` as a shared fallback) | *optional — `gemini-2.5-flash`* |
-
-These per-org values live in `web_data/org_settings.env`, not the top-level
-`.env` (Docker can't bind-mount a single file read-write and still support
-atomic rewrites, which is what saving from the Settings UI needs — a
-directory mount, like `web_data` already is, doesn't have that problem).
-Both this app and the `speedhive` CLI load that file in addition to the
-top-level `.env`.
-| `GOTIFY_URL`, `GOTIFY_APP_TOKEN` | Push notification when new track-record candidates are found | *optional* |
-
----
-
-## Working on the `speedhive-tools` submodule
-
-Library, storage, and CLI code lives in the `speedhive-tools/` submodule (its
-own repo). Make changes there, run its own test suite, commit and push
-inside the submodule first, then commit the updated submodule pointer here:
+## Testing
 
 ```bash
-cd speedhive-tools
-pytest
-git commit -am "..." && git push
-
-cd ..
-git add speedhive-tools
-git commit -m "Bump speedhive-tools submodule reference"
+just test
 ```
+
+`tests/conftest.py` makes the app importable directly (falling back to the `speedhive-tools/src` tree if the submodule isn't pip-installed), and `tests/test_app.py` covers the Flask routes end-to-end against a temporary SQLite database.

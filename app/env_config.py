@@ -2,15 +2,15 @@
 config file -- so a value set here is also what a CLI invocation
 (speedhive ... --org ID) sees, as long as it loads the same file.
 
-Values live in web_data/org_settings.env (not the top-level .env): that
+Values live in data/org_settings.env (not the top-level .env): that
 directory is already bind-mounted read-write into the container, whereas
 bind-mounting a single file (like .env directly) breaks the atomic
 rewrite dotenv's set_key() does internally (os.replace onto a
 single-file bind mount fails with "Device or resource busy"). Both this
-app and speedhive.cli.main load web_data/org_settings.env in addition to
-the top-level .env, using the same SPEEDHIVE_WEB_DATA_DIR convention, so a
+app and speedhive.cli.main load data/org_settings.env in addition to
+the top-level .env, using the same SPEEDHIVE_DATA_DIR convention, so a
 value saved through the UI reaches CLI invocations against the same
-web_data directory too.
+data directory too.
 
 Two kinds of settings live here:
 - Per-org (Gemini key/model): `{NAME}_{org_id}`, e.g. GEMINI_API_KEY_30476,
@@ -40,8 +40,8 @@ def get_org_env_var_override(name: str, org_id: int) -> Optional[str]:
     the shared/global secret's value in a per-org field would look like it
     belongs to this org, and silently pins it as an org-specific override
     the next time the form is saved."""
-    from app import web_data_root
-    config_path = web_data_root / "orgs" / str(org_id) / "settings.json"
+    from app import data_root
+    config_path = data_root / "orgs" / str(org_id) / "settings.json"
     if config_path.exists():
         try:
             with open(config_path) as f:
@@ -77,8 +77,8 @@ def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
     """Persist `value` under the org-scoped overrides block in its settings.json,
     and apply it to the current process environment immediately so the
     already-running app reflects the change without needing a restart."""
-    from app import web_data_root
-    config_path = web_data_root / "orgs" / str(org_id) / "settings.json"
+    from app import data_root
+    config_path = data_root / "orgs" / str(org_id) / "settings.json"
     
     config = {}
     if config_path.exists():

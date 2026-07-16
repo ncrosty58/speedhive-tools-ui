@@ -9,13 +9,13 @@ from app.utils import (
     iso_utc,
     utc_now,
 )
-from app.tasks import WEB_DATA_ROOT
+from app.tasks import DATA_ROOT
 from speedhive.utils.lap_analysis import first_non_empty
 
 
 def _get_org_min_laps(org_id_int: int) -> int:
     from app.utils import read_json_file
-    settings_file = WEB_DATA_ROOT / "orgs" / str(org_id_int) / "settings.json"
+    settings_file = DATA_ROOT / "orgs" / str(org_id_int) / "settings.json"
     if settings_file.exists():
         try:
             config_data = read_json_file(settings_file) or {}
@@ -62,7 +62,7 @@ def org_stats(org_id):
     events_data, events_meta = read_events_from_store(org_id_int)
     cache_status = events_meta
 
-    dumps_root = WEB_DATA_ROOT / "saved_dumps"
+    dumps_root = DATA_ROOT / "saved_dumps"
     dump_dir = dumps_root / str(org_id_int)
     manifest_path = dump_dir / "manifest.json"
     has_db_stats = storage.org_has_sessions(org_id_int)
@@ -194,7 +194,7 @@ def generate_org_stats(org_id):
     ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
-    dumps_root = WEB_DATA_ROOT / "saved_dumps"
+    dumps_root = DATA_ROOT / "saved_dumps"
     dump_dir = dumps_root / str(org_id_int)
     has_dump_stats = (dump_dir / "manifest.json").exists()
 
@@ -259,7 +259,7 @@ def generate_org_stats(org_id):
             conn.commit()
 
         # Prune older file cache if present
-        cache_file = WEB_DATA_ROOT / f"org_{org_id_int}_stats_cache.json"
+        cache_file = DATA_ROOT / f"org_{org_id_int}_stats_cache.json"
         if cache_file.exists():
             try:
                 cache_file.unlink()
@@ -339,7 +339,7 @@ def driver_stats_breakdown(org_id, driver_name):
         current_app.logger.warning(f"Error loading stats for aliases of driver {driver_name}: {e}")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
-    dumps_root = WEB_DATA_ROOT / "saved_dumps"
+    dumps_root = DATA_ROOT / "saved_dumps"
     dump_dir = dumps_root / str(org_id_int)
     has_dump_stats = (dump_dir / "manifest.json").exists()
 

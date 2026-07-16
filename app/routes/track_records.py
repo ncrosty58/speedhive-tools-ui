@@ -444,8 +444,8 @@ def _get_setting_info(name: str, org_id: int, is_secret: bool = False, default_f
 
 
 def _read_org_settings(org_id_int):
-    from app import web_data_root
-    settings_file = Path(web_data_root) / "orgs" / str(org_id_int) / "settings.json"
+    from app import data_root
+    settings_file = Path(data_root) / "orgs" / str(org_id_int) / "settings.json"
     config_data = read_json_file(settings_file) or {}
     toggles = config_data.get("notifications", {"enabled": True, "de_duplicate": True})
     parsing_data = config_data.get("parsing", {"engine": "regex"})
@@ -472,9 +472,9 @@ def org_track_records_settings(org_id):
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    from app import web_data_root
+    from app import data_root
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
-    settings_file = Path(web_data_root) / "orgs" / str(org_id_int) / "settings.json"
+    settings_file = Path(data_root) / "orgs" / str(org_id_int) / "settings.json"
     alias_map_file = p["alias_map"]
 
     if request.method == "POST":

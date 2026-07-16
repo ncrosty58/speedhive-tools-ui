@@ -10,11 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # We set the environment variables before importing app to isolate the database
 @pytest.fixture(scope="module", autouse=True)
 def setup_test_env():
-    # Create a temporary directory for web_data
+    # Create a temporary directory for data
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test_speedhive.db"
         os.environ["SPEEDHIVE_DB_PATH"] = str(db_path)
-        os.environ["SPEEDHIVE_WEB_DATA_DIR"] = tmpdir
+        os.environ["SPEEDHIVE_DATA_DIR"] = tmpdir
         os.environ["SPEEDHIVE_UI_PASSWORD"] = "test-password"
         yield
         # Cleanup is handled by TemporaryDirectory
@@ -290,10 +290,10 @@ def test_upload_local_dump_success(client, monkeypatch):
 def test_settings_page_overrides_and_fallback(client, monkeypatch):
     from app.env_config import get_org_env_var, get_org_env_var_override
     import json as jsonlib
-    from app import web_data_root
+    from app import data_root
 
     org_id = 777
-    config_file = Path(web_data_root) / "orgs" / str(org_id) / "settings.json"
+    config_file = Path(data_root) / "orgs" / str(org_id) / "settings.json"
     if config_file.exists():
         config_file.unlink()
 

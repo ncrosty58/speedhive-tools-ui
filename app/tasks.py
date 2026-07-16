@@ -10,12 +10,11 @@ from speedhive.utils.lap_analysis import safe_int
 
 # Paths and Constants
 APP_ROOT = Path(__file__).resolve().parent.parent
-WEB_DATA_ROOT = Path(
+DATA_ROOT = Path(
     os.environ.get("SPEEDHIVE_DATA_DIR") or
-    os.environ.get("SPEEDHIVE_WEB_DATA_DIR") or
     (APP_ROOT / "data")
 )
-TRACK_RECORDS_ROOT = WEB_DATA_ROOT / "orgs"
+TRACK_RECORDS_ROOT = DATA_ROOT / "orgs"
 MAX_ORG_EVENTS = int(os.environ.get("SPEEDHIVE_MAX_ORG_EVENTS", "150"))
 
 _tasks_lock = threading.Lock()
@@ -210,7 +209,7 @@ def _get_bulk_parser_for_org(org_id: int):
     from speedhive.workflows.track_records import curation as track_records
     from app.utils import read_json_file
 
-    settings_file = WEB_DATA_ROOT / "orgs" / str(org_id) / "settings.json"
+    settings_file = DATA_ROOT / "orgs" / str(org_id) / "settings.json"
     config = read_json_file(settings_file) or {}
     engine = (config.get("parsing") or {}).get("engine")
     if engine != "llm":

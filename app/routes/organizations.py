@@ -164,10 +164,10 @@ def refresh_org_start(org_id):
 def clear_org_cache_files(org_id: int):
     global storage
     from app import DB_PATH
-    from app.tasks import WEB_DATA_ROOT
+    from app.tasks import DATA_ROOT
     
-    legacy_cache_root = WEB_DATA_ROOT / "cache"
-    dumps_root = WEB_DATA_ROOT / "saved_dumps"
+    legacy_cache_root = DATA_ROOT / "cache"
+    dumps_root = DATA_ROOT / "saved_dumps"
 
     def _registered_org_ids() -> set[int]:
         return {
