@@ -38,7 +38,11 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {resend_api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            # Cloudflare in front of api.resend.com blocks urllib's default
+            # "Python-urllib/x.y" User-Agent (403, Cloudflare error 1010) --
+            # any real User-Agent string clears it.
+            "User-Agent": "speedhive-tools-ui/1.0 (+https://github.com/ncrosty58/speedhive-tools-ui)",
         },
         method="POST"
     )

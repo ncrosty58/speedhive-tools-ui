@@ -410,3 +410,43 @@ def test_auto_notify_sends_email_for_pending_candidates(monkeypatch):
     sent.clear()
     _auto_notify_for_org(org_id)
     assert "called" not in sent
+
+
+def test_send_resend_notification_sets_real_user_agent(monkeypatch):
+    """Regression test: Cloudflare in front of api.resend.com rejects
+    requests carrying urllib's default "Python-urllib/x.y" User-Agent with a
+    403 (Cloudflare error 1010) -- the request must always carry an
+    explicit, real User-Agent header."""
+    import urllib.request
+    from app.notifications import _send_resend_notification
+
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return b'{"id": "fake-id"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req):
+        captured["request"] = req
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    result = _send_resend_notification(
+        30476,
+        [{"type": "new_record", "proposed": {}}],
+        "re_fake_key",
+        "from@domain.com",
+        ["to@domain.com"],
+    )
+
+    assert result == {"id": "fake-id"}
+    user_agent = captured["request"].get_header("User-agent")
+    assert user_agent, "must send an explicit User-Agent -- Cloudflare blocks urllib's default"
+    assert "python-urllib" not in user_agent.lower()
