@@ -20,7 +20,13 @@ from app.utils import (
     read_json_file,
 )
 from app.notifications import _send_resend_notification
-from app.env_config import get_org_env_var, get_org_env_var_override, has_global_default, set_org_env_var
+from app.env_config import (
+    get_org_env_var,
+    get_org_env_var_override,
+    get_org_env_var_with_source,
+    has_global_default,
+    set_org_env_var,
+)
 from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
@@ -448,6 +454,41 @@ def _read_org_settings(org_id_int):
     return notif_data, parsing_data, llm_config
 
 
+def _mask_secret(value):
+    if not value:
+        return None
+    if len(value) <= 4:
+        return "••••"
+    return f"••••{value[-4:]}"
+
+
+def _effective_config_summary(org_id_int):
+    """What's actually in effect right now for this org, regardless of
+    whether it comes from this org's own override or a shared/global
+    default -- the form above only ever shows this org's own value, so
+    without this there's no way to tell "not configured" apart from
+    "configured, just not by this org"."""
+    rows = []
+    for label, env_name, is_secret in (
+        ("Resend API Key", "RESEND_API_KEY", True),
+        ("From Email Address", "NOTIFICATION_FROM_EMAIL", False),
+        ("Recipient Email(s)", "NOTIFICATION_TO_EMAILS", False),
+        ("Gemini API Key", "GEMINI_API_KEY", True),
+        ("Gemini Model", "GEMINI_MODEL", False),
+    ):
+        value, source = get_org_env_var_with_source(env_name, org_id_int)
+        if env_name == "GEMINI_MODEL" and not value:
+            from speedhive.llm import DEFAULT_MODEL
+            value, source = DEFAULT_MODEL, "default"
+        rows.append({
+            "label": label,
+            "configured": bool(value),
+            "source": source,  # "org" | "global" | "default" | None
+            "display": _mask_secret(value) if is_secret else value,
+        })
+    return rows
+
+
 def org_track_records_settings(org_id):
     try:
         org_id_int = int(org_id)
@@ -488,6 +529,7 @@ def org_track_records_settings(org_id):
                 alias_map_json=alias_map_json_str,
                 parsing_config=parsing_data,
                 llm_config=llm_config,
+                effective_config=_effective_config_summary(org_id_int),
                 error=f"Invalid Alias Map JSON: {str(exc)}"
             )
 
@@ -515,6 +557,7 @@ def org_track_records_settings(org_id):
             alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
             parsing_config=parsing_data,
             llm_config=llm_config,
+            effective_config=_effective_config_summary(org_id_int),
             notice="Configuration saved successfully."
         )
 
@@ -534,7 +577,8 @@ def org_track_records_settings(org_id):
         notif_config=notif_data,
         alias_map_json=alias_map_json_str,
         parsing_config=parsing_data,
-        llm_config=llm_config
+        llm_config=llm_config,
+        effective_config=_effective_config_summary(org_id_int)
     )
 
 

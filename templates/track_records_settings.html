@@ -35,6 +35,50 @@
     {% endif %}
 
     <div class="col-12">
+        <div class="glass-card">
+            <h3 class="h6 fw-bold mb-3 text-info"><i class="fa-solid fa-list-check"></i> Effective Configuration</h3>
+            <span class="text-muted small d-block mb-3">
+                What's actually in effect for {{ org.name }} right now, whether it comes from this org's own
+                setting below, a server-wide shared default, or nothing at all.
+            </span>
+            <div class="table-custom-container">
+                <table class="table table-custom mb-0">
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Status</th>
+                            <th>Value</th>
+                            <th>Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in effective_config %}
+                        <tr>
+                            <td>{{ row.label }}</td>
+                            <td>
+                                {% if row.configured %}
+                                    <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
+                                {% else %}
+                                    <span class="badge-custom badge-alert"><i class="fa-solid fa-xmark"></i> Not configured</span>
+                                {% endif %}
+                            </td>
+                            <td class="font-monospace">{{ row.display or '—' }}</td>
+                            <td class="text-muted">
+                                {% if row.source == 'org' %}This organization
+                                {% elif row.source == 'global' %}Shared server-wide default
+                                {% elif row.source == 'default' %}Built-in default
+                                {% else %}—
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
         <form method="POST" action="{{ url_for('org_track_records_settings', org_id=org_id) }}">
             <div class="row g-4">
                 <!-- Notifications Configuration Card -->

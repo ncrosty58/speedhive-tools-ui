@@ -49,6 +49,21 @@ def has_global_default(name: str) -> bool:
     return bool(os.environ.get(name))
 
 
+def get_org_env_var_with_source(name: str, org_id: int):
+    """Returns (effective_value, source), where source is 'org' (this org's
+    own override), 'global' (the shared fallback), or None (not configured
+    anywhere) -- for building a "how is this actually configured" summary,
+    as opposed to get_org_env_var_override()'s "what should the edit form
+    show" (which never reveals the shared value)."""
+    org_value = os.environ.get(f"{name}_{org_id}")
+    if org_value:
+        return org_value, "org"
+    global_value = os.environ.get(name)
+    if global_value:
+        return global_value, "global"
+    return None, None
+
+
 def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
     """Persist `value` under the org-scoped key, and apply it to the current
     process immediately so the already-running app reflects the change
