@@ -399,10 +399,7 @@ def org_track_records_rejected_restore(org_id):
         return redirect(url_for("org_track_records_rejected", org_id=org_id_int, error="Record not found (already restored?)."))
 
     base_notice = f"Restored {identity[0]} — {identity[1]} by {identity[2]}."
-    if result["restored_to_curated"]:
-        notice = f"{base_notice} Back in the curated list."
-        _trigger_track_records_rescan(org_id_int)
-    elif result.get("rescan_error"):
+    if result.get("rescan_error"):
         notice = f"{base_notice} Automatic rescan failed ({result['rescan_error']}); it'll reappear on the next scan instead."
     elif result.get("reappeared"):
         notice = f"{base_notice} It's back in the review queue."
