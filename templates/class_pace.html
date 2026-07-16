@@ -163,21 +163,6 @@
         const chartData = {{ chart_data | tojson }};
         const classPaceConfig = {{ class_pace_config | tojson }};
 
-        // Trailing moving average over `window` years, shrinking the window
-        // at gaps/edges rather than requiring a full window of data.
-        function movingAverage(series, window) {
-            if (!window || window <= 1) return series.map(() => null);
-            const result = [];
-            for (let i = 0; i < series.length; i++) {
-                const windowVals = [];
-                for (let j = Math.max(0, i - window + 1); j <= i; j++) {
-                    if (series[j] !== null && series[j] !== undefined) windowVals.push(series[j]);
-                }
-                result.push(windowVals.length ? windowVals.reduce((a, b) => a + b, 0) / windowVals.length : null);
-            }
-            return result;
-        }
-
         // Ordinary least-squares fit over (year, avg_seconds) pairs, ignoring
         // years with no data; returns a value for every year in `years`.
         function linearRegression(years, series) {
@@ -235,22 +220,6 @@
                 spanGaps: true,
                 tension: 0.2,
             });
-
-            if (classPaceConfig.smoothing_window > 1) {
-                datasets.push({
-                    label: `${cls} (${classPaceConfig.smoothing_window}-yr avg)`,
-                    data: movingAverage(rawSeries, classPaceConfig.smoothing_window),
-                    borderColor: color,
-                    backgroundColor: color,
-                    borderWidth: 2,
-                    borderDash: [6, 4],
-                    pointRadius: 0,
-                    pointHoverRadius: 0,
-                    spanGaps: true,
-                    tension: 0.2,
-                    _auxiliary: true,
-                });
-            }
 
             if (classPaceConfig.regression) {
                 datasets.push({

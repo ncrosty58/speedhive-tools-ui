@@ -537,7 +537,6 @@ def org_class_pace(org_id):
 
     class_pace_settings = read_org_settings(org_id_int).get("class_pace", {})
     class_pace_config = {
-        "smoothing_window": int(class_pace_settings.get("smoothing_window") or 0),
         "regression": bool(class_pace_settings.get("regression")),
     }
 

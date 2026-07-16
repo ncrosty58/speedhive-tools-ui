@@ -507,7 +507,6 @@ def test_settings_page_persists_class_pace_config(client, monkeypatch):
         f"/org/{org_id}/settings",
         data={
             "class_pace_classes": ["FA", "GT1"],
-            "class_pace_smoothing_window": "3",
             "class_pace_regression": "on",
             "alias_map_json": '{"aliases": {}, "always_review": []}',
         },
@@ -521,6 +520,5 @@ def test_settings_page_persists_class_pace_config(client, monkeypatch):
 
     assert config["class_pace"] == {
         "classes": ["FA", "GT1"],
-        "smoothing_window": 3,
         "regression": True,
     }

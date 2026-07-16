@@ -445,7 +445,7 @@ def _read_org_settings(org_id_int):
     toggles = config_data.get("notifications", {"enabled": True, "de_duplicate": True})
     parsing_data = config_data.get("parsing", {"engine": "regex"})
     stats_data = config_data.get("stats", {"min_laps": 20})
-    class_pace_data = config_data.get("class_pace", {"classes": [], "smoothing_window": 0, "regression": False})
+    class_pace_data = config_data.get("class_pace", {"classes": [], "regression": False})
 
     env_settings = {
         "RESEND_API_KEY": _get_setting_info("RESEND_API_KEY", org_id_int, is_secret=True),
@@ -493,10 +493,6 @@ def org_track_records_settings(org_id):
             min_laps = 20
 
         class_pace_classes = request.form.getlist("class_pace_classes")
-        try:
-            class_pace_smoothing_window = int(request.form.get("class_pace_smoothing_window") or "0")
-        except ValueError:
-            class_pace_smoothing_window = 0
         class_pace_regression = request.form.get("class_pace_regression") == "on"
 
         try:
@@ -526,7 +522,6 @@ def org_track_records_settings(org_id):
         config_data["stats"] = {"min_laps": min_laps}
         config_data["class_pace"] = {
             "classes": class_pace_classes,
-            "smoothing_window": class_pace_smoothing_window,
             "regression": class_pace_regression,
         }
 

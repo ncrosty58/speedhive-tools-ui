@@ -171,14 +171,6 @@
                         <hr class="border-secondary opacity-25">
 
                         <div class="mb-3">
-                            <label for="class_pace_smoothing_window" class="form-label fw-semibold">Smoothing Window (years)</label>
-                            <input type="number" class="form-control bg-dark text-light border-secondary border-opacity-50" id="class_pace_smoothing_window" name="class_pace_smoothing_window" value="{{ class_pace_config.smoothing_window or 0 }}" min="0" max="10">
-                            <span class="text-muted small mt-2 d-block">
-                                Overlay a trailing moving-average line over this many years. 0 or 1 disables smoothing.
-                            </span>
-                        </div>
-
-                        <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" role="switch" id="class_pace_regression" name="class_pace_regression" {% if class_pace_config.regression %}checked{% endif %}>
                                 <label class="form-check-label fw-semibold" for="class_pace_regression">Show Linear Regression Trend Line</label>
