@@ -262,7 +262,7 @@ def test_upload_local_dump_success(client, monkeypatch):
     monkeypatch.setattr(
         import_module,
         "import_dump_to_storage",
-        lambda org, dump_dir, db_path: mock_summary
+        lambda org, dump_dir, storage: mock_summary
     )
 
     # Create dummy ZIP in memory
