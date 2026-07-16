@@ -60,117 +60,20 @@
 
                         <hr class="border-secondary opacity-25">
 
-                        <span class="text-muted small mb-3 d-block">
-                            The two toggles above are saved per-organization. Below are the email delivery credentials.
-                            You can leave these empty to use the system-wide global default environment variables,
-                            or enter values here to set organization-specific overrides.
-                        </span>
-
                         <div class="mb-3">
                             <label for="resend_api_key" class="form-label fw-semibold">Resend API Key</label>
-                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="resend_api_key" name="resend_api_key" value="{{ env_settings.RESEND_API_KEY.override or '' }}" placeholder="{% if env_settings.RESEND_API_KEY.has_global %}{{ env_settings.RESEND_API_KEY.display_global }}{% else %}re_...{% endif %}">
-                            <div class="mt-2" style="font-size: 0.82rem;">
-                                {% if env_settings.RESEND_API_KEY.source == 'org' %}
-                                    <div>
-                                        {% if env_settings.RESEND_API_KEY.has_global %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
-                                        {% else %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.RESEND_API_KEY.display_effective }}
-                                    </div>
-                                {% elif env_settings.RESEND_API_KEY.source == 'global' %}
-                                    <div>
-                                        <span class="badge-custom badge-neutral"><i class="fa-solid fa-globe"></i> Global Default</span>
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.RESEND_API_KEY.display_effective }}
-                                    </div>
-                                {% else %}
-                                    <div>
-                                        <span class="badge-custom badge-alert"><i class="fa-solid fa-triangle-exclamation"></i> Not Configured</span>
-                                    </div>
-                                {% endif %}
-                                {% if env_settings.RESEND_API_KEY.source == 'org' and env_settings.RESEND_API_KEY.has_global %}
-                                    <div class="text-muted small mt-1 font-monospace" style="font-size: 0.78rem;">
-                                        Global default: {{ env_settings.RESEND_API_KEY.display_global }}
-                                    </div>
-                                {% endif %}
-                            </div>
+                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="resend_api_key" name="resend_api_key" value="{{ env_settings.RESEND_API_KEY.override or '' }}" placeholder="re_...">
                         </div>
 
                         <div class="mb-3">
                             <label for="from_email" class="form-label fw-semibold">From Email Address</label>
-                            <input type="email" class="form-control bg-dark text-light border-secondary border-opacity-50" id="from_email" name="from_email" value="{{ env_settings.NOTIFICATION_FROM_EMAIL.override or '' }}" placeholder="{% if env_settings.NOTIFICATION_FROM_EMAIL.has_global %}{{ env_settings.NOTIFICATION_FROM_EMAIL.global_val }}{% else %}noreply@cosmoslab.dev{% endif %}">
-                            <div class="mt-2" style="font-size: 0.82rem;">
-                                {% if env_settings.NOTIFICATION_FROM_EMAIL.source == 'org' %}
-                                    <div>
-                                        {% if env_settings.NOTIFICATION_FROM_EMAIL.has_global %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
-                                        {% else %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.NOTIFICATION_FROM_EMAIL.display_effective }}
-                                    </div>
-                                {% elif env_settings.NOTIFICATION_FROM_EMAIL.source == 'global' %}
-                                    <div>
-                                        <span class="badge-custom badge-neutral"><i class="fa-solid fa-globe"></i> Global Default</span>
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.NOTIFICATION_FROM_EMAIL.display_effective }}
-                                    </div>
-                                {% else %}
-                                    <div>
-                                        <span class="badge-custom badge-alert"><i class="fa-solid fa-triangle-exclamation"></i> Not Configured</span>
-                                    </div>
-                                {% endif %}
-                                {% if env_settings.NOTIFICATION_FROM_EMAIL.source == 'org' and env_settings.NOTIFICATION_FROM_EMAIL.has_global %}
-                                    <div class="text-muted small mt-1 font-monospace" style="font-size: 0.78rem;">
-                                        Global default: {{ env_settings.NOTIFICATION_FROM_EMAIL.display_global }}
-                                    </div>
-                                {% endif %}
-                            </div>
+                            <input type="email" class="form-control bg-dark text-light border-secondary border-opacity-50" id="from_email" name="from_email" value="{{ env_settings.NOTIFICATION_FROM_EMAIL.override or '' }}" placeholder="noreply@cosmoslab.dev">
                         </div>
 
                         <div class="mb-3 flex-grow-1">
                             <label for="to_emails" class="form-label fw-semibold">Recipient Email(s)</label>
-                            <textarea class="form-control bg-dark text-light border-secondary border-opacity-50" id="to_emails" name="to_emails" rows="3" placeholder="{% if env_settings.NOTIFICATION_TO_EMAILS.has_global %}{{ env_settings.NOTIFICATION_TO_EMAILS.global_val }}{% else %}email1@domain.com, email2@domain.com{% endif %}">{{ env_settings.NOTIFICATION_TO_EMAILS.override or '' }}</textarea>
-                            <div class="mt-2" style="font-size: 0.82rem;">
-                                {% if env_settings.NOTIFICATION_TO_EMAILS.source == 'org' %}
-                                    <div>
-                                        {% if env_settings.NOTIFICATION_TO_EMAILS.has_global %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
-                                        {% else %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.NOTIFICATION_TO_EMAILS.display_effective }}
-                                    </div>
-                                {% elif env_settings.NOTIFICATION_TO_EMAILS.source == 'global' %}
-                                    <div>
-                                        <span class="badge-custom badge-neutral"><i class="fa-solid fa-globe"></i> Global Default</span>
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.NOTIFICATION_TO_EMAILS.display_effective }}
-                                    </div>
-                                {% else %}
-                                    <div>
-                                        <span class="badge-custom badge-alert"><i class="fa-solid fa-triangle-exclamation"></i> Not Configured</span>
-                                    </div>
-                                {% endif %}
-                                {% if env_settings.NOTIFICATION_TO_EMAILS.source == 'org' and env_settings.NOTIFICATION_TO_EMAILS.has_global %}
-                                    <div class="text-muted small mt-1 font-monospace" style="font-size: 0.78rem;">
-                                        Global default: {{ env_settings.NOTIFICATION_TO_EMAILS.display_global }}
-                                    </div>
-                                {% endif %}
-                            </div>
+                            <textarea class="form-control bg-dark text-light border-secondary border-opacity-50" id="to_emails" name="to_emails" rows="3" placeholder="email1@domain.com, email2@domain.com">{{ env_settings.NOTIFICATION_TO_EMAILS.override or '' }}</textarea>
                         </div>
-                    </div>
                 </div>
 
                 <!-- Classification Alias Mapping Card -->
@@ -193,77 +96,17 @@
                     <div class="glass-card h-100 d-flex flex-column">
                         <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-robot"></i> Announcer Parser</h3>
                         <span class="text-muted small mb-3">
-                            Parser engine choice and Gemini credentials for {{ org.name }}. You can leave the credentials empty to fall back to the system-wide global default environment variables, or enter organization-specific overrides.
+                            Parser engine choice and Gemini credentials for {{ org.name }}.
                         </span>
 
                         <div class="mb-3">
                             <label for="gemini_api_key" class="form-label fw-semibold">Gemini API Key</label>
-                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_api_key" name="gemini_api_key" value="{{ env_settings.GEMINI_API_KEY.override or '' }}" placeholder="{% if env_settings.GEMINI_API_KEY.has_global %}{{ env_settings.GEMINI_API_KEY.display_global }}{% else %}AIza...{% endif %}">
-                            <div class="mt-2" style="font-size: 0.82rem;">
-                                {% if env_settings.GEMINI_API_KEY.source == 'org' %}
-                                    <div>
-                                        {% if env_settings.GEMINI_API_KEY.has_global %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
-                                        {% else %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.GEMINI_API_KEY.display_effective }}
-                                    </div>
-                                {% elif env_settings.GEMINI_API_KEY.source == 'global' %}
-                                    <div>
-                                        <span class="badge-custom badge-neutral"><i class="fa-solid fa-globe"></i> Global Default</span>
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.GEMINI_API_KEY.display_effective }}
-                                    </div>
-                                {% else %}
-                                    <div>
-                                        <span class="badge-custom badge-alert"><i class="fa-solid fa-triangle-exclamation"></i> Not Configured</span>
-                                    </div>
-                                {% endif %}
-                                {% if env_settings.GEMINI_API_KEY.source == 'org' and env_settings.GEMINI_API_KEY.has_global %}
-                                    <div class="text-muted small mt-1 font-monospace" style="font-size: 0.78rem;">
-                                        Global default: {{ env_settings.GEMINI_API_KEY.display_global }}
-                                    </div>
-                                {% endif %}
-                            </div>
+                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_api_key" name="gemini_api_key" value="{{ env_settings.GEMINI_API_KEY.override or '' }}" placeholder="AIza...">
                         </div>
 
                         <div class="mb-3">
                             <label for="gemini_model" class="form-label fw-semibold">Gemini Model</label>
-                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_model" name="gemini_model" value="{{ env_settings.GEMINI_MODEL.override or '' }}" placeholder="{% if env_settings.GEMINI_MODEL.source == 'org' or env_settings.GEMINI_MODEL.source == 'global' %}{{ env_settings.GEMINI_MODEL.effective_val }}{% else %}gemini-2.5-flash{% endif %}">
-                            <div class="mt-2" style="font-size: 0.82rem;">
-                                {% if env_settings.GEMINI_MODEL.source == 'org' %}
-                                    <div>
-                                        {% if env_settings.GEMINI_MODEL.has_global %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-building"></i> Org Override</span>
-                                        {% else %}
-                                            <span class="badge-custom badge-ok"><i class="fa-solid fa-check"></i> Configured</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.GEMINI_MODEL.display_effective }}
-                                    </div>
-                                {% elif env_settings.GEMINI_MODEL.source == 'global' %}
-                                    <div>
-                                        <span class="badge-custom badge-neutral"><i class="fa-solid fa-globe"></i> Global Default</span>
-                                    </div>
-                                    <div class="text-light-emphasis font-monospace mt-1">
-                                        Effective: {{ env_settings.GEMINI_MODEL.display_effective }}
-                                    </div>
-                                {% else %}
-                                    <div>
-                                        <span class="badge-custom badge-alert"><i class="fa-solid fa-triangle-exclamation"></i> Not Configured</span>
-                                    </div>
-                                {% endif %}
-                                {% if env_settings.GEMINI_MODEL.source == 'org' and env_settings.GEMINI_MODEL.has_global %}
-                                    <div class="text-muted small mt-1 font-monospace" style="font-size: 0.78rem;">
-                                        Global default: {{ env_settings.GEMINI_MODEL.display_global }}
-                                    </div>
-                                {% endif %}
-                            </div>
+                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_model" name="gemini_model" value="{{ env_settings.GEMINI_MODEL.override or '' }}" placeholder="gemini-2.5-flash">
                         </div>
 
                         <hr class="border-secondary opacity-25">
