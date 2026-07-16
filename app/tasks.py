@@ -211,8 +211,9 @@ def _get_bulk_parser_for_org(org_id: int):
     engine = (config.get("parsing") or {}).get("engine")
     if engine != "llm":
         return None
+    import functools
     from speedhive.llm import parse_track_records_bulk_with_gemini
-    return parse_track_records_bulk_with_gemini
+    return functools.partial(parse_track_records_bulk_with_gemini, org_id=org_id)
 
 
 def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:

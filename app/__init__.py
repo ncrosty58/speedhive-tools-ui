@@ -1,12 +1,14 @@
 import json
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from flask import Flask, session, request, redirect, url_for
 from speedhive.storage import SpeedhiveStorage
 from speedhive.wrapper import SpeedhiveClient
 from speedhive.exporters.export_db_dump import export_db_dump  # noqa: F401
 from app.utils import iso_utc, utc_now
 
+load_dotenv()
 
 # Shared globals
 client = SpeedhiveClient.create()
@@ -17,6 +19,9 @@ app_root = Path(__file__).resolve().parent.parent
 web_data_root = Path(os.environ.get("SPEEDHIVE_WEB_DATA_DIR", app_root / "web_data"))
 DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", web_data_root / "speedhive.db"))
 DUMPS_ROOT = web_data_root / "saved_dumps"
+
+# Per-org settings (Gemini/Resend keys etc.) saved via Settings -- see app/env_config.py
+load_dotenv(web_data_root / "org_settings.env")
 
 
 PUBLIC_ENDPOINTS = {

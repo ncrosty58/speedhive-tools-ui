@@ -100,10 +100,23 @@
                     <div class="glass-card h-100 d-flex flex-column">
                         <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-robot"></i> Announcer Parser</h3>
                         <span class="text-muted small mb-3">
-                            Per-organization — this setting only applies to {{ org.name }}. The Gemini API key and model
-                            are configured server-wide via the <code>GEMINI_API_KEY</code> / <code>GEMINI_MODEL</code>
-                            environment variables, not here.
+                            Per-organization — this key and engine choice only apply to {{ org.name }}. Saved as an
+                            environment variable, so CLI tools (<code>speedhive ... --org {{ org_id }}</code>) see the
+                            same value, not just this web app.
                         </span>
+
+                        <div class="mb-3">
+                            <label for="gemini_api_key" class="form-label fw-semibold">Gemini API Key</label>
+                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_api_key" name="gemini_api_key" value="{{ llm_config.gemini_api_key or '' }}" placeholder="AIza...">
+                            <span class="text-muted small">Leave empty to fall back to the server's shared <code>GEMINI_API_KEY</code>, if any.</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="gemini_model" class="form-label fw-semibold">Gemini Model</label>
+                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_model" name="gemini_model" value="{{ llm_config.gemini_model or '' }}" placeholder="gemini-2.5-flash">
+                        </div>
+
+                        <hr class="border-secondary opacity-25">
 
                         <div class="mb-3">
                             <label for="parser_engine" class="form-label fw-semibold">Announcement Parser</label>

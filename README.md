@@ -60,20 +60,27 @@ against a per-org alias map, and diffs them against a curated NDJSON file —
 new or faster results land in a pending-review queue
 (`/org/<id>/track-records/review`), never written to the curated list
 automatically. Approving or rejecting a candidate is a manual step in the UI.
-If Resend credentials are configured, new candidates trigger a review-request
-email automatically after a scan completes.
+If Resend credentials are configured for that org, new candidates trigger a
+review-request email automatically after a scan completes.
 
-Announcements can be parsed two ways, set per-org in
-`/org/<id>/track-records/settings` ("Announcer Parser"):
+Both the Gemini key/model and the Resend credentials are configured
+per-organization at `/org/<id>/track-records/settings`, and are stored as
+environment variables (`GEMINI_API_KEY_<org_id>`, `RESEND_API_KEY_<org_id>`,
+etc. — see Configuration below), not in a config file — so a value set
+through the Settings UI is also what a `speedhive ...` CLI invocation sees
+for that org, not just this web app. Each falls back to a bare, non-suffixed
+env var (`GEMINI_API_KEY`, `RESEND_API_KEY`, ...) as a shared default when an
+org hasn't set its own.
+
+Announcements can be parsed two ways, set per-org in Settings
+("Announcer Parser"):
 
 - **Regex** — the default for every org. Zero dependencies, only matches one
   exact announcer phrasing.
 - **LLM (Gemini)** — opt-in per org. Tolerates announcer phrasing beyond that
-  one template. Requires `GEMINI_API_KEY` set in the server environment (see
-  Configuration below) — there's no per-org or UI-editable key. Parses an
-  org's entire announcement history in a single call, and caches results per
-  announcement so repeat scans only pay for genuinely new announcements
-  instead of re-parsing everything every time.
+  one template. Parses an org's entire announcement history in a single
+  call, and caches results per announcement so repeat scans only pay for
+  genuinely new announcements instead of re-parsing everything every time.
 
 Either way, extractions the parser itself flags as unreliable (an
 unrecognized/ambiguous classification, or a low-confidence LLM extraction)
@@ -119,8 +126,15 @@ file next to `docker-compose.yml`).
 | `FLASK_SECRET_KEY` | Session cookie signing key | *pre-configured fallback — override in production* |
 | `TRACK_RECORDS_STALE_HOURS` | Cache age before a track-record scan triggers an auto-refresh | `20` |
 | `SYNC_SECRET` | Shared secret required by the external `/org/<id>/track-records/notify` webhook | *optional* |
-| `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS` | Resend email credentials for track-record review notifications | *optional* |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials for orgs with the LLM parser enabled (Track Records Settings) | *optional — `gemini-2.5-flash`* |
+| `RESEND_API_KEY_<org_id>`, `NOTIFICATION_FROM_EMAIL_<org_id>`, `NOTIFICATION_TO_EMAILS_<org_id>` | Per-org Resend email credentials, set via Track Records Settings (bare `RESEND_API_KEY` etc. as a shared fallback) | *optional* |
+| `GEMINI_API_KEY_<org_id>`, `GEMINI_MODEL_<org_id>` | Per-org Gemini credentials, set via Track Records Settings (bare `GEMINI_API_KEY`/`GEMINI_MODEL` as a shared fallback) | *optional — `gemini-2.5-flash`* |
+
+These per-org values live in `web_data/org_settings.env`, not the top-level
+`.env` (Docker can't bind-mount a single file read-write and still support
+atomic rewrites, which is what saving from the Settings UI needs — a
+directory mount, like `web_data` already is, doesn't have that problem).
+Both this app and the `speedhive` CLI load that file in addition to the
+top-level `.env`.
 | `GOTIFY_URL`, `GOTIFY_APP_TOKEN` | Push notification when new track-record candidates are found | *optional* |
 
 ---

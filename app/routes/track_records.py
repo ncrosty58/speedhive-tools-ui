@@ -20,6 +20,7 @@ from app.utils import (
     read_json_file,
 )
 from app.notifications import _send_resend_notification
+from app.env_config import get_org_env_var, set_org_env_var
 from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
@@ -406,6 +407,29 @@ def org_track_records_rejected_restore(org_id):
     return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=notice))
 
 
+def _read_org_settings(org_id_int):
+    """Non-secret toggles come from config.json; credential-shaped values
+    (Resend, Gemini) come from per-org env vars -- see app/env_config.py."""
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    config_file = p["dir"] / "config.json"
+    notif_config = read_json_file(config_file) or {}
+    toggles = notif_config.get("notifications", {"enabled": True, "de_duplicate": True})
+    parsing_data = notif_config.get("parsing", {"engine": "regex"})
+
+    notif_data = {
+        "enabled": toggles.get("enabled", True),
+        "de_duplicate": toggles.get("de_duplicate", True),
+        "resend_api_key": get_org_env_var("RESEND_API_KEY", org_id_int),
+        "from_email": get_org_env_var("NOTIFICATION_FROM_EMAIL", org_id_int),
+        "to_emails": [e.strip() for e in (get_org_env_var("NOTIFICATION_TO_EMAILS", org_id_int) or "").split(",") if e.strip()],
+    }
+    llm_config = {
+        "gemini_api_key": get_org_env_var("GEMINI_API_KEY", org_id_int),
+        "gemini_model": get_org_env_var("GEMINI_MODEL", org_id_int),
+    }
+    return notif_data, parsing_data, llm_config
+
+
 def org_track_records_settings(org_id):
     try:
         org_id_int = int(org_id)
@@ -425,6 +449,9 @@ def org_track_records_settings(org_id):
         to_emails_raw = request.form.get("to_emails", "").strip()
         to_emails = [email.strip() for email in to_emails_raw.split(",") if email.strip()]
 
+        gemini_api_key = request.form.get("gemini_api_key", "").strip() or None
+        gemini_model = request.form.get("gemini_model", "").strip() or None
+
         alias_map_json_str = request.form.get("alias_map_json", "").strip()
 
         parser_engine = "llm" if request.form.get("parser_engine") == "llm" else "regex"
@@ -432,9 +459,7 @@ def org_track_records_settings(org_id):
         try:
             alias_map_data = json.loads(alias_map_json_str)
         except Exception as exc:
-            notif_config = read_json_file(config_file) or {}
-            notif_data = notif_config.get("notifications", {})
-            parsing_data = notif_config.get("parsing", {})
+            notif_data, parsing_data, llm_config = _read_org_settings(org_id_int)
             return render_template(
                 "track_records_settings.html",
                 org=get_org_view(org_id_int),
@@ -444,46 +469,38 @@ def org_track_records_settings(org_id):
                 notif_config=notif_data,
                 alias_map_json=alias_map_json_str,
                 parsing_config=parsing_data,
+                llm_config=llm_config,
                 error=f"Invalid Alias Map JSON: {str(exc)}"
             )
 
-        notif_config = {
-            "notifications": {
-                "enabled": enabled,
-                "de_duplicate": de_duplicate,
-                "resend_api_key": resend_api_key,
-                "from_email": from_email,
-                "to_emails": to_emails
-            },
-            "parsing": {
-                "engine": parser_engine
-            }
+        toggles_config = {
+            "notifications": {"enabled": enabled, "de_duplicate": de_duplicate},
+            "parsing": {"engine": parser_engine},
         }
-        track_records.save_json(config_file, notif_config)
+        track_records.save_json(config_file, toggles_config)
         track_records.save_json(alias_map_file, alias_map_data)
 
+        set_org_env_var("RESEND_API_KEY", org_id_int, resend_api_key)
+        set_org_env_var("NOTIFICATION_FROM_EMAIL", org_id_int, from_email)
+        set_org_env_var("NOTIFICATION_TO_EMAILS", org_id_int, ",".join(to_emails) if to_emails else None)
+        set_org_env_var("GEMINI_API_KEY", org_id_int, gemini_api_key)
+        set_org_env_var("GEMINI_MODEL", org_id_int, gemini_model)
+
+        notif_data, parsing_data, llm_config = _read_org_settings(org_id_int)
         return render_template(
             "track_records_settings.html",
             org=get_org_view(org_id_int),
             org_id=org_id_int,
             active_tab="track_records",
             active_track_tab="settings",
-            notif_config=notif_config["notifications"],
+            notif_config=notif_data,
             alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
-            parsing_config=notif_config["parsing"],
+            parsing_config=parsing_data,
+            llm_config=llm_config,
             notice="Configuration saved successfully."
         )
 
-    notif_config = read_json_file(config_file) or {}
-    notif_data = notif_config.get("notifications", {
-        "enabled": True,
-        "de_duplicate": True,
-        "resend_api_key": None,
-        "from_email": None,
-        "to_emails": []
-    })
-    parsing_data = notif_config.get("parsing", {"engine": "regex"})
-
+    notif_data, parsing_data, llm_config = _read_org_settings(org_id_int)
     alias_map_data = read_json_file(alias_map_file) or {
         "aliases": {},
         "always_review": []
@@ -498,7 +515,8 @@ def org_track_records_settings(org_id):
         active_track_tab="settings",
         notif_config=notif_data,
         alias_map_json=alias_map_json_str,
-        parsing_config=parsing_data
+        parsing_config=parsing_data,
+        llm_config=llm_config
     )
 
 
@@ -592,20 +610,14 @@ def org_track_records_notify(org_id):
     if env_secret and secret != env_secret:
         return jsonify({"error": "Unauthorized"}), 401
 
-    resend_api_key = body.get("resend_api_key") or os.environ.get("RESEND_API_KEY")
-    from_email = body.get("from_email") or os.environ.get("NOTIFICATION_FROM_EMAIL")
+    resend_api_key = body.get("resend_api_key") or get_org_env_var("RESEND_API_KEY", org_id_int)
+    from_email = body.get("from_email") or get_org_env_var("NOTIFICATION_FROM_EMAIL", org_id_int)
 
     to_emails = body.get("to_emails")
     if not to_emails:
-        env_to = os.environ.get("NOTIFICATION_TO_EMAILS")
+        env_to = get_org_env_var("NOTIFICATION_TO_EMAILS", org_id_int)
         if env_to:
-            if env_to.strip().startswith("["):
-                try:
-                    to_emails = json.loads(env_to)
-                except Exception:
-                    to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
-            else:
-                to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
+            to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
 
     if isinstance(to_emails, str):
         to_emails = [email.strip() for email in to_emails.split(",") if email.strip()]
