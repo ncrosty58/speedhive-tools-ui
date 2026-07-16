@@ -597,6 +597,7 @@ def org_participation(org_id):
         )
 
     participation_data = None
+    participation_by_class = None
     calculated_at = None
     try:
         with storage.connect() as conn:
@@ -605,7 +606,9 @@ def org_participation(org_id):
                 (org_id_int, session_types_key)
             ).fetchone()
         if row:
-            participation_data = json.loads(row["payload"]).get("participation")
+            payload = json.loads(row["payload"])
+            participation_data = payload.get("participation")
+            participation_by_class = payload.get("participation_by_class")
             calculated_at = row["calculated_at"]
     except Exception as e:
         current_app.logger.warning(f"Error loading participation stats from DB for org {org_id_int}: {e}")
@@ -618,6 +621,7 @@ def org_participation(org_id):
         has_persisted_stats=bool(participation_data),
         calculated_at=calculated_at,
         participation_data=participation_data,
+        participation_by_class=participation_by_class,
         active_tab="stats",
         active_stats_tab="participation",
         session_types=session_types_list,
@@ -689,7 +693,11 @@ def generate_org_class_pace(org_id):
     try:
         from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
         from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
-        from speedhive.analyzers.analyze_class_pace import compute_avg_lap_by_class_year, compute_participation_by_year
+        from speedhive.analyzers.analyze_class_pace import (
+            compute_avg_lap_by_class_year,
+            compute_participation_by_class_year,
+            compute_participation_by_year,
+        )
 
         _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
         session_map = load_session_types_from_storage(storage, org_id_int)
@@ -700,9 +708,13 @@ def generate_org_class_pace(org_id):
         # applied at display time in org_class_pace, over this same cached
         # payload, so neither needs a recompute to change what's shown.
         chart_data = compute_avg_lap_by_class_year(enriched, session_map, results_map, session_types=session_types_list, max_classes=None)
-        # Combined-across-classes participation trend, cached alongside the
-        # per-class data since it shares the same Generate/Recalculate action.
+        # Combined-across-classes participation trend, and the per-class
+        # breakdown behind it, cached alongside the per-class pace data since
+        # they all share the same Generate/Recalculate action.
         chart_data["participation"] = compute_participation_by_year(enriched, session_map, session_types=session_types_list)
+        chart_data["participation_by_class"] = compute_participation_by_class_year(
+            enriched, session_map, results_map, session_types=session_types_list, max_classes=10
+        )
 
         calculated_at = iso_utc(utc_now())
         payload_str = json.dumps(chart_data, default=str)

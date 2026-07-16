@@ -137,14 +137,62 @@
                     </div>
                 </div>
             {% endif %}
+
+            <!-- Average Annual Participants by Class -->
+            {% if participation_by_class and participation_by_class.classes %}
+                <div class="col-12">
+                    <div class="glass-card">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                            <h3 class="h5 fw-bold mb-0"><i class="fa-solid fa-layer-group text-info"></i> <span id="class-participation-title">Average Annual Participants by Class</span></h3>
+                            <button type="button" class="btn-custom btn-custom-outline py-1 px-3 d-none" id="back-to-classes-btn">
+                                <i class="fa-solid fa-arrow-left me-1"></i>Back to All Classes
+                            </button>
+                        </div>
+                        <p class="text-muted small mb-3" id="class-participation-caption">Top {{ participation_by_class.classes|length }} classes by average racers per year they ran. Click a bar to see that class's participation by year.</p>
+                        <div class="position-relative" style="height: 420px;">
+                            <canvas id="classParticipationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="glass-card">
+                        <details>
+                            <summary class="h6 fw-semibold mb-0" style="cursor: pointer;">
+                                <i class="fa-solid fa-table text-info me-1"></i>View as table
+                            </summary>
+                            <div class="table-custom-container mt-3">
+                                <table class="table table-custom mb-0 small">
+                                    <thead>
+                                        <tr>
+                                            <th>Class</th>
+                                            <th>Avg Annual Participants</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for cls in participation_by_class.classes %}
+                                            <tr>
+                                                <td class="fw-semibold text-secondary">{{ cls }}</td>
+                                                <td>{{ participation_by_class.avg_participants[loop.index0] }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            {% endif %}
         {% endif %}
     {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
-{% if participation_data and participation_data.years %}
+{% if (participation_data and participation_data.years) or (participation_by_class and participation_by_class.classes) %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endif %}
+{% if participation_data and participation_data.years %}
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const participationData = {{ participation_data | tojson }};
@@ -192,6 +240,102 @@
                     }
                 }
             }
+        });
+    });
+</script>
+{% endif %}
+{% if participation_by_class and participation_by_class.classes %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const byClassData = {{ participation_by_class | tojson }};
+        const rootStyles = window.getComputedStyle(document.documentElement);
+        const brand = rootStyles.getPropertyValue("--brand").trim() || "#06b6d4";
+
+        const ctx = document.getElementById("classParticipationChart");
+        if (!ctx) return;
+
+        const titleEl = document.getElementById("class-participation-title");
+        const captionEl = document.getElementById("class-participation-caption");
+        const backBtn = document.getElementById("back-to-classes-btn");
+
+        const topLevel = {
+            labels: byClassData.classes,
+            data: byClassData.avg_participants,
+            datasetLabel: "Avg Annual Participants",
+        };
+
+        const chart = new Chart(ctx.getContext("2d"), {
+            type: "bar",
+            data: {
+                labels: topLevel.labels,
+                datasets: [{
+                    label: topLevel.datasetLabel,
+                    data: topLevel.data,
+                    backgroundColor: brand,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+                },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    // Currently drilled into a class -- ignore further clicks,
+                    // there's nothing beneath a single year to drill into.
+                    if (chart.data.labels !== topLevel.labels) return;
+
+                    const cls = byClassData.classes[idx];
+                    const years = byClassData.years_by_class[cls] || [];
+                    const participants = byClassData.participants_by_class[cls] || [];
+
+                    chart.data.labels = years;
+                    chart.data.datasets[0].data = participants;
+                    chart.data.datasets[0].label = `${cls} — Participants`;
+                    chart.update();
+
+                    titleEl.textContent = `${cls} — Participants by Year`;
+                    captionEl.textContent = `Years ${cls} had no participants are omitted.`;
+                    backBtn.classList.remove("d-none");
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: "#141b32",
+                        titleColor: "#f8fafc",
+                        bodyColor: "#e2e8f0",
+                        borderColor: "#1e293b",
+                        borderWidth: 1,
+                        padding: 10,
+                        cornerRadius: 8,
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: "#64748b" }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: "rgba(255, 255, 255, 0.03)" },
+                        ticks: { color: "#64748b", precision: 0 }
+                    }
+                }
+            }
+        });
+
+        backBtn.addEventListener("click", function () {
+            chart.data.labels = topLevel.labels;
+            chart.data.datasets[0].data = topLevel.data;
+            chart.data.datasets[0].label = topLevel.datasetLabel;
+            chart.update();
+
+            titleEl.textContent = "Average Annual Participants by Class";
+            captionEl.textContent = `Top ${byClassData.classes.length} classes by average racers per year they ran. Click a bar to see that class's participation by year.`;
+            backBtn.classList.add("d-none");
         });
     });
 </script>
