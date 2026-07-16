@@ -48,7 +48,7 @@ def org_stats(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+    ignore_outliers = request.args.get("ignore_outliers", "1") in ("1", "true", "True")
 
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -203,7 +203,7 @@ def generate_org_stats(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
+    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers", "1")) in ("1", "true", "True")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
 
@@ -233,8 +233,7 @@ def generate_org_stats(org_id):
 
     if not has_db_stats:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
-        if ignore_outliers:
-            redirect_args["ignore_outliers"] = "1"
+        redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
         return redirect(url_for("org_stats", **redirect_args))
 
     try:
@@ -268,13 +267,11 @@ def generate_org_stats(org_id):
                 pass
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
-        if ignore_outliers:
-            redirect_args["ignore_outliers"] = "1"
+        redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
         return redirect(url_for("org_stats", **redirect_args))
 
     redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
-    if ignore_outliers:
-        redirect_args["ignore_outliers"] = "1"
+    redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
     return redirect(url_for("org_stats", **redirect_args))
 
 
@@ -284,7 +281,7 @@ def driver_stats_breakdown(org_id, driver_name):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+    ignore_outliers = request.args.get("ignore_outliers", "1") in ("1", "true", "True")
 
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -460,7 +457,7 @@ def org_class_pace(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+    ignore_outliers = request.args.get("ignore_outliers", "1") in ("1", "true", "True")
 
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -561,8 +558,13 @@ def org_participation(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
-
+    # Participation is a distinct-driver headcount per year, not a lap-time
+    # statistic -- outlier lap filtering can never change who raced, so
+    # unlike Class Pace this tab has no ignore_outliers control of its own.
+    # It always reads the ignore_outliers-filtered cache variant, since
+    # that's the one guaranteed to exist (Class Pace defaults to it too) and
+    # the participation numbers within it are identical to the unfiltered
+    # variant regardless.
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
         session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
@@ -577,7 +579,7 @@ def org_participation(org_id):
 
     session_types_list.sort()
     session_types_str = ",".join(session_types_list)
-    session_types_key = f"classpace_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+    session_types_key = f"classpace_{session_types_str}:ignore_outliers"
 
     org_view = get_org_view(org_id_int)
     has_db_stats = storage.org_has_sessions(org_id_int)
@@ -592,7 +594,6 @@ def org_participation(org_id):
             active_stats_tab="participation",
             session_types=session_types_list,
             session_types_str=session_types_str,
-            ignore_outliers=ignore_outliers,
         )
 
     participation_data = None
@@ -621,7 +622,6 @@ def org_participation(org_id):
         active_stats_tab="participation",
         session_types=session_types_list,
         session_types_str=session_types_str,
-        ignore_outliers=ignore_outliers,
     )
 
 
@@ -644,8 +644,7 @@ def set_class_pace_config(org_id):
     session_types = request.form.getlist("session_types")
     if session_types:
         redirect_args["session_types"] = session_types
-    if request.form.get("ignore_outliers"):
-        redirect_args["ignore_outliers"] = "1"
+    redirect_args["ignore_outliers"] = request.form.get("ignore_outliers", "1")
     return redirect(url_for("org_class_pace", **redirect_args))
 
 
@@ -655,7 +654,7 @@ def generate_org_class_pace(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
+    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers", "1")) in ("1", "true", "True")
 
     # Both the Class Pace and Participation tabs share this one computation
     # (they're cached together in the same org_stats row), so each page's own
@@ -684,8 +683,7 @@ def generate_org_class_pace(org_id):
     has_db_stats = storage.org_has_sessions(org_id_int)
     if not has_db_stats:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
-        if ignore_outliers:
-            redirect_args["ignore_outliers"] = "1"
+        redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
         return redirect(url_for(redirect_endpoint, **redirect_args))
 
     try:
@@ -716,13 +714,11 @@ def generate_org_class_pace(org_id):
             conn.commit()
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
-        if ignore_outliers:
-            redirect_args["ignore_outliers"] = "1"
+        redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
         return redirect(url_for(redirect_endpoint, **redirect_args))
 
     redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
-    if ignore_outliers:
-        redirect_args["ignore_outliers"] = "1"
+    redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
     return redirect(url_for(redirect_endpoint, **redirect_args))
 
 
@@ -732,7 +728,7 @@ def org_most_improved(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+    ignore_outliers = request.args.get("ignore_outliers", "1") in ("1", "true", "True")
 
     session_types_raw = request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -807,7 +803,7 @@ def generate_org_most_improved(org_id):
     except (TypeError, ValueError):
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
+    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers", "1")) in ("1", "true", "True")
 
     session_types_raw = request.form.getlist("session_types") or request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -828,8 +824,7 @@ def generate_org_most_improved(org_id):
     has_db_stats = storage.org_has_sessions(org_id_int)
     if not has_db_stats:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
-        if ignore_outliers:
-            redirect_args["ignore_outliers"] = "1"
+        redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
         return redirect(url_for("org_most_improved", **redirect_args))
 
     try:
@@ -853,13 +848,11 @@ def generate_org_most_improved(org_id):
             conn.commit()
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
-        if ignore_outliers:
-            redirect_args["ignore_outliers"] = "1"
+        redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
         return redirect(url_for("org_most_improved", **redirect_args))
 
     redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
-    if ignore_outliers:
-        redirect_args["ignore_outliers"] = "1"
+    redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
     return redirect(url_for("org_most_improved", **redirect_args))
 
 
