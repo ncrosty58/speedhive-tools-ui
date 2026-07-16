@@ -533,6 +533,12 @@ def test_org_participation_page_renders(client):
     assert b"No Synced Session Data" in resp.data
 
 
+def test_org_most_improved_page_renders(client):
+    resp = client.get("/org/999999/stats/most-improved")
+    assert resp.status_code == 200
+    assert b"No Synced Session Data" in resp.data
+
+
 def test_generate_class_pace_redirect_to_participation(client):
     resp = client.post(
         "/org/999999/stats/class-pace/generate",

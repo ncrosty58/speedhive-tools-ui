@@ -7,5 +7,8 @@
         <a class="btn-custom {% if active_stats_tab == 'participation' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_participation', org_id=org.id) }}">
             <i class="fa-solid fa-users me-1"></i>Participation
         </a>
+        <a class="btn-custom {% if active_stats_tab == 'most_improved' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_most_improved', org_id=org.id) }}">
+            <i class="fa-solid fa-arrow-trend-up me-1"></i>Most Improved
+        </a>
     </div>
 </div>

@@ -78,13 +78,9 @@ def org_stats(org_id):
     events_data, events_meta = read_events_from_store(org_id_int)
     cache_status = events_meta
 
-    dumps_root = DATA_ROOT / "saved_dumps"
-    dump_dir = dumps_root / str(org_id_int)
-    manifest_path = dump_dir / "manifest.json"
     has_db_stats = storage.org_has_sessions(org_id_int)
-    has_dump_stats = manifest_path.exists()
 
-    if not has_db_stats and not has_dump_stats:
+    if not has_db_stats:
         return render_template(
             "org_stats.html",
             org=org_view,
@@ -210,9 +206,6 @@ def generate_org_stats(org_id):
     ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
-    dumps_root = DATA_ROOT / "saved_dumps"
-    dump_dir = dumps_root / str(org_id_int)
-    has_dump_stats = (dump_dir / "manifest.json").exists()
 
     session_types_raw = request.form.getlist("session_types") or request.args.getlist("session_types")
     if len(session_types_raw) == 1 and "," in session_types_raw[0]:
@@ -221,7 +214,7 @@ def generate_org_stats(org_id):
         session_types_list = [t.strip() for t in session_types_raw if t.strip()]
     else:
         session_types_list = []
-        
+
     if not session_types_list:
         st = request.form.get("session_type") or request.args.get("session_type")
         if st:
@@ -233,35 +226,27 @@ def generate_org_stats(org_id):
     session_types_list = [t for t in session_types_list if t in ("race", "qualifying", "practice")]
     if not session_types_list:
         session_types_list = ["race"]
-        
+
     session_types_list.sort()
     session_types_str = ",".join(session_types_list)
     session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
 
-    if not has_db_stats and not has_dump_stats:
+    if not has_db_stats:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
         if ignore_outliers:
             redirect_args["ignore_outliers"] = "1"
         return redirect(url_for("org_stats", **redirect_args))
 
     try:
-        from speedhive.utils.lap_analysis import (
-            compute_laps_and_enriched,
-            compute_laps_and_enriched_from_storage,
-        )
+        from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
         from speedhive.analyzers.analyze_consistency import (
-            load_session_types,
             load_session_types_from_storage,
             aggregate_by_name,
             cluster_names,
         )
 
-        if has_db_stats:
-            _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
-            session_map = load_session_types_from_storage(storage, org_id_int)
-        else:
-            _, enriched = compute_laps_and_enriched(dumps_root, org_id_int, ignore_outliers=ignore_outliers)
-            session_map = load_session_types(dumps_root, org_id_int)
+        _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+        session_map = load_session_types_from_storage(storage, org_id_int)
         by_name = aggregate_by_name(enriched, session_map, session_types=session_types_list)
         clustered = cluster_names(by_name, threshold=0.85)
 
@@ -352,31 +337,22 @@ def driver_stats_breakdown(org_id, driver_name):
         current_app.logger.warning(f"Error loading stats for aliases of driver {driver_name}: {e}")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
-    dumps_root = DATA_ROOT / "saved_dumps"
-    dump_dir = dumps_root / str(org_id_int)
-    has_dump_stats = (dump_dir / "manifest.json").exists()
 
-    if not has_db_stats and not has_dump_stats:
+    if not has_db_stats:
         return redirect(url_for("org_stats", org_id=org_id_int, error="No synced session data available."))
 
     try:
         from speedhive.utils.lap_analysis import (
-            compute_laps_and_enriched,
             compute_laps_and_enriched_from_storage,
             normalize_name,
         )
         from speedhive.analyzers.analyze_consistency import (
-            load_session_types,
             load_session_types_from_storage,
             matches_session_type,
         )
 
-        if has_db_stats:
-            laps_by_driver, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
-            session_map = load_session_types_from_storage(storage, org_id_int)
-        else:
-            laps_by_driver, enriched = compute_laps_and_enriched(dumps_root, org_id_int, ignore_outliers=ignore_outliers)
-            session_map = load_session_types(dumps_root, org_id_int)
+        laps_by_driver, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+        session_map = load_session_types_from_storage(storage, org_id_int)
 
         driver_sessions = []
         normalized_aliases = {normalize_name(a) for a in aliases}
@@ -750,6 +726,143 @@ def generate_org_class_pace(org_id):
     return redirect(url_for(redirect_endpoint, **redirect_args))
 
 
+def org_most_improved(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+
+    session_types_raw = request.args.getlist("session_types")
+    if len(session_types_raw) == 1 and "," in session_types_raw[0]:
+        session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
+    elif session_types_raw:
+        session_types_list = [t.strip() for t in session_types_raw if t.strip()]
+    else:
+        session_types_list = []
+
+    session_types_list = [t for t in session_types_list if t in ("race", "qualifying", "practice")]
+    if not session_types_list:
+        session_types_list = ["race"]
+
+    session_types_list.sort()
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"most_improved_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    org_view = get_org_view(org_id_int)
+    has_db_stats = storage.org_has_sessions(org_id_int)
+
+    if not has_db_stats:
+        return render_template(
+            "most_improved.html",
+            org=org_view,
+            org_id=org_id_int,
+            manifest_exists=False,
+            active_tab="stats",
+            active_stats_tab="most_improved",
+            session_types=session_types_list,
+            session_types_str=session_types_str,
+            ignore_outliers=ignore_outliers,
+        )
+
+    most_improved = None
+    most_declined = None
+    calculated_at = None
+    try:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+                (org_id_int, session_types_key)
+            ).fetchone()
+        if row:
+            payload = json.loads(row["payload"])
+            most_improved = payload.get("most_improved")
+            most_declined = payload.get("most_declined")
+            calculated_at = row["calculated_at"]
+    except Exception as e:
+        current_app.logger.warning(f"Error loading most-improved stats from DB for org {org_id_int}: {e}")
+
+    return render_template(
+        "most_improved.html",
+        org=org_view,
+        org_id=org_id_int,
+        manifest_exists=True,
+        has_persisted_stats=most_improved is not None,
+        calculated_at=calculated_at,
+        most_improved=most_improved or [],
+        most_declined=most_declined or [],
+        min_laps=get_stats_min_laps(org_id_int),
+        active_tab="stats",
+        active_stats_tab="most_improved",
+        session_types=session_types_list,
+        session_types_str=session_types_str,
+        ignore_outliers=ignore_outliers,
+    )
+
+
+def generate_org_most_improved(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
+
+    session_types_raw = request.form.getlist("session_types") or request.args.getlist("session_types")
+    if len(session_types_raw) == 1 and "," in session_types_raw[0]:
+        session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
+    elif session_types_raw:
+        session_types_list = [t.strip() for t in session_types_raw if t.strip()]
+    else:
+        session_types_list = []
+
+    session_types_list = [t for t in session_types_list if t in ("race", "qualifying", "practice")]
+    if not session_types_list:
+        session_types_list = ["race"]
+
+    session_types_list.sort()
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"most_improved_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    has_db_stats = storage.org_has_sessions(org_id_int)
+    if not has_db_stats:
+        redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
+        if ignore_outliers:
+            redirect_args["ignore_outliers"] = "1"
+        return redirect(url_for("org_most_improved", **redirect_args))
+
+    try:
+        from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
+        from speedhive.analyzers.analyze_consistency import load_session_types_from_storage, get_most_improved_rankings
+
+        _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+        session_map = load_session_types_from_storage(storage, org_id_int)
+        min_laps = get_stats_min_laps(org_id_int)
+        most_improved, most_declined = get_most_improved_rankings(
+            enriched, session_map, session_types=session_types_list, min_laps=min_laps, limit=15
+        )
+
+        calculated_at = iso_utc(utc_now())
+        payload_str = json.dumps({"most_improved": most_improved, "most_declined": most_declined}, default=str)
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+                (org_id_int, session_types_key, payload_str, calculated_at)
+            )
+            conn.commit()
+    except Exception as exc:
+        redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
+        if ignore_outliers:
+            redirect_args["ignore_outliers"] = "1"
+        return redirect(url_for("org_most_improved", **redirect_args))
+
+    redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
+    if ignore_outliers:
+        redirect_args["ignore_outliers"] = "1"
+    return redirect(url_for("org_most_improved", **redirect_args))
+
+
 def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats", "org_stats", org_stats)
     app.add_url_rule("/org/<org_id>/stats/generate", "generate_org_stats", generate_org_stats, methods=["POST"])
@@ -758,3 +871,5 @@ def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats/class-pace/generate", "generate_org_class_pace", generate_org_class_pace, methods=["POST"])
     app.add_url_rule("/org/<org_id>/stats/class-pace/settings", "set_class_pace_config", set_class_pace_config, methods=["POST"])
     app.add_url_rule("/org/<org_id>/stats/participation", "org_participation", org_participation)
+    app.add_url_rule("/org/<org_id>/stats/most-improved", "org_most_improved", org_most_improved)
+    app.add_url_rule("/org/<org_id>/stats/most-improved/generate", "generate_org_most_improved", generate_org_most_improved, methods=["POST"])

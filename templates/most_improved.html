@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+
+{% block title %}Most Improved | {{ org.name }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    {% include "_org_nav.html" %}
+    {% include "_stats_subnav.html" %}
+
+    {% if error %}
+        <div class="col-12">
+            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
+        </div>
+    {% endif %}
+
+    {% if not manifest_exists %}
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
+                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+            </div>
+        </div>
+    {% else %}
+        <!-- Filter bar -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="row g-3 align-items-center">
+                    <div class="col-12 col-md">
+                        <form method="get" action="/org/{{ org.id }}/stats/most-improved" class="row g-3 align-items-center" id="filter-form">
+                            <div class="col-12 col-lg-auto d-flex align-items-center flex-wrap gap-2">
+                                <span class="text-muted small fw-semibold text-nowrap">Session Types:</span>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_race" value="race" {% if 'race' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_race">Race</label>
+                                </div>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_qualifying" value="qualifying" {% if 'qualifying' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_qualifying">Qualifying</label>
+                                </div>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_practice" value="practice" {% if 'practice' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice">Practice</label>
+                                </div>
+                            </div>
+                            <div class="col-12 col-sm-auto">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" name="ignore_outliers" id="ignore_outliers" value="1" {% if ignore_outliers %}checked{% endif %} onchange="this.form.submit()">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) using statistical IQR bounds">
+                                        <i class="fa-solid fa-filter text-brand me-1"></i>Ignore Outliers
+                                    </label>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="col-12 col-md-auto ms-md-auto">
+                        <form action="/org/{{ org.id }}/stats/most-improved/generate" method="post" class="d-inline" id="recalc-most-improved-form">
+                            {% for st in session_types %}
+                                <input type="hidden" name="session_types" value="{{ st }}">
+                            {% endfor %}
+                            {% if ignore_outliers %}
+                                <input type="hidden" name="ignore_outliers" value="1">
+                            {% endif %}
+                            <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-most-improved-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
+                                <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
+                                {% if has_persisted_stats %}Recalculate{% else %}Generate{% endif %}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            document.getElementById('recalc-most-improved-form')?.addEventListener('submit', function() {
+                const btn = document.getElementById('recalc-most-improved-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
+            });
+            function onCheckboxChange(cb) {
+                const checkboxes = cb.form.querySelectorAll('input[name="session_types"]');
+                const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
+                if (checkedCount === 0) {
+                    cb.checked = true;
+                    alert("At least one session type must be selected.");
+                    return;
+                }
+                cb.form.submit();
+            }
+        </script>
+
+        {% if not has_persisted_stats %}
+            <div class="col-12">
+                <div class="glass-card text-center py-5">
+                    <i class="fa-solid fa-arrow-trend-up fs-2 mb-3 d-block opacity-40"></i>
+                    <h3 class="h5 fw-bold mb-2">No Improvement Data Yet</h3>
+                    <p class="text-muted small mb-0">Click "Generate" above to compare each driver's earliest and most recent qualifying year.</p>
+                </div>
+            </div>
+        {% else %}
+            <!-- Explanation card -->
+            <div class="col-12">
+                <div class="glass-card">
+                    <h3 class="h5 fw-bold mb-2">How This Is Measured</h3>
+                    <p class="text-muted small mb-0">
+                        Each driver's coefficient of variation (CV, lap-to-lap consistency) in their <strong>earliest</strong> qualifying year (at least {{ min_laps }} laps) is compared to their <strong>most recent</strong> qualifying year &mdash; not a fixed calendar-year pair, so drivers who started at different times are each measured against their own history. CV is used rather than raw lap time since it stays meaningful even if a driver's class or track mix changed between the two years. Drivers with only one qualifying year aren't shown &mdash; there's nothing to compare them against yet.
+                    </p>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="glass-card">
+                    <h3 class="h5 fw-bold mb-3">Most Improved</h3>
+                    {% if most_improved %}
+                        <div class="table-custom-container">
+                            <table class="table table-custom mb-0 small">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Driver Name</th>
+                                        <th>Years</th>
+                                        <th>CV Change</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for r in most_improved %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link">{{ r.name }}</a></td>
+                                            <td class="text-nowrap">{{ r.first_year }} &rarr; {{ r.last_year }}</td>
+                                            <td class="text-nowrap"><span class="text-muted">{{ r.first_cv_display }} &rarr; {{ r.last_cv_display }}</span> <span class="text-success fw-bold">({{ r.cv_delta_display }})</span></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted small">No drivers with at least two qualifying years found.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="glass-card">
+                    <h3 class="h5 fw-bold mb-3">Most Declined</h3>
+                    {% if most_declined %}
+                        <div class="table-custom-container">
+                            <table class="table table-custom mb-0 small">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Driver Name</th>
+                                        <th>Years</th>
+                                        <th>CV Change</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for r in most_declined %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link">{{ r.name }}</a></td>
+                                            <td class="text-nowrap">{{ r.first_year }} &rarr; {{ r.last_year }}</td>
+                                            <td class="text-nowrap"><span class="text-muted">{{ r.first_cv_display }} &rarr; {{ r.last_cv_display }}</span> <span class="text-warning fw-bold">({{ r.cv_delta_display }})</span></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted small">No drivers with at least two qualifying years found.</div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}
