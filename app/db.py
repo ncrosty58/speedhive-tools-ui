@@ -680,4 +680,26 @@ def store_status_label(meta: Dict[str, Any]) -> str:
     return f"{saved_at} ({age_hours:.1f}h old)"
 
 
+def get_available_class_pace_classes(org_id: int) -> List[str]:
+    """The full (uncapped) class list from the most recently generated Class
+    Pace chart, for populating the Settings page's class picker -- there may
+    be several cached org_stats rows for this org (one per session-types/
+    ignore-outliers combination the chart was last generated with), so this
+    just takes whichever is newest rather than favoring one combination."""
+    import json
+    from app import storage
+    with storage.connect() as conn:
+        row = conn.execute(
+            "SELECT payload FROM org_stats WHERE org_id = ? AND session_type LIKE 'classpace_%' "
+            "ORDER BY calculated_at DESC LIMIT 1",
+            (org_id,)
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        return json.loads(row["payload"]).get("classes", [])
+    except Exception:
+        return []
+
+
 

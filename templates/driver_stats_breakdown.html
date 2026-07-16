@@ -23,7 +23,7 @@
 
     <!-- Back Button -->
     <div class="col-12">
-        <a href="/org/{{ org.id }}/stats?min_laps={{ min_laps }}{% for st in session_types %}&session_types={{ st }}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="btn-custom btn-custom-outline py-1 px-3 d-inline-flex align-items-center">
+        <a href="/org/{{ org.id }}/stats?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="btn-custom btn-custom-outline py-1 px-3 d-inline-flex align-items-center">
             <i class="fa-solid fa-arrow-left me-2"></i> Back to Stats
         </a>
     </div>

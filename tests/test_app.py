@@ -450,3 +450,77 @@ def test_send_resend_notification_sets_real_user_agent(monkeypatch):
     user_agent = captured["request"].get_header("User-agent")
     assert user_agent, "must send an explicit User-Agent -- Cloudflare blocks urllib's default"
     assert "python-urllib" not in user_agent.lower()
+
+
+def test_select_classes_for_chart_no_selection_falls_back_to_top_8():
+    from app.routes.stats import _select_classes_for_chart, MAX_DISPLAYED_CLASSES
+
+    chart_data = {
+        "years": [2024, 2025],
+        "classes": [f"C{i}" for i in range(10)],  # already volume-sorted
+        "series": {f"C{i}": [60 + i, 61 + i] for i in range(10)},
+        "counts": {f"C{i}": [5, 5] for i in range(10)},
+    }
+
+    result = _select_classes_for_chart(chart_data, [])
+    assert result["classes"] == [f"C{i}" for i in range(MAX_DISPLAYED_CLASSES)]
+    assert set(result["series"].keys()) == set(result["classes"])
+    assert result["years"] == [2024, 2025]
+
+
+def test_select_classes_for_chart_explicit_selection_preserves_volume_order():
+    from app.routes.stats import _select_classes_for_chart
+
+    chart_data = {
+        "years": [2024],
+        "classes": ["FA", "GT1", "SM", "IT7"],
+        "series": {"FA": [60], "GT1": [70], "SM": [80], "IT7": [90]},
+        "counts": {"FA": [5], "GT1": [5], "SM": [5], "IT7": [5]},
+    }
+
+    # Selected out of volume-sorted order -- output must still follow the
+    # original (volume-sorted) order, not the selection order.
+    result = _select_classes_for_chart(chart_data, ["IT7", "FA"])
+    assert result["classes"] == ["FA", "IT7"]
+    assert result["series"] == {"FA": [60], "IT7": [90]}
+
+
+def test_select_classes_for_chart_truncates_selection_to_8():
+    from app.routes.stats import _select_classes_for_chart, MAX_DISPLAYED_CLASSES
+
+    classes = [f"C{i}" for i in range(12)]
+    chart_data = {
+        "years": [2024],
+        "classes": classes,
+        "series": {c: [60] for c in classes},
+        "counts": {c: [5] for c in classes},
+    }
+
+    result = _select_classes_for_chart(chart_data, classes)  # select all 12
+    assert len(result["classes"]) == MAX_DISPLAYED_CLASSES
+    assert result["classes"] == classes[:MAX_DISPLAYED_CLASSES]
+
+
+def test_settings_page_persists_class_pace_config(client, monkeypatch):
+    org_id = 888
+    resp = client.post(
+        f"/org/{org_id}/settings",
+        data={
+            "class_pace_classes": ["FA", "GT1"],
+            "class_pace_smoothing_window": "3",
+            "class_pace_regression": "on",
+            "alias_map_json": '{"aliases": {}, "always_review": []}',
+        },
+    )
+    assert resp.status_code == 200
+
+    from app import data_root
+    settings_file = Path(data_root) / "orgs" / str(org_id) / "settings.json"
+    with open(settings_file) as f:
+        config = json.load(f)
+
+    assert config["class_pace"] == {
+        "classes": ["FA", "GT1"],
+        "smoothing_window": 3,
+        "regression": True,
+    }

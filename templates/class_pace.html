@@ -161,6 +161,42 @@
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const chartData = {{ chart_data | tojson }};
+        const classPaceConfig = {{ class_pace_config | tojson }};
+
+        // Trailing moving average over `window` years, shrinking the window
+        // at gaps/edges rather than requiring a full window of data.
+        function movingAverage(series, window) {
+            if (!window || window <= 1) return series.map(() => null);
+            const result = [];
+            for (let i = 0; i < series.length; i++) {
+                const windowVals = [];
+                for (let j = Math.max(0, i - window + 1); j <= i; j++) {
+                    if (series[j] !== null && series[j] !== undefined) windowVals.push(series[j]);
+                }
+                result.push(windowVals.length ? windowVals.reduce((a, b) => a + b, 0) / windowVals.length : null);
+            }
+            return result;
+        }
+
+        // Ordinary least-squares fit over (year, avg_seconds) pairs, ignoring
+        // years with no data; returns a value for every year in `years`.
+        function linearRegression(years, series) {
+            const points = [];
+            for (let i = 0; i < years.length; i++) {
+                if (series[i] !== null && series[i] !== undefined) points.push([years[i], series[i]]);
+            }
+            if (points.length < 2) return years.map(() => null);
+            const n = points.length;
+            const sumX = points.reduce((a, p) => a + p[0], 0);
+            const sumY = points.reduce((a, p) => a + p[1], 0);
+            const sumXY = points.reduce((a, p) => a + p[0] * p[1], 0);
+            const sumXX = points.reduce((a, p) => a + p[0] * p[0], 0);
+            const denom = n * sumXX - sumX * sumX;
+            if (denom === 0) return years.map(() => null);
+            const slope = (n * sumXY - sumX * sumY) / denom;
+            const intercept = (sumY - slope * sumX) / n;
+            return years.map(year => slope * year + intercept);
+        }
 
         // Fixed categorical hue order, validated (dataviz skill) against this
         // app's --bg-surface (#12141d) dark surface: worst adjacent CVD ΔE 8.4,
@@ -182,18 +218,56 @@
         // fully-safe >=8 band.
         const pointStyles = ["circle", "triangle", "rect", "rectRot", "star", "cross", "rectRounded", "crossRot"];
 
-        const datasets = chartData.classes.map((cls, i) => ({
-            label: cls,
-            data: chartData.series[cls],
-            borderColor: palette[i % palette.length],
-            backgroundColor: palette[i % palette.length],
-            pointStyle: pointStyles[i % pointStyles.length],
-            borderWidth: 2,
-            pointRadius: 3,
-            pointHoverRadius: 6,
-            spanGaps: true,
-            tension: 0.2,
-        }));
+        const datasets = [];
+        chartData.classes.forEach((cls, i) => {
+            const color = palette[i % palette.length];
+            const rawSeries = chartData.series[cls];
+
+            datasets.push({
+                label: cls,
+                data: rawSeries,
+                borderColor: color,
+                backgroundColor: color,
+                pointStyle: pointStyles[i % pointStyles.length],
+                borderWidth: 2,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                spanGaps: true,
+                tension: 0.2,
+            });
+
+            if (classPaceConfig.smoothing_window > 1) {
+                datasets.push({
+                    label: `${cls} (${classPaceConfig.smoothing_window}-yr avg)`,
+                    data: movingAverage(rawSeries, classPaceConfig.smoothing_window),
+                    borderColor: color,
+                    backgroundColor: color,
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    spanGaps: true,
+                    tension: 0.2,
+                    _auxiliary: true,
+                });
+            }
+
+            if (classPaceConfig.regression) {
+                datasets.push({
+                    label: `${cls} (trend)`,
+                    data: linearRegression(chartData.years, rawSeries),
+                    borderColor: color,
+                    backgroundColor: color,
+                    borderWidth: 2,
+                    borderDash: [2, 2],
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    spanGaps: true,
+                    tension: 0,
+                    _auxiliary: true,
+                });
+            }
+        });
 
         const ctx = document.getElementById("classPaceChart");
         if (!ctx) return;
@@ -212,7 +286,12 @@
                     legend: {
                         display: true,
                         position: "bottom",
-                        labels: { color: "#94a3b8", usePointStyle: true, boxWidth: 8 }
+                        labels: {
+                            color: "#94a3b8", usePointStyle: true, boxWidth: 8,
+                            filter: function(legendItem, data) {
+                                return !data.datasets[legendItem.datasetIndex]._auxiliary;
+                            }
+                        }
                     },
                     tooltip: {
                         backgroundColor: "#141b32",
@@ -222,6 +301,9 @@
                         borderWidth: 1,
                         padding: 10,
                         cornerRadius: 8,
+                        filter: function(tooltipItem) {
+                            return !tooltipItem.dataset._auxiliary;
+                        },
                         callbacks: {
                             label: function(context) {
                                 const v = context.parsed.y;

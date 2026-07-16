@@ -10,8 +10,36 @@ from app.utils import (
     utc_now,
 )
 from app.tasks import DATA_ROOT
-from speedhive.settings import get_stats_min_laps
+from speedhive.settings import get_stats_min_laps, read_org_settings
 from speedhive.utils.lap_analysis import first_non_empty
+
+MAX_DISPLAYED_CLASSES = 8
+
+
+def _select_classes_for_chart(chart_data, selected_classes):
+    """Narrow a (possibly large, uncapped) cached class-pace payload down to
+    the classes actually shown: the org's explicit picks from Settings if
+    any, else the top MAX_DISPLAYED_CLASSES by lap volume (chart_data's
+    classes are already volume-sorted). Either way, truncated to
+    MAX_DISPLAYED_CLASSES to protect the validated categorical palette in
+    class_pace.html (see dataviz skill) -- past that, adjacent-pair
+    colorblind-safety can't be guaranteed.
+    """
+    all_classes = chart_data.get("classes", [])
+    if selected_classes:
+        selected_set = set(selected_classes)
+        classes = [c for c in all_classes if c in selected_set][:MAX_DISPLAYED_CLASSES]
+    else:
+        classes = all_classes[:MAX_DISPLAYED_CLASSES]
+
+    series = chart_data.get("series", {})
+    counts = chart_data.get("counts", {})
+    return {
+        "years": chart_data.get("years", []),
+        "classes": classes,
+        "series": {c: series[c] for c in classes if c in series},
+        "counts": {c: counts[c] for c in classes if c in counts},
+    }
 
 
 def org_stats(org_id):
@@ -104,8 +132,8 @@ def org_stats(org_id):
         )
 
     try:
-        min_laps = int(request.args.get("min_laps") or str(get_stats_min_laps(org_id_int)))
-        
+        min_laps = get_stats_min_laps(org_id_int)
+
         from speedhive.analyzers.analyze_consistency import get_consistency_rankings
         top_consistent, least_consistent, total_drivers, total_laps_analyzed = get_consistency_rankings(
             clustered, min_laps=min_laps, limit=15
@@ -296,10 +324,7 @@ def driver_stats_breakdown(org_id, driver_name):
     session_types_str = ",".join(session_types_list)
     session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
     
-    try:
-        min_laps = int(request.args.get("min_laps") or str(get_stats_min_laps(org_id_int)))
-    except ValueError:
-        min_laps = get_stats_min_laps(org_id_int)
+    min_laps = get_stats_min_laps(org_id_int)
 
     org_view = get_org_view(org_id_int)
 
@@ -510,8 +535,15 @@ def org_class_pace(org_id):
     except Exception as e:
         current_app.logger.warning(f"Error loading class-pace stats from DB for org {org_id_int}: {e}")
 
+    class_pace_settings = read_org_settings(org_id_int).get("class_pace", {})
+    class_pace_config = {
+        "smoothing_window": int(class_pace_settings.get("smoothing_window") or 0),
+        "regression": bool(class_pace_settings.get("regression")),
+    }
+
     table_rows = None
     if chart_data:
+        chart_data = _select_classes_for_chart(chart_data, class_pace_settings.get("classes") or [])
         classes = chart_data.get("classes", [])
         years = chart_data.get("years", [])
         series = chart_data.get("series", {})
@@ -535,6 +567,7 @@ def org_class_pace(org_id):
         has_persisted_stats=bool(chart_data),
         calculated_at=calculated_at,
         chart_data=chart_data,
+        class_pace_config=class_pace_config,
         table_rows=table_rows,
         active_tab="stats",
         active_stats_tab="class_pace",
@@ -583,10 +616,12 @@ def generate_org_class_pace(org_id):
         _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
         session_map = load_session_types_from_storage(storage, org_id_int)
         results_map = storage.load_results_payloads(org_id_int)
-        # Capped at 8 to match the validated categorical palette in class_pace.html
-        # (see dataviz skill) -- past that, adjacent-pair colorblind-safety can't
-        # be guaranteed, so the chart caps to the highest-volume classes.
-        chart_data = compute_avg_lap_by_class_year(enriched, session_map, results_map, session_types=session_types_list, max_classes=8)
+        # Cache every qualifying class here, uncapped -- the Settings page's
+        # class picker and the 8-class display cap (validated categorical
+        # palette in class_pace.html, see dataviz skill) are both applied at
+        # display time in org_class_pace, over this same cached payload, so
+        # neither needs a recompute to change what's shown.
+        chart_data = compute_avg_lap_by_class_year(enriched, session_map, results_map, session_types=session_types_list, max_classes=None)
 
         calculated_at = iso_utc(utc_now())
         payload_str = json.dumps(chart_data, default=str)

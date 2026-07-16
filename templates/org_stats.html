@@ -86,20 +86,6 @@
                                 </div>
                             </div>
 
-                            <!-- Min Laps select dropdown -->
-                            {% if has_persisted_stats %}
-                                <div class="col-12 col-sm-auto d-flex align-items-center gap-2">
-                                    <label for="min_laps" class="text-muted small text-nowrap fw-semibold mb-0">Min Laps:</label>
-                                    <select id="min_laps" name="min_laps" class="form-select form-control-custom py-1 w-100 w-sm-auto" onchange="this.form.submit()">
-                                        <option value="10" {% if min_laps == 10 %}selected{% endif %}>10</option>
-                                        <option value="20" {% if min_laps == 20 %}selected{% endif %}>20 (Default)</option>
-                                        <option value="30" {% if min_laps == 30 %}selected{% endif %}>30</option>
-                                        <option value="50" {% if min_laps == 50 %}selected{% endif %}>50</option>
-                                        <option value="100" {% if min_laps == 100 %}selected{% endif %}>100</option>
-                                    </select>
-                                </div>
-                            {% endif %}
-
                             <!-- Ignore Outliers Checkbox -->
                             <div class="col-12 col-sm-auto">
                                 <div class="form-check mb-0">
@@ -166,7 +152,6 @@
             <div class="glass-card">
                 <h3 class="h5 fw-bold mb-3">Driver Rank Lookup</h3>
                 <form method="get" action="/org/{{ org.id }}/stats" class="d-flex gap-2 mb-3">
-                    <input type="hidden" name="min_laps" value="{{ min_laps }}">
                     {% for st in session_types %}
                         <input type="hidden" name="session_types" value="{{ st }}">
                     {% endfor %}
@@ -213,7 +198,7 @@
                                             {% for row in search_result.nearby %}
                                                 <tr {% if row.name == search_result.matched %}class="bg-brand bg-opacity-10 fw-bold border-brand" style="border-left: 2px solid var(--brand);"{% endif %}>
                                                     <td>{{ loop.index0 + search_result.rank - 5 if search_result.rank > 5 else loop.index }}</td>
-                                                    <td><a href="/org/{{ org.id }}/stats/driver/{{ row.name }}?min_laps={{ min_laps }}{% for st in session_types %}&session_types={{ st }}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link fw-semibold">{{ row.name }}</a></td>
+                                                    <td><a href="/org/{{ org.id }}/stats/driver/{{ row.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link fw-semibold">{{ row.name }}</a></td>
                                                     <td>{{ row.lap_count }}</td>
                                                     <td>{{ row.mean_display }}</td>
                                                     <td>{{ row.stdev_display }}</td>
@@ -252,7 +237,7 @@
                                 {% for r in top_consistent %}
                                     <tr>
                                         <td>{{ loop.index }}</td>
-                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?min_laps={{ min_laps }}{% for st in session_types %}&session_types={{ st }}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link">{{ r.name }}</a></td>
+                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link">{{ r.name }}</a></td>
                                         <td>{{ r.lap_count }}</td>
                                         <td>{{ r.mean_display }}</td>
                                         <td class="text-success fw-bold">{{ r.cv_display }}</td>
@@ -286,7 +271,7 @@
                                 {% for r in least_consistent %}
                                     <tr>
                                         <td>{{ loop.index }}</td>
-                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?min_laps={{ min_laps }}{% for st in session_types %}&session_types={{ st }}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link">{{ r.name }}</a></td>
+                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}{% if ignore_outliers %}&ignore_outliers=1{% endif %}" class="driver-link">{{ r.name }}</a></td>
                                         <td>{{ r.lap_count }}</td>
                                         <td>{{ r.mean_display }}</td>
                                         <td class="text-warning fw-bold">{{ r.cv_display }}</td>
