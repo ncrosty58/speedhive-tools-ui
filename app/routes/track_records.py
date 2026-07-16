@@ -418,8 +418,8 @@ def _mask_secret(value):
     if not value:
         return None
     if len(value) <= 4:
-        return "••••"
-    return f"••••{value[-4:]}"
+        return "••••••••••••"
+    return f"••••••••••••{value[-4:]}"
 
 
 def _get_setting_info(name: str, org_id: int, is_secret: bool = False, default_fallback: str = None):
