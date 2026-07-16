@@ -210,8 +210,8 @@ def _get_bulk_parser_for_org(org_id: int):
     from speedhive.workflows.track_records import curation as track_records
     from app.utils import read_json_file
 
-    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)
-    config = read_json_file(p["dir"] / "config.json") or {}
+    settings_file = WEB_DATA_ROOT / "orgs" / str(org_id) / "settings.json"
+    config = read_json_file(settings_file) or {}
     engine = (config.get("parsing") or {}).get("engine")
     if engine != "llm":
         return None

@@ -50,13 +50,13 @@ def _auto_notify_for_org(org_id: int) -> None:
     import os
     from app.tasks import TRACK_RECORDS_ROOT
     try:
-        p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)
-        config_file = p["dir"] / "config.json"
-        if not config_file.exists():
-            print(f"[Notifier] Org {org_id} config.json missing. Skipping auto-notification.")
+        from app import web_data_root
+        settings_file = Path(web_data_root) / "orgs" / str(org_id) / "settings.json"
+        if not settings_file.exists():
+            print(f"[Notifier] Org {org_id} settings.json missing. Skipping auto-notification.")
             return
 
-        with open(config_file) as f:
+        with open(settings_file) as f:
             config = json.load(f)
 
         notif_config = config.get("notifications", {})

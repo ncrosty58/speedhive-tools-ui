@@ -15,8 +15,6 @@ services:
       - GEMINI_MODEL=${GEMINI_MODEL}
       # Resend & Notifications; values live in .env
       - RESEND_API_KEY=${RESEND_API_KEY}
-      - NOTIFICATION_FROM_EMAIL=${NOTIFICATION_FROM_EMAIL}
-      - NOTIFICATION_TO_EMAILS=${NOTIFICATION_TO_EMAILS}
     ports:
       - "8854:8854"
     volumes:
