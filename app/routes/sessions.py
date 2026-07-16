@@ -9,7 +9,7 @@ from app.db import (
     read_lap_chart_from_store,
     read_laps_from_store,
 )
-from app.utils import format_datetime_display, extract_event_datetime
+from app.utils import format_datetime_display, extract_event_datetime, _country_name_from_value
 from speedhive.utils.lap_analysis import (
     first_non_empty,
     normalize_result_row,
@@ -42,8 +42,8 @@ def event_info(event_id):
             event.get("eventRef"),
         ) or "N/A"
         event_view["_display_country"] = first_non_empty(
-            event.get("country"),
-            location.get("country"),
+            _country_name_from_value(event.get("country")),
+            _country_name_from_value(location.get("country")),
             location.get("countryCode"),
         ) or "N/A"
 

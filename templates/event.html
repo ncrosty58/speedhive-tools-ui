@@ -27,7 +27,7 @@
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div>
                         <div class="text-muted small">Event #{{ event_id }}</div>
-                        <h1 class="page-header mb-1"><i class="fa-solid fa-calendar-check text-info me-2"></i>{{ event.name }}</h1>
+                        <h1 class="h2 fw-bold mb-1"><i class="fa-solid fa-calendar-check text-info me-2"></i>{{ event.name }}</h1>
                     </div>
                     {% if cache_status %}
                             <span class="badge-custom badge-neutral">
@@ -56,7 +56,7 @@
         <!-- Sessions List Card -->
         <div class="col-12">
             <div class="glass-card">
-                <div class="glass-card-header"><i class="fa-solid fa-flag-checkered text-info"></i> Event Sessions</div>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-flag-checkered text-info"></i> Event Sessions</h3>
                 {% if sessions %}
                     <div class="table-custom-container">
                         <table class="table table-custom">
@@ -73,7 +73,7 @@
                                 {% for session in sessions %}
                                     <tr>
                                         <td class="text-secondary">#{{ session.id }}</td>
-                                        <td class="fw-semibold text-gradient">{{ session.name }}</td>
+                                        <td class="fw-semibold">{{ session.name }}</td>
                                         <td>
                                             {% set stype = (session.type or 'Practice') | lower %}
                                             {% if 'race' in stype %}
