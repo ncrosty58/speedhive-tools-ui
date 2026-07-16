@@ -59,18 +59,21 @@ announcements. The pipeline extracts those, normalizes classification codes
 against a per-org alias map, and diffs them against a curated NDJSON file —
 new or faster results land in a pending-review queue
 (`/org/<id>/track-records/review`), never written to the curated list
-automatically. Approving or rejecting a candidate is a manual step in the UI.
-If Resend credentials are configured for that org, new candidates trigger a
-review-request email automatically after a scan completes.
+automatically. If Resend credentials are configured, new candidates trigger
+a review-request email automatically after a scan completes.
 
-Both the Gemini key/model and the Resend credentials are configured
-per-organization at `/org/<id>/track-records/settings`, and are stored as
-environment variables (`GEMINI_API_KEY_<org_id>`, `RESEND_API_KEY_<org_id>`,
-etc. — see Configuration below), not in a config file — so a value set
-through the Settings UI is also what a `speedhive ...` CLI invocation sees
-for that org, not just this web app. Each falls back to a bare, non-suffixed
-env var (`GEMINI_API_KEY`, `RESEND_API_KEY`, ...) as a shared default when an
-org hasn't set its own.
+Both are configured at `/org/<id>/track-records/settings` and stored as
+environment variables (see Configuration below), not in a config file — so
+a value set through the Settings UI is also what a `speedhive ...` CLI
+invocation sees, not just this web app:
+
+- **Gemini key/model** — per-organization (`GEMINI_API_KEY_<org_id>`,
+  `GEMINI_MODEL_<org_id>`), falling back to a bare, non-suffixed env var
+  (`GEMINI_API_KEY`, `GEMINI_MODEL`) as a shared default when an org hasn't
+  set its own.
+- **Resend credentials** — shared app-wide (`RESEND_API_KEY`,
+  `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS`), one set of values
+  for every organization, not one per org.
 
 Announcements can be parsed two ways, set per-org in Settings
 ("Announcer Parser"):
@@ -126,7 +129,7 @@ file next to `docker-compose.yml`).
 | `FLASK_SECRET_KEY` | Session cookie signing key | *pre-configured fallback — override in production* |
 | `TRACK_RECORDS_STALE_HOURS` | Cache age before a track-record scan triggers an auto-refresh | `20` |
 | `SYNC_SECRET` | Shared secret required by the external `/org/<id>/track-records/notify` webhook | *optional* |
-| `RESEND_API_KEY_<org_id>`, `NOTIFICATION_FROM_EMAIL_<org_id>`, `NOTIFICATION_TO_EMAILS_<org_id>` | Per-org Resend email credentials, set via Track Records Settings (bare `RESEND_API_KEY` etc. as a shared fallback) | *optional* |
+| `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL`, `NOTIFICATION_TO_EMAILS` | Resend email credentials, shared across all organizations, set via Track Records Settings | *optional* |
 | `GEMINI_API_KEY_<org_id>`, `GEMINI_MODEL_<org_id>` | Per-org Gemini credentials, set via Track Records Settings (bare `GEMINI_API_KEY`/`GEMINI_MODEL` as a shared fallback) | *optional — `gemini-2.5-flash`* |
 
 These per-org values live in `web_data/org_settings.env`, not the top-level
