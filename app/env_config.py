@@ -1,5 +1,5 @@
-"""Per-org settings backed by real environment variables, rather than a
-UI-only config file -- so a value set here is also what a CLI invocation
+"""Settings backed by real environment variables, rather than a UI-only
+config file -- so a value set here is also what a CLI invocation
 (speedhive ... --org ID) sees, as long as it loads the same file.
 
 Values live in web_data/org_settings.env (not the top-level .env): that
@@ -12,9 +12,13 @@ the top-level .env, using the same SPEEDHIVE_WEB_DATA_DIR convention, so a
 value saved through the UI reaches CLI invocations against the same
 web_data directory too.
 
-Naming convention: `{NAME}_{org_id}`, e.g. GEMINI_API_KEY_30476. Readers
-(speedhive.llm.get_gemini_api_key, etc.) fall back to the bare `{NAME}` as a
-shared default when an org hasn't set its own.
+Two kinds of settings live here:
+- Per-org (Gemini key/model): `{NAME}_{org_id}`, e.g. GEMINI_API_KEY_30476,
+  via get_org_env_var/set_org_env_var. Falls back to the bare `{NAME}` as a
+  shared default when an org hasn't set its own.
+- Shared/app-wide (Resend/notification credentials -- one set of values for
+  the whole install, not one per org): the bare `{NAME}` only, via
+  set_global_env_var/os.environ.get directly.
 """
 import os
 from typing import Optional
@@ -76,3 +80,16 @@ def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
     else:
         unset_key(path, key)
         os.environ.pop(key, None)
+
+
+def set_global_env_var(name: str, value: Optional[str]) -> None:
+    """Same as set_org_env_var, but for a setting that's shared app-wide
+    rather than per-org (e.g. Resend/notification credentials -- one set of
+    values for the whole install, not one per org)."""
+    path = org_settings_path()
+    if value:
+        set_key(path, name, value)
+        os.environ[name] = value
+    else:
+        unset_key(path, name)
+        os.environ.pop(name, None)

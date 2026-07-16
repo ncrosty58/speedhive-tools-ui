@@ -38,8 +38,9 @@
         <div class="glass-card">
             <h3 class="h6 fw-bold mb-3 text-info"><i class="fa-solid fa-list-check"></i> Effective Configuration</h3>
             <span class="text-muted small d-block mb-3">
-                What's actually in effect for {{ org.name }} right now, whether it comes from this org's own
-                setting below, a server-wide shared default, or nothing at all.
+                What's actually in effect right now. The Source column shows the exact environment variable —
+                a bare name (e.g. <code>RESEND_API_KEY</code>) means it's shared across every organization; a
+                name ending in <code>_{{ org_id }}</code> means it's specific to {{ org.name }}.
             </span>
             <div class="table-custom-container">
                 <table class="table table-custom mb-0">
@@ -102,37 +103,27 @@
 
                         <span class="text-muted small mb-3 d-block">
                             The two toggles above are saved per-organization in a local settings file. Everything
-                            below is different: it's saved as an <strong>environment variable</strong>
-                            (<code>..._{{ org_id }}</code>) instead — same mechanism as the Announcer Parser card,
-                            so CLI tools see it too. That's why "Effective Configuration" above lists these as
-                            env-var-sourced even though this form is what's filling them in.
+                            below is different: it's a <strong>shared, app-wide environment variable</strong> —
+                            one Resend account for the whole install, not one per organization — so editing it
+                            here changes it for every org, and CLI tools see the same value too.
                         </span>
 
                         <div class="mb-3">
-                            <label for="resend_api_key" class="form-label fw-semibold">
-                                Resend API Key
-                                {% if notif_config.resend_api_key_uses_shared_default %}<span class="badge-custom badge-ok">using shared default</span>{% endif %}
-                            </label>
+                            <label for="resend_api_key" class="form-label fw-semibold">Resend API Key</label>
                             <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="resend_api_key" name="resend_api_key" value="{{ notif_config.resend_api_key or '' }}" placeholder="re_...">
-                            <span class="text-muted small">Only set this to use a different key for {{ org.name }} than the server-wide default. Leave empty to keep using the shared one{% if not notif_config.resend_api_key_uses_shared_default %} (none is currently configured){% endif %}.</span>
+                            <span class="text-muted small">Shared across all organizations. Required to authenticate with Resend.</span>
                         </div>
 
                         <div class="mb-3">
-                            <label for="from_email" class="form-label fw-semibold">
-                                From Email Address
-                                {% if notif_config.from_email_uses_shared_default %}<span class="badge-custom badge-ok">using shared default</span>{% endif %}
-                            </label>
+                            <label for="from_email" class="form-label fw-semibold">From Email Address</label>
                             <input type="email" class="form-control bg-dark text-light border-secondary border-opacity-50" id="from_email" name="from_email" value="{{ notif_config.from_email or '' }}" placeholder="noreply@cosmoslab.dev">
-                            <span class="text-muted small">Email sender address (must be verified domain in Resend).</span>
+                            <span class="text-muted small">Shared across all organizations. Email sender address (must be verified domain in Resend).</span>
                         </div>
 
                         <div class="mb-3 flex-grow-1">
-                            <label for="to_emails" class="form-label fw-semibold">
-                                Recipient Email(s)
-                                {% if notif_config.to_emails_uses_shared_default %}<span class="badge-custom badge-ok">using shared default</span>{% endif %}
-                            </label>
+                            <label for="to_emails" class="form-label fw-semibold">Recipient Email(s)</label>
                             <textarea class="form-control bg-dark text-light border-secondary border-opacity-50" id="to_emails" name="to_emails" rows="3" placeholder="email1@domain.com, email2@domain.com">{{ notif_config.to_emails|join(', ') if notif_config.to_emails else '' }}</textarea>
-                            <span class="text-muted small">Comma-separated email addresses to notify.</span>
+                            <span class="text-muted small">Shared across all organizations. Comma-separated email addresses to notify.</span>
                         </div>
                     </div>
                 </div>

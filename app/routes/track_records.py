@@ -21,10 +21,10 @@ from app.utils import (
 )
 from app.notifications import _send_resend_notification
 from app.env_config import (
-    get_org_env_var,
     get_org_env_var_override,
     get_org_env_var_with_source,
     has_global_default,
+    set_global_env_var,
     set_org_env_var,
 )
 from speedhive.workflows.track_records import curation as track_records
@@ -414,14 +414,18 @@ def org_track_records_rejected_restore(org_id):
 
 
 def _read_org_settings(org_id_int):
-    """Non-secret toggles come from config.json; credential-shaped values
-    (Resend, Gemini) come from per-org env vars -- see app/env_config.py.
+    """Non-secret toggles come from config.json. Resend/notification
+    credentials are shared app-wide (bare env vars, no per-org distinction --
+    per-org Resend config would live in config.json if ever needed, not as
+    more suffixed env vars). Gemini key/model are per-org env vars -- see
+    app/env_config.py.
 
-    Form fields are populated with this org's OWN override only (never the
-    shared fallback's actual value -- that would look like it belongs to
-    this org, and silently pin it as an org-specific override on next save).
-    `*_uses_shared_default` flags let the template show "using a shared
-    default" instead, when this org has no override of its own.
+    The Gemini form fields are populated with this org's OWN override only
+    (never the shared fallback's actual value -- that would look like it
+    belongs to this org, and silently pin it as an org-specific override on
+    next save). `gemini_*_uses_shared_default` flags let the template show
+    "using a shared default" instead, when this org has no override of its
+    own.
     """
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
     config_file = p["dir"] / "config.json"
@@ -429,18 +433,13 @@ def _read_org_settings(org_id_int):
     toggles = notif_config.get("notifications", {"enabled": True, "de_duplicate": True})
     parsing_data = notif_config.get("parsing", {"engine": "regex"})
 
-    resend_api_key = get_org_env_var_override("RESEND_API_KEY", org_id_int)
-    from_email = get_org_env_var_override("NOTIFICATION_FROM_EMAIL", org_id_int)
-    to_emails_raw = get_org_env_var_override("NOTIFICATION_TO_EMAILS", org_id_int)
+    to_emails_raw = os.environ.get("NOTIFICATION_TO_EMAILS")
     notif_data = {
         "enabled": toggles.get("enabled", True),
         "de_duplicate": toggles.get("de_duplicate", True),
-        "resend_api_key": resend_api_key,
-        "from_email": from_email,
+        "resend_api_key": os.environ.get("RESEND_API_KEY"),
+        "from_email": os.environ.get("NOTIFICATION_FROM_EMAIL"),
         "to_emails": [e.strip() for e in (to_emails_raw or "").split(",") if e.strip()],
-        "resend_api_key_uses_shared_default": not resend_api_key and has_global_default("RESEND_API_KEY"),
-        "from_email_uses_shared_default": not from_email and has_global_default("NOTIFICATION_FROM_EMAIL"),
-        "to_emails_uses_shared_default": not to_emails_raw and has_global_default("NOTIFICATION_TO_EMAILS"),
     }
 
     gemini_api_key = get_org_env_var_override("GEMINI_API_KEY", org_id_int)
@@ -463,16 +462,29 @@ def _mask_secret(value):
 
 
 def _effective_config_summary(org_id_int):
-    """What's actually in effect right now for this org, regardless of
-    whether it comes from this org's own override or a shared/global
-    default -- the form above only ever shows this org's own value, so
-    without this there's no way to tell "not configured" apart from
-    "configured, just not by this org"."""
+    """What's actually in effect right now, regardless of whether the
+    per-org form above shows it (the form only ever shows this org's own
+    Gemini override, and Resend fields are shared app-wide, not per-org --
+    without this there's no single place that shows the resolved value for
+    everything)."""
     rows = []
+
+    # Resend/notifications: shared app-wide, bare env vars only, no per-org variant.
     for label, env_name, is_secret in (
         ("Resend API Key", "RESEND_API_KEY", True),
         ("From Email Address", "NOTIFICATION_FROM_EMAIL", False),
         ("Recipient Email(s)", "NOTIFICATION_TO_EMAILS", False),
+    ):
+        value = os.environ.get(env_name)
+        rows.append({
+            "label": label,
+            "configured": bool(value),
+            "source_label": env_name if value else None,
+            "display": _mask_secret(value) if is_secret else value,
+        })
+
+    # Gemini: per-org override, falling back to a shared default.
+    for label, env_name, is_secret in (
         ("Gemini API Key", "GEMINI_API_KEY", True),
         ("Gemini Model", "GEMINI_MODEL", False),
     ):
@@ -483,13 +495,12 @@ def _effective_config_summary(org_id_int):
             source_label = env_name
         elif env_name == "GEMINI_MODEL" and not value:
             from speedhive.llm import DEFAULT_MODEL
-            value, source, source_label = DEFAULT_MODEL, "default", "code default (not an env var)"
+            value, source_label = DEFAULT_MODEL, "code default (not an env var)"
         else:
             source_label = None
         rows.append({
             "label": label,
             "configured": bool(value),
-            "source": source,  # "org" | "global" | "default" | None
             "source_label": source_label,
             "display": _mask_secret(value) if is_secret else value,
         })
@@ -547,9 +558,9 @@ def org_track_records_settings(org_id):
         track_records.save_json(config_file, toggles_config)
         track_records.save_json(alias_map_file, alias_map_data)
 
-        set_org_env_var("RESEND_API_KEY", org_id_int, resend_api_key)
-        set_org_env_var("NOTIFICATION_FROM_EMAIL", org_id_int, from_email)
-        set_org_env_var("NOTIFICATION_TO_EMAILS", org_id_int, ",".join(to_emails) if to_emails else None)
+        set_global_env_var("RESEND_API_KEY", resend_api_key)
+        set_global_env_var("NOTIFICATION_FROM_EMAIL", from_email)
+        set_global_env_var("NOTIFICATION_TO_EMAILS", ",".join(to_emails) if to_emails else None)
         set_org_env_var("GEMINI_API_KEY", org_id_int, gemini_api_key)
         set_org_env_var("GEMINI_MODEL", org_id_int, gemini_model)
 
@@ -679,12 +690,12 @@ def org_track_records_notify(org_id):
     if env_secret and secret != env_secret:
         return jsonify({"error": "Unauthorized"}), 401
 
-    resend_api_key = body.get("resend_api_key") or get_org_env_var("RESEND_API_KEY", org_id_int)
-    from_email = body.get("from_email") or get_org_env_var("NOTIFICATION_FROM_EMAIL", org_id_int)
+    resend_api_key = body.get("resend_api_key") or os.environ.get("RESEND_API_KEY")
+    from_email = body.get("from_email") or os.environ.get("NOTIFICATION_FROM_EMAIL")
 
     to_emails = body.get("to_emails")
     if not to_emails:
-        env_to = get_org_env_var("NOTIFICATION_TO_EMAILS", org_id_int)
+        env_to = os.environ.get("NOTIFICATION_TO_EMAILS")
         if env_to:
             to_emails = [email.strip() for email in env_to.split(",") if email.strip()]
 
