@@ -24,15 +24,8 @@ import json
 import os
 from typing import Optional
 
-from dotenv import set_key, unset_key
 
 
-def org_settings_path() -> str:
-    from app import web_data_root
-    path = web_data_root / "org_settings.env"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch(exist_ok=True)
-    return str(path)
 
 
 def get_org_env_var(name: str, org_id: int) -> Optional[str]:
@@ -118,14 +111,4 @@ def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
         os.environ.pop(key, None)
 
 
-def set_global_env_var(name: str, value: Optional[str]) -> None:
-    """Same as set_org_env_var, but for a setting that's shared app-wide
-    rather than per-org (e.g. Resend/notification credentials -- one set of
-    values for the whole install, not one per org)."""
-    path = org_settings_path()
-    if value:
-        set_key(path, name, value)
-        os.environ[name] = value
-    else:
-        unset_key(path, name)
-        os.environ.pop(name, None)
+

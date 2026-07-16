@@ -24,8 +24,7 @@ web_data_root = Path(
 DB_PATH = Path(os.environ.get("SPEEDHIVE_DB_PATH", web_data_root / "speedhive.db"))
 DUMPS_ROOT = web_data_root / "saved_dumps"
 
-# Per-org settings (Gemini/Resend keys etc.) saved via Settings -- see app/env_config.py
-load_dotenv(web_data_root / "org_settings.env")
+
 
 
 PUBLIC_ENDPOINTS = {

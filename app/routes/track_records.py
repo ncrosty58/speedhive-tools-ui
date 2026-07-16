@@ -26,7 +26,6 @@ from app.env_config import (
     get_org_env_var_override,
     get_org_env_var_with_source,
     has_global_default,
-    set_global_env_var,
     set_org_env_var,
 )
 from speedhive.workflows.track_records import curation as track_records
