@@ -541,6 +541,7 @@ def org_class_pace(org_id):
         "regression": bool(class_pace_settings.get("regression")),
     }
     available_classes = chart_data.get("classes", []) if chart_data else []
+    participation_data = chart_data.get("participation") if chart_data else None
 
     table_rows = None
     if chart_data:
@@ -570,6 +571,7 @@ def org_class_pace(org_id):
         chart_data=chart_data,
         class_pace_config=class_pace_config,
         available_classes=available_classes,
+        participation_data=participation_data,
         table_rows=table_rows,
         active_tab="stats",
         active_stats_tab="class_pace",
@@ -637,17 +639,20 @@ def generate_org_class_pace(org_id):
     try:
         from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
         from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
-        from speedhive.analyzers.analyze_class_pace import compute_avg_lap_by_class_year
+        from speedhive.analyzers.analyze_class_pace import compute_avg_lap_by_class_year, compute_participation_by_year
 
         _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
         session_map = load_session_types_from_storage(storage, org_id_int)
         results_map = storage.load_results_payloads(org_id_int)
-        # Cache every qualifying class here, uncapped -- the Settings page's
-        # class picker and the 8-class display cap (validated categorical
-        # palette in class_pace.html, see dataviz skill) are both applied at
-        # display time in org_class_pace, over this same cached payload, so
-        # neither needs a recompute to change what's shown.
+        # Cache every qualifying class here, uncapped -- the chart's own
+        # inline class picker and the 8-class display cap (validated
+        # categorical palette in class_pace.html, see dataviz skill) are both
+        # applied at display time in org_class_pace, over this same cached
+        # payload, so neither needs a recompute to change what's shown.
         chart_data = compute_avg_lap_by_class_year(enriched, session_map, results_map, session_types=session_types_list, max_classes=None)
+        # Combined-across-classes participation trend, cached alongside the
+        # per-class data since it shares the same Generate/Recalculate action.
+        chart_data["participation"] = compute_participation_by_year(enriched, session_map, session_types=session_types_list)
 
         calculated_at = iso_utc(utc_now())
         payload_str = json.dumps(chart_data, default=str)
