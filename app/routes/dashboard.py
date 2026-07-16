@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from flask import render_template, request, session, redirect, url_for, jsonify
 from app import client
