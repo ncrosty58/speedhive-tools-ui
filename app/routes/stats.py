@@ -63,6 +63,7 @@ def org_stats(org_id):
             org_name=org_view.get("name"),
             manifest_exists=False,
             active_tab="stats",
+            active_stats_tab="overview",
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
@@ -94,6 +95,7 @@ def org_stats(org_id):
             has_persisted_stats=False,
             min_laps=20,
             active_tab="stats",
+            active_stats_tab="overview",
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
@@ -148,6 +150,7 @@ def org_stats(org_id):
             driver_search=driver_search,
             search_result=search_result,
             active_tab="stats",
+            active_stats_tab="overview",
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
@@ -162,6 +165,7 @@ def org_stats(org_id):
             manifest_exists=True,
             error=f"Failed to load consistency statistics: {exc}",
             active_tab="stats",
+            active_stats_tab="overview",
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
@@ -448,7 +452,164 @@ def driver_stats_breakdown(org_id, driver_name):
         )
 
 
+def org_class_pace(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = request.args.get("ignore_outliers") in ("1", "true", "True")
+
+    session_types_raw = request.args.getlist("session_types")
+    if len(session_types_raw) == 1 and "," in session_types_raw[0]:
+        session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
+    elif session_types_raw:
+        session_types_list = [t.strip() for t in session_types_raw if t.strip()]
+    else:
+        session_types_list = []
+
+    session_types_list = [t for t in session_types_list if t in ("race", "qualifying", "practice")]
+    if not session_types_list:
+        session_types_list = ["race"]
+
+    session_types_list.sort()
+    session_types_str = ",".join(session_types_list)
+    # "classpace_" prefix keeps this cache entry from ever colliding with the
+    # driver-consistency cache entries in the same org_stats table, which key
+    # on the bare session_types string.
+    session_types_key = f"classpace_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    org_view = get_org_view(org_id_int)
+    has_db_stats = storage.org_has_sessions(org_id_int)
+
+    if not has_db_stats:
+        return render_template(
+            "class_pace.html",
+            org=org_view,
+            org_id=org_id_int,
+            manifest_exists=False,
+            active_tab="stats",
+            active_stats_tab="class_pace",
+            session_types=session_types_list,
+            session_types_str=session_types_str,
+            ignore_outliers=ignore_outliers,
+        )
+
+    chart_data = None
+    calculated_at = None
+    try:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+                (org_id_int, session_types_key)
+            ).fetchone()
+        if row:
+            chart_data = json.loads(row["payload"])
+            calculated_at = row["calculated_at"]
+    except Exception as e:
+        current_app.logger.warning(f"Error loading class-pace stats from DB for org {org_id_int}: {e}")
+
+    table_rows = None
+    if chart_data:
+        classes = chart_data.get("classes", [])
+        years = chart_data.get("years", [])
+        series = chart_data.get("series", {})
+        counts = chart_data.get("counts", {})
+        table_rows = []
+        for i, year in enumerate(years):
+            cells = []
+            for cls in classes:
+                secs = series.get(cls, [None] * len(years))[i]
+                cells.append({
+                    "display": format_seconds(secs) if secs else "—",
+                    "count": counts.get(cls, [0] * len(years))[i],
+                })
+            table_rows.append({"year": year, "cells": cells})
+
+    return render_template(
+        "class_pace.html",
+        org=org_view,
+        org_id=org_id_int,
+        manifest_exists=True,
+        has_persisted_stats=bool(chart_data),
+        calculated_at=calculated_at,
+        chart_data=chart_data,
+        table_rows=table_rows,
+        active_tab="stats",
+        active_stats_tab="class_pace",
+        session_types=session_types_list,
+        session_types_str=session_types_str,
+        ignore_outliers=ignore_outliers,
+    )
+
+
+def generate_org_class_pace(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    ignore_outliers = (request.form.get("ignore_outliers") or request.args.get("ignore_outliers")) in ("1", "true", "True")
+
+    session_types_raw = request.form.getlist("session_types") or request.args.getlist("session_types")
+    if len(session_types_raw) == 1 and "," in session_types_raw[0]:
+        session_types_list = [t.strip() for t in session_types_raw[0].split(",") if t.strip()]
+    elif session_types_raw:
+        session_types_list = [t.strip() for t in session_types_raw if t.strip()]
+    else:
+        session_types_list = []
+
+    session_types_list = [t for t in session_types_list if t in ("race", "qualifying", "practice")]
+    if not session_types_list:
+        session_types_list = ["race"]
+
+    session_types_list.sort()
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"classpace_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    has_db_stats = storage.org_has_sessions(org_id_int)
+    if not has_db_stats:
+        redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
+        if ignore_outliers:
+            redirect_args["ignore_outliers"] = "1"
+        return redirect(url_for("org_class_pace", **redirect_args))
+
+    try:
+        from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
+        from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+        from speedhive.analyzers.analyze_class_pace import compute_avg_lap_by_class_year
+
+        _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+        session_map = load_session_types_from_storage(storage, org_id_int)
+        results_map = storage.load_results_payloads(org_id_int)
+        # Capped at 8 to match the validated categorical palette in class_pace.html
+        # (see dataviz skill) -- past that, adjacent-pair colorblind-safety can't
+        # be guaranteed, so the chart caps to the highest-volume classes.
+        chart_data = compute_avg_lap_by_class_year(enriched, session_map, results_map, session_types=session_types_list, max_classes=8)
+
+        calculated_at = iso_utc(utc_now())
+        payload_str = json.dumps(chart_data, default=str)
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+                (org_id_int, session_types_key, payload_str, calculated_at)
+            )
+            conn.commit()
+    except Exception as exc:
+        redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
+        if ignore_outliers:
+            redirect_args["ignore_outliers"] = "1"
+        return redirect(url_for("org_class_pace", **redirect_args))
+
+    redirect_args = {"org_id": org_id_int, "session_types": session_types_list}
+    if ignore_outliers:
+        redirect_args["ignore_outliers"] = "1"
+    return redirect(url_for("org_class_pace", **redirect_args))
+
+
 def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats", "org_stats", org_stats)
     app.add_url_rule("/org/<org_id>/stats/generate", "generate_org_stats", generate_org_stats, methods=["POST"])
     app.add_url_rule("/org/<org_id>/stats/driver/<driver_name>", "driver_stats_breakdown", driver_stats_breakdown)
+    app.add_url_rule("/org/<org_id>/stats/class-pace", "org_class_pace", org_class_pace)
+    app.add_url_rule("/org/<org_id>/stats/class-pace/generate", "generate_org_class_pace", generate_org_class_pace, methods=["POST"])

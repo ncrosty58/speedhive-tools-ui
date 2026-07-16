@@ -1,0 +1,8 @@
+<div class="col-12">
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn-custom {% if active_stats_tab == 'overview' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_stats', org_id=org.id) }}">Overview</a>
+        <a class="btn-custom {% if active_stats_tab == 'class_pace' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_class_pace', org_id=org.id) }}">
+            <i class="fa-solid fa-chart-line me-1"></i>Class Pace
+        </a>
+    </div>
+</div>

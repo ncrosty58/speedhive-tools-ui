@@ -1,0 +1,258 @@
+{% extends 'base.html' %}
+
+{% block title %}Class Pace | {{ org.name }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    {% include "_org_nav.html" %}
+    {% include "_stats_subnav.html" %}
+
+    {% if error %}
+        <div class="col-12">
+            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
+        </div>
+    {% endif %}
+
+    {% if not manifest_exists %}
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
+                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+            </div>
+        </div>
+    {% else %}
+        <!-- Filter bar -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="row g-3 align-items-center">
+                    <div class="col-12 col-md">
+                        <form method="get" action="/org/{{ org.id }}/stats/class-pace" class="row g-3 align-items-center" id="filter-form">
+                            <div class="col-12 col-lg-auto d-flex align-items-center flex-wrap gap-2">
+                                <span class="text-muted small fw-semibold text-nowrap">Session Types:</span>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_race" value="race" {% if 'race' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_race">Race</label>
+                                </div>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_qualifying" value="qualifying" {% if 'qualifying' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_qualifying">Qualifying</label>
+                                </div>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_practice" value="practice" {% if 'practice' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice">Practice</label>
+                                </div>
+                            </div>
+                            <div class="col-12 col-sm-auto">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" name="ignore_outliers" id="ignore_outliers" value="1" {% if ignore_outliers %}checked{% endif %} onchange="this.form.submit()">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) using statistical IQR bounds">
+                                        <i class="fa-solid fa-filter text-brand me-1"></i>Ignore Outliers
+                                    </label>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="col-12 col-md-auto ms-md-auto">
+                        <form action="/org/{{ org.id }}/stats/class-pace/generate" method="post" class="d-inline" id="recalc-classpace-form">
+                            {% for st in session_types %}
+                                <input type="hidden" name="session_types" value="{{ st }}">
+                            {% endfor %}
+                            {% if ignore_outliers %}
+                                <input type="hidden" name="ignore_outliers" value="1">
+                            {% endif %}
+                            <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-classpace-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
+                                <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
+                                {% if has_persisted_stats %}Recalculate{% else %}Generate Chart{% endif %}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            document.getElementById('recalc-classpace-form')?.addEventListener('submit', function() {
+                const btn = document.getElementById('recalc-classpace-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
+            });
+            function onCheckboxChange(cb) {
+                const checkboxes = cb.form.querySelectorAll('input[name="session_types"]');
+                const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
+                if (checkedCount === 0) {
+                    cb.checked = true;
+                    alert("At least one session type must be selected.");
+                    return;
+                }
+                cb.form.submit();
+            }
+        </script>
+
+        {% if not has_persisted_stats %}
+            <div class="col-12">
+                <div class="glass-card text-center py-5">
+                    <i class="fa-solid fa-chart-line fs-2 mb-3 d-block opacity-40"></i>
+                    <h3 class="h5 fw-bold mb-2">No Class Pace Data Yet</h3>
+                    <p class="text-muted small mb-0">Click "Generate Chart" above to compute average lap time per class, by year.</p>
+                </div>
+            </div>
+        {% else %}
+            <!-- Chart -->
+            <div class="col-12">
+                <div class="glass-card">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <h3 class="h5 fw-bold mb-0"><i class="fa-solid fa-chart-line text-info"></i> Average Lap Time by Class, by Year</h3>
+                        <span class="text-muted small">Last calculated: {{ calculated_at or 'Never' }}</span>
+                    </div>
+                    {% if chart_data.classes %}
+                        <div class="position-relative" style="height: 420px;">
+                            <canvas id="classPaceChart"></canvas>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted small">Not enough per-class lap data found to chart.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Data table (accessible alternative to the chart) -->
+            {% if table_rows %}
+                <div class="col-12">
+                    <div class="glass-card">
+                        <details>
+                            <summary class="h6 fw-semibold mb-0" style="cursor: pointer;">
+                                <i class="fa-solid fa-table text-info me-1"></i>View as table
+                            </summary>
+                            <div class="table-custom-container mt-3">
+                                <table class="table table-custom mb-0 small">
+                                    <thead>
+                                        <tr>
+                                            <th>Year</th>
+                                            {% for cls in chart_data.classes %}
+                                                <th>{{ cls }}</th>
+                                            {% endfor %}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in table_rows %}
+                                            <tr>
+                                                <td class="fw-semibold text-secondary">{{ row.year }}</td>
+                                                {% for cell in row.cells %}
+                                                    <td {% if cell.count %}title="{{ cell.count }} laps"{% endif %}>{{ cell.display }}</td>
+                                                {% endfor %}
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            {% endif %}
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if chart_data and chart_data.classes %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const chartData = {{ chart_data | tojson }};
+
+        // Fixed categorical hue order, validated (dataviz skill) against this
+        // app's --bg-surface (#12141d) dark surface: worst adjacent CVD ΔE 8.4,
+        // worst adjacent normal-vision ΔE 19.3, all >=3:1 contrast. Assigned by
+        // slot order, never cycled/re-sorted -- capped to 8 series server-side
+        // (see app/routes/stats.py) so every class gets a validated slot.
+        const palette = [
+            "#3987e5", // blue
+            "#008300", // green
+            "#d55181", // magenta
+            "#c98500", // yellow
+            "#199e70", // aqua
+            "#d95926", // orange
+            "#9085e9", // violet
+            "#e66767", // red
+        ];
+        // Secondary encoding (point shape) alongside color -- required since
+        // some adjacent pairs above sit in the 6-8 CVD floor band, not the
+        // fully-safe >=8 band.
+        const pointStyles = ["circle", "triangle", "rect", "rectRot", "star", "cross", "rectRounded", "crossRot"];
+
+        const datasets = chartData.classes.map((cls, i) => ({
+            label: cls,
+            data: chartData.series[cls],
+            borderColor: palette[i % palette.length],
+            backgroundColor: palette[i % palette.length],
+            pointStyle: pointStyles[i % pointStyles.length],
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            spanGaps: true,
+            tension: 0.2,
+        }));
+
+        const ctx = document.getElementById("classPaceChart");
+        if (!ctx) return;
+
+        new Chart(ctx.getContext("2d"), {
+            type: "line",
+            data: {
+                labels: chartData.years,
+                datasets,
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "bottom",
+                        labels: { color: "#94a3b8", usePointStyle: true, boxWidth: 8 }
+                    },
+                    tooltip: {
+                        backgroundColor: "#141b32",
+                        titleColor: "#f8fafc",
+                        bodyColor: "#e2e8f0",
+                        borderColor: "#1e293b",
+                        borderWidth: 1,
+                        padding: 10,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                const v = context.parsed.y;
+                                if (v === null || v === undefined) return null;
+                                const m = Math.floor(v / 60);
+                                const s = (v % 60).toFixed(3).padStart(6, "0");
+                                return `${context.dataset.label}: ${m}:${s}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: "rgba(255, 255, 255, 0.03)" },
+                        ticks: { color: "#64748b" }
+                    },
+                    y: {
+                        grid: { color: "rgba(255, 255, 255, 0.03)" },
+                        ticks: {
+                            color: "#64748b",
+                            callback: function(value) {
+                                const m = Math.floor(value / 60);
+                                const s = Math.round(value % 60).toString().padStart(2, "0");
+                                return `${m}:${s}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endif %}
+{% endblock %}
