@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+
+{% block title %}Wins &amp; Podiums | {{ org.name }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    {% include "_org_nav.html" %}
+    {% include "_stats_subnav.html" %}
+
+    {% if error %}
+        <div class="col-12">
+            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
+        </div>
+    {% endif %}
+
+    {% if not manifest_exists %}
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
+                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+            </div>
+        </div>
+    {% else %}
+        <!-- Recalculate/Generate button -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="d-flex justify-content-end">
+                    <form action="/org/{{ org.id }}/stats/wins-podiums/generate" method="post" class="d-inline" id="recalc-wins-podiums-form">
+                        <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-wins-podiums-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
+                            <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
+                            {% if has_persisted_stats %}Recalculate{% else %}Generate{% endif %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            document.getElementById('recalc-wins-podiums-form')?.addEventListener('submit', function() {
+                const btn = document.getElementById('recalc-wins-podiums-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
+            });
+        </script>
+
+        {% if not has_persisted_stats %}
+            <div class="col-12">
+                <div class="glass-card text-center py-5">
+                    <i class="fa-solid fa-trophy fs-2 mb-3 d-block opacity-40"></i>
+                    <h3 class="h5 fw-bold mb-2">No Wins/Podiums Data Yet</h3>
+                    <p class="text-muted small mb-0">Click "Generate" above to tally class-position wins and podiums across every synced race.</p>
+                </div>
+            </div>
+        {% else %}
+            <!-- Explanation card -->
+            <div class="col-12">
+                <div class="glass-card">
+                    <h3 class="h5 fw-bold mb-2">How This Is Measured</h3>
+                    <p class="text-muted small mb-0">
+                        Counted from each driver's finishing position <strong>within their own class</strong> across every synced race session &mdash; not overall field position, since mixed run-groups share track time with other classes. A win is 1st in class, a podium is top 3. Only classified finishes (not DNF/DQ) count toward wins or podiums, and a driver must have at least 3 race starts (anything but DNS) to appear on either board.
+                    </p>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="glass-card">
+                    <h3 class="h5 fw-bold mb-3">Most Wins</h3>
+                    {% if most_wins %}
+                        <div class="table-custom-container">
+                            <table class="table table-custom mb-0 small">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Driver Name</th>
+                                        <th>Wins</th>
+                                        <th>Podiums</th>
+                                        <th>Starts</th>
+                                        <th>Win %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for r in most_wins %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
+                                            <td>{{ r.wins }}</td>
+                                            <td>{{ r.podiums }}</td>
+                                            <td>{{ r.starts }}</td>
+                                            <td>{{ r.win_rate_display }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted small">No drivers with at least 3 race starts found.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="glass-card">
+                    <h3 class="h5 fw-bold mb-3">Most Podiums</h3>
+                    {% if most_podiums %}
+                        <div class="table-custom-container">
+                            <table class="table table-custom mb-0 small">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Driver Name</th>
+                                        <th>Wins</th>
+                                        <th>Podiums</th>
+                                        <th>Starts</th>
+                                        <th>Podium %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for r in most_podiums %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
+                                            <td>{{ r.wins }}</td>
+                                            <td>{{ r.podiums }}</td>
+                                            <td>{{ r.starts }}</td>
+                                            <td>{{ r.podium_rate_display }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted small">No drivers with at least 3 race starts found.</div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

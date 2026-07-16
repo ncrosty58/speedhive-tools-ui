@@ -856,6 +856,95 @@ def generate_org_most_improved(org_id):
     return redirect(url_for("org_most_improved", **redirect_args))
 
 
+# "Wins" only makes sense for race sessions, and there's no lap-time
+# computation here to filter outliers from -- so unlike the tabs above,
+# this one has no session-types or ignore-outliers knobs, and no cache-key
+# variants (a single fixed key covers it).
+WINS_PODIUMS_CACHE_KEY = "wins_podiums"
+
+
+def org_wins_podiums(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    org_view = get_org_view(org_id_int)
+    has_db_stats = storage.org_has_sessions(org_id_int)
+
+    if not has_db_stats:
+        return render_template(
+            "wins_podiums.html",
+            org=org_view,
+            org_id=org_id_int,
+            manifest_exists=False,
+            active_tab="stats",
+            active_stats_tab="wins_podiums",
+        )
+
+    most_wins = None
+    most_podiums = None
+    calculated_at = None
+    try:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+                (org_id_int, WINS_PODIUMS_CACHE_KEY)
+            ).fetchone()
+        if row:
+            payload = json.loads(row["payload"])
+            most_wins = payload.get("most_wins")
+            most_podiums = payload.get("most_podiums")
+            calculated_at = row["calculated_at"]
+    except Exception as e:
+        current_app.logger.warning(f"Error loading wins/podiums stats from DB for org {org_id_int}: {e}")
+
+    return render_template(
+        "wins_podiums.html",
+        org=org_view,
+        org_id=org_id_int,
+        manifest_exists=True,
+        has_persisted_stats=most_wins is not None,
+        calculated_at=calculated_at,
+        most_wins=most_wins or [],
+        most_podiums=most_podiums or [],
+        active_tab="stats",
+        active_stats_tab="wins_podiums",
+    )
+
+
+def generate_org_wins_podiums(org_id):
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    has_db_stats = storage.org_has_sessions(org_id_int)
+    if not has_db_stats:
+        return redirect(url_for("org_wins_podiums", org_id=org_id_int, error="No synced session data available to analyze."))
+
+    try:
+        from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+        from speedhive.analyzers.analyze_results import get_wins_podiums_rankings
+
+        results_payloads = storage.load_results_payloads(org_id_int)
+        session_map = load_session_types_from_storage(storage, org_id_int)
+        most_wins, most_podiums = get_wins_podiums_rankings(results_payloads, session_map, limit=15)
+
+        calculated_at = iso_utc(utc_now())
+        payload_str = json.dumps({"most_wins": most_wins, "most_podiums": most_podiums}, default=str)
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+                (org_id_int, WINS_PODIUMS_CACHE_KEY, payload_str, calculated_at)
+            )
+            conn.commit()
+    except Exception as exc:
+        return redirect(url_for("org_wins_podiums", org_id=org_id_int, error=f"Analysis failed: {exc}"))
+
+    return redirect(url_for("org_wins_podiums", org_id=org_id_int))
+
+
 def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats", "org_stats", org_stats)
     app.add_url_rule("/org/<org_id>/stats/generate", "generate_org_stats", generate_org_stats, methods=["POST"])
@@ -866,3 +955,5 @@ def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats/participation", "org_participation", org_participation)
     app.add_url_rule("/org/<org_id>/stats/most-improved", "org_most_improved", org_most_improved)
     app.add_url_rule("/org/<org_id>/stats/most-improved/generate", "generate_org_most_improved", generate_org_most_improved, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/stats/wins-podiums", "org_wins_podiums", org_wins_podiums)
+    app.add_url_rule("/org/<org_id>/stats/wins-podiums/generate", "generate_org_wins_podiums", generate_org_wins_podiums, methods=["POST"])

@@ -10,5 +10,8 @@
         <a class="btn-custom {% if active_stats_tab == 'most_improved' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_most_improved', org_id=org.id) }}">
             <i class="fa-solid fa-arrow-trend-up me-1"></i>Most Improved
         </a>
+        <a class="btn-custom {% if active_stats_tab == 'wins_podiums' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_wins_podiums', org_id=org.id) }}">
+            <i class="fa-solid fa-trophy me-1"></i>Wins &amp; Podiums
+        </a>
     </div>
 </div>
