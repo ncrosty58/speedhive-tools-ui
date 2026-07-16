@@ -285,3 +285,75 @@ def test_upload_local_dump_success(client, monkeypatch):
     import urllib.parse
     decoded_location = urllib.parse.unquote_plus(resp.headers["Location"])
     assert "imported offline dump" in decoded_location
+
+
+def test_settings_page_overrides_and_fallback(client, monkeypatch):
+    from app.env_config import get_org_env_var, get_org_env_var_override
+    import json as jsonlib
+    from app import web_data_root
+
+    org_id = 777
+    config_file = Path(web_data_root) / "track_records" / str(org_id) / "config.json"
+    if config_file.exists():
+        config_file.unlink()
+
+    # 1. Fetch settings page
+    resp = client.get(f"/org/{org_id}/settings")
+    assert resp.status_code == 200
+    assert b"Track Records Settings" in resp.data
+
+    # Set a global environment variable for fallback testing
+    monkeypatch.setenv("RESEND_API_KEY", "re_global_key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # Before override, should resolve to global or None
+    assert get_org_env_var("RESEND_API_KEY", org_id) == "re_global_key"
+    assert get_org_env_var_override("RESEND_API_KEY", org_id) is None
+
+    # 2. Save an override
+    post_data = {
+        "enabled": "on",
+        "de_duplicate": "on",
+        "resend_api_key": "re_org_key_777",
+        "from_email": "org@domain.com",
+        "to_emails": "recipient@domain.com",
+        "gemini_api_key": "AIza-org-key",
+        "gemini_model": "gemini-2.5-pro",
+        "alias_map_json": '{"aliases": {}, "always_review": []}',
+        "parser_engine": "llm"
+    }
+    resp = client.post(f"/org/{org_id}/settings", data=post_data)
+    assert resp.status_code == 200
+    assert b"Configuration saved successfully." in resp.data
+
+    # Check config.json contents
+    assert config_file.exists()
+    with open(config_file) as f:
+        config = jsonlib.load(f)
+    assert config["overrides"]["RESEND_API_KEY"] == "re_org_key_777"
+    assert config["overrides"]["GEMINI_MODEL"] == "gemini-2.5-pro"
+
+    # Check effective settings
+    assert get_org_env_var("RESEND_API_KEY", org_id) == "re_org_key_777"
+    assert get_org_env_var_override("RESEND_API_KEY", org_id) == "re_org_key_777"
+
+    # Other orgs still fall back to the global key
+    assert get_org_env_var("RESEND_API_KEY", 888) == "re_global_key"
+    assert get_org_env_var_override("RESEND_API_KEY", 888) is None
+
+    # 3. Revert override (clear fields)
+    post_data["resend_api_key"] = ""
+    post_data["gemini_model"] = ""
+    resp = client.post(f"/org/{org_id}/settings", data=post_data)
+    assert resp.status_code == 200
+
+    # Key should be removed from overrides
+    with open(config_file) as f:
+        config = jsonlib.load(f)
+    assert "RESEND_API_KEY" not in config.get("overrides", {})
+    assert "GEMINI_MODEL" not in config.get("overrides", {})
+
+    # Resolves to global/fallback again
+    assert get_org_env_var("RESEND_API_KEY", org_id) == "re_global_key"
+    assert get_org_env_var_override("RESEND_API_KEY", org_id) is None
+    assert get_org_env_var("GEMINI_MODEL", org_id) == "gemini-2.5-flash"

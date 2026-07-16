@@ -64,10 +64,11 @@ def _auto_notify_for_org(org_id: int) -> None:
             print(f"[Notifier] Notifications disabled for Org {org_id}. Skipping.")
             return
 
-        # Resend/notification credentials are shared app-wide, not per-org.
-        resend_api_key = os.environ.get("RESEND_API_KEY")
-        from_email = os.environ.get("NOTIFICATION_FROM_EMAIL")
-        to_emails_raw = os.environ.get("NOTIFICATION_TO_EMAILS")
+        # Resend/notification credentials can be overridden per-org.
+        from app.env_config import get_org_env_var
+        resend_api_key = get_org_env_var("RESEND_API_KEY", org_id)
+        from_email = get_org_env_var("NOTIFICATION_FROM_EMAIL", org_id)
+        to_emails_raw = get_org_env_var("NOTIFICATION_TO_EMAILS", org_id)
         to_emails = [e.strip() for e in to_emails_raw.split(",") if e.strip()] if to_emails_raw else None
 
         if not resend_api_key or not from_email or not to_emails:

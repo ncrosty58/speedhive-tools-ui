@@ -20,6 +20,7 @@ Two kinds of settings live here:
   the whole install, not one per org): the bare `{NAME}` only, via
   set_global_env_var/os.environ.get directly.
 """
+import json
 import os
 from typing import Optional
 
@@ -37,7 +38,7 @@ def org_settings_path() -> str:
 def get_org_env_var(name: str, org_id: int) -> Optional[str]:
     """The effective value for actually USING a setting: this org's own
     override if set, otherwise the shared bare-name fallback."""
-    return os.environ.get(f"{name}_{org_id}") or os.environ.get(name)
+    return get_org_env_var_override(name, org_id) or os.environ.get(name)
 
 
 def get_org_env_var_override(name: str, org_id: int) -> Optional[str]:
@@ -46,6 +47,17 @@ def get_org_env_var_override(name: str, org_id: int) -> Optional[str]:
     the shared/global secret's value in a per-org field would look like it
     belongs to this org, and silently pins it as an org-specific override
     the next time the form is saved."""
+    from app import web_data_root
+    config_path = web_data_root / "track_records" / str(org_id) / "config.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            override = config.get("overrides", {}).get(name)
+            if override:
+                return override
+        except Exception:
+            pass
     return os.environ.get(f"{name}_{org_id}")
 
 
@@ -59,7 +71,7 @@ def get_org_env_var_with_source(name: str, org_id: int):
     anywhere) -- for building a "how is this actually configured" summary,
     as opposed to get_org_env_var_override()'s "what should the edit form
     show" (which never reveals the shared value)."""
-    org_value = os.environ.get(f"{name}_{org_id}")
+    org_value = get_org_env_var_override(name, org_id)
     if org_value:
         return org_value, "org"
     global_value = os.environ.get(name)
@@ -69,16 +81,40 @@ def get_org_env_var_with_source(name: str, org_id: int):
 
 
 def set_org_env_var(name: str, org_id: int, value: Optional[str]) -> None:
-    """Persist `value` under the org-scoped key, and apply it to the current
-    process immediately so the already-running app reflects the change
-    without needing a restart."""
-    key = f"{name}_{org_id}"
-    path = org_settings_path()
+    """Persist `value` under the org-scoped overrides block in its config.json,
+    and apply it to the current process environment immediately so the
+    already-running app reflects the change without needing a restart."""
+    from app import web_data_root
+    config_path = web_data_root / "track_records" / str(org_id) / "config.json"
+    
+    config = {}
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+        except Exception:
+            pass
+
+    if "overrides" not in config:
+        config["overrides"] = {}
+
     if value:
-        set_key(path, key, value)
+        config["overrides"][name] = value
+    else:
+        config["overrides"].pop(name, None)
+
+    if not config["overrides"]:
+        config.pop("overrides", None)
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    key = f"{name}_{org_id}"
+    if value:
         os.environ[key] = value
     else:
-        unset_key(path, key)
         os.environ.pop(key, None)
 
 

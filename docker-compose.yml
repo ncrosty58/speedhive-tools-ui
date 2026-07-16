@@ -11,6 +11,8 @@ services:
       - SPEEDHIVE_MAX_ORG_EVENTS=${SPEEDHIVE_MAX_ORG_EVENTS}
       # Gemini API key for LLM-based track-record parsing; value lives in .env
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Gemini model; value lives in .env
+      - GEMINI_MODEL=${GEMINI_MODEL}
     ports:
       - "8854:8854"
     volumes:
