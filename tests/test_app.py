@@ -387,7 +387,7 @@ def test_auto_notify_sends_email_for_pending_candidates(monkeypatch):
         "generated_at": "2026-01-01T00:00:00Z",
         "org_id": org_id,
         "candidates": [{
-            "type": "new_record",
+            "action": "new_record",
             "proposed": {"classAbbreviation": "FA", "lapTime": "1:01.861", "date": "2026-01-01"},
         }],
     })
@@ -440,7 +440,7 @@ def test_send_resend_notification_sets_real_user_agent(monkeypatch):
 
     result = _send_resend_notification(
         30476,
-        [{"type": "new_record", "proposed": {}}],
+        [{"action": "new_record", "proposed": {}}],
         "re_fake_key",
         "from@domain.com",
         ["to@domain.com"],

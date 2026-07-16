@@ -95,7 +95,11 @@
                                 {% else %}
                                     <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Speedhive</span>
                                     {% if r.modified %}
-                                        <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" title="Edited by a human since the scan">Modified</span>
+                                        {% if r.edit_history %}
+                                            <button type="button" class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" style="cursor: pointer;" title="Click to see what changed" data-bs-toggle="collapse" data-bs-target="#modified-history-{{ loop.index }}">Modified</button>
+                                        {% else %}
+                                            <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" title="Edited by a human since the scan">Modified</span>
+                                        {% endif %}
                                     {% endif %}
                                 {% endif %}
                             </td>
@@ -154,6 +158,29 @@
                                 </div>
                             </td>
                         </tr>
+                        {% if r.edit_history %}
+                        <tr class="collapse-row">
+                            <td colspan="7" class="p-0 border-0">
+                                <div class="collapse" id="modified-history-{{ loop.index }}">
+                                    <div class="p-3 bg-surface-2 border-top border-bottom border-secondary border-opacity-10">
+                                        {% set field_labels = {'classAbbreviation': 'Class', 'lapTime': 'Lap Time', 'driverName': 'Driver', 'marque': 'Marque', 'date': 'Date'} %}
+                                        <div class="small text-muted mb-2">Edit history (newest first)</div>
+                                        {% for entry in r.edit_history|reverse %}
+                                        <div class="small {% if not loop.last %}mb-2 pb-2 border-bottom border-secondary border-opacity-10{% endif %}">
+                                            <div class="text-muted mb-1">{{ format_saved_at_display(entry.changed_at) }}</div>
+                                            {% for field, change in entry.fields.items() %}
+                                            <div>
+                                                <span class="text-muted">{{ field_labels.get(field, field) }}:</span>
+                                                {{ change.from or '—' }} &rarr; {{ change.to or '—' }}
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>

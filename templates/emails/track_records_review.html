@@ -7,26 +7,12 @@
   <h2 style='color: #f3f4f6; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 12px; letter-spacing: -0.01em;'>Track Records Review Required</h2>
   
   <p style='color: #9ca3af; font-size: 15px; line-height: 1.6; margin-bottom: 25px;'>
-    The automatic scan has detected new track records or unmapped classifications that require human verification.
+    The automatic scan found new track-record candidates that need human verification.
   </p>
-  
-  <div style='background-color: #12141d; border: 1px solid #222634; border-radius: 4px; padding: 20px; margin-bottom: 30px;'>
-    <h3 style='color: #06b6d4; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0; margin-bottom: 15px;'>Pending Candidates</h3>
-    
-    <table style='width: 100%; border-collapse: collapse;'>
-      <tr>
-        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px;'>New Record Candidates</td>
-        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600;'>{{ new_records }}</td>
-      </tr>
-      <tr>
-        <td style='padding: 6px 0; color: #9ca3af; font-size: 14px; border-top: 1px solid #222634;'>Unmapped Classifications</td>
-        <td style='padding: 6px 0; text-align: right; color: #f3f4f6; font-size: 14px; font-weight: 600; border-top: 1px solid #222634;'>{{ unmapped }}</td>
-      </tr>
-      <tr style='border-top: 1px solid #222634;'>
-        <td style='padding: 8px 0 0 0; color: #f3f4f6; font-size: 14px; font-weight: 600;'>Total Review Queue</td>
-        <td style='padding: 8px 0 0 0; text-align: right; color: #06b6d4; font-size: 15px; font-weight: 700;'>{{ total_candidates }}</td>
-      </tr>
-    </table>
+
+  <div style='background-color: #12141d; border: 1px solid #222634; border-radius: 4px; padding: 20px; margin-bottom: 30px; text-align: center;'>
+    <div style='color: #9ca3af; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;'>Records Awaiting Review</div>
+    <div style='color: #06b6d4; font-size: 32px; font-weight: 700; line-height: 1;'>{{ total_candidates }}</div>
   </div>
   
   <div style='margin-bottom: 30px;'>

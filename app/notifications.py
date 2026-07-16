@@ -9,8 +9,6 @@ from speedhive.workflows.track_records import curation as track_records
 
 
 def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key: str, from_email: str, to_emails: list) -> dict:
-    new_records = sum(1 for c in candidates if c.get("type") == "new_record")
-    unmapped = sum(1 for c in candidates if c.get("type") == "unmapped")
     total_candidates = len(candidates)
 
     # Read and render template
@@ -20,8 +18,6 @@ def _send_resend_notification(org_id_int: int, candidates: list, resend_api_key:
     template = Template(template_content)
     email_html = template.render(
         org_id_int=org_id_int,
-        new_records=new_records,
-        unmapped=unmapped,
         total_candidates=total_candidates,
         UI_PASSWORD=UI_PASSWORD
     )
