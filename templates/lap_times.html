@@ -113,7 +113,19 @@
         const data = [];
         const rootStyles = window.getComputedStyle(document.documentElement);
         const brand = rootStyles.getPropertyValue("--brand").trim() || "#06b6d4";
-        
+
+        // Matches speedhive.utils.lap_analysis.format_seconds's M:SS.mmm
+        // convention used everywhere else in the app.
+        function formatSecondsAsTime(seconds) {
+            if (seconds === null || seconds === undefined || isNaN(seconds)) return "N/A";
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds - minutes * 60;
+            if (minutes > 0) {
+                return `${minutes}:${secs.toFixed(3).padStart(6, "0")}`;
+            }
+            return secs.toFixed(3);
+        }
+
         {% for lap in laps %}
             labels.push("Lap {{ lap.lapNumber or lap.lap or loop.index }}");
             {% set seconds = parse_time_value(lap.lapTime or lap.lap_time) %}
@@ -133,7 +145,7 @@
                 labels,
                 datasets: [{
                     data,
-                    label: "Lap Time (s)",
+                    label: "Lap Time",
                     borderColor: brand,
                     borderWidth: 3,
                     pointBackgroundColor: brand,
@@ -167,7 +179,12 @@
                         borderWidth: 1,
                         padding: 10,
                         cornerRadius: 8,
-                        displayColors: false
+                        displayColors: false,
+                        callbacks: {
+                            label: function(context) {
+                                return formatSecondsAsTime(context.parsed.y);
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -177,7 +194,12 @@
                     },
                     y: {
                         grid: { color: "rgba(255, 255, 255, 0.03)" },
-                        ticks: { color: "#64748b" }
+                        ticks: {
+                            color: "#64748b",
+                            callback: function(value) {
+                                return formatSecondsAsTime(value);
+                            }
+                        }
                     }
                 }
             }
