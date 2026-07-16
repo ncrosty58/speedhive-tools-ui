@@ -100,6 +100,14 @@
 
                         <hr class="border-secondary opacity-25">
 
+                        <span class="text-muted small mb-3 d-block">
+                            The two toggles above are saved per-organization in a local settings file. Everything
+                            below is different: it's saved as an <strong>environment variable</strong>
+                            (<code>..._{{ org_id }}</code>) instead — same mechanism as the Announcer Parser card,
+                            so CLI tools see it too. That's why "Effective Configuration" above lists these as
+                            env-var-sourced even though this form is what's filling them in.
+                        </span>
+
                         <div class="mb-3">
                             <label for="resend_api_key" class="form-label fw-semibold">
                                 Resend API Key
