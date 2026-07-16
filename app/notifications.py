@@ -65,7 +65,7 @@ def _auto_notify_for_org(org_id: int) -> None:
             return
 
         # Resend/notification credentials can be overridden per-org.
-        from app.env_config import get_org_env_var
+        from speedhive.settings import get_org_env_var
         resend_api_key = get_org_env_var("RESEND_API_KEY", org_id)
         from_email = get_org_env_var("NOTIFICATION_FROM_EMAIL", org_id)
         to_emails_raw = get_org_env_var("NOTIFICATION_TO_EMAILS", org_id)

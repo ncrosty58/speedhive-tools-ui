@@ -196,33 +196,11 @@ def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, A
             return task
 
 
-def _get_bulk_parser_for_org(org_id: int):
-    """Return the bulk announcement parser configured for this org's scans.
-
-    Regex is the default for every org -- LLM (Gemini) is opt-in per org via
-    'parsing.engine': 'llm' in that org's own config.json (Track Records
-    Settings). When LLM is active, all of the org's announcements are parsed
-    in a single call rather than one call per announcement --
-    storage.get_track_records() falls back to the regex parser (one call per
-    text, but nearly instant) when this returns None.
-    """
-    from speedhive.workflows.track_records import curation as track_records
-    from app.utils import read_json_file
-
-    settings_file = DATA_ROOT / "orgs" / str(org_id) / "settings.json"
-    config = read_json_file(settings_file) or {}
-    engine = (config.get("parsing") or {}).get("engine")
-    if engine != "llm":
-        return None
-    import functools
-    from speedhive.llm import parse_track_records_bulk_with_gemini
-    return functools.partial(parse_track_records_bulk_with_gemini, org_id=org_id)
-
-
 def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
     from app import client, storage
     from app.notifications import _auto_notify_for_org
     from speedhive.workflows.track_records import curation as track_records
+    from speedhive.settings import get_bulk_parser_for_org
 
     def report(phase):
         _update_track_records_task(org_id, task_id, phase=phase)
@@ -239,7 +217,7 @@ def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: b
             recent_backfill_events=20,
             cleanup_on_full=True,
             progress_cb=report,
-            bulk_parser=_get_bulk_parser_for_org(org_id),
+            bulk_parser=get_bulk_parser_for_org(org_id),
         )
         scan_result = outcome["scan"]
         _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=scan_result)
@@ -272,13 +250,14 @@ def _run_track_records_scan_only_task(task_id: str, org_id: int) -> None:
     from app import storage
     from app.notifications import _auto_notify_for_org
     from speedhive.workflows.track_records import curation as track_records
+    from speedhive.settings import get_bulk_parser_for_org
 
     def report(phase):
         _update_track_records_task(org_id, task_id, phase=phase)
 
     try:
         scan_result = track_records.run_sync_and_diff(
-            org_id, storage, TRACK_RECORDS_ROOT, progress_cb=report, bulk_parser=_get_bulk_parser_for_org(org_id)
+            org_id, storage, TRACK_RECORDS_ROOT, progress_cb=report, bulk_parser=get_bulk_parser_for_org(org_id)
         )
         _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=scan_result)
 

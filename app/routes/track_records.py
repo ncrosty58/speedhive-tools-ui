@@ -21,7 +21,7 @@ from app.utils import (
     read_json_file,
 )
 from app.notifications import _send_resend_notification
-from app.env_config import (
+from speedhive.settings import (
     get_org_env_var,
     get_org_env_var_override,
     get_org_env_var_with_source,

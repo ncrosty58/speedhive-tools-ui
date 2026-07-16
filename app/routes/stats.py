@@ -10,20 +10,8 @@ from app.utils import (
     utc_now,
 )
 from app.tasks import DATA_ROOT
+from speedhive.settings import get_stats_min_laps
 from speedhive.utils.lap_analysis import first_non_empty
-
-
-def _get_org_min_laps(org_id_int: int) -> int:
-    from app.utils import read_json_file
-    settings_file = DATA_ROOT / "orgs" / str(org_id_int) / "settings.json"
-    if settings_file.exists():
-        try:
-            config_data = read_json_file(settings_file) or {}
-            return int(config_data.get("stats", {}).get("min_laps", 20))
-        except Exception:
-            pass
-    return 20
-
 
 
 def org_stats(org_id):
@@ -106,7 +94,7 @@ def org_stats(org_id):
             org_name=org_view.get("name"),
             manifest_exists=True,
             has_persisted_stats=False,
-            min_laps=_get_org_min_laps(org_id_int),
+            min_laps=get_stats_min_laps(org_id_int),
             active_tab="stats",
             active_stats_tab="overview",
             cache_status=cache_status,
@@ -116,7 +104,7 @@ def org_stats(org_id):
         )
 
     try:
-        min_laps = int(request.args.get("min_laps") or str(_get_org_min_laps(org_id_int)))
+        min_laps = int(request.args.get("min_laps") or str(get_stats_min_laps(org_id_int)))
         
         from speedhive.analyzers.analyze_consistency import get_consistency_rankings
         top_consistent, least_consistent, total_drivers, total_laps_analyzed = get_consistency_rankings(
@@ -309,9 +297,9 @@ def driver_stats_breakdown(org_id, driver_name):
     session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
     
     try:
-        min_laps = int(request.args.get("min_laps") or str(_get_org_min_laps(org_id_int)))
+        min_laps = int(request.args.get("min_laps") or str(get_stats_min_laps(org_id_int)))
     except ValueError:
-        min_laps = _get_org_min_laps(org_id_int)
+        min_laps = get_stats_min_laps(org_id_int)
 
     org_view = get_org_view(org_id_int)
 

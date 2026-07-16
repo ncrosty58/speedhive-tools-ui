@@ -288,7 +288,7 @@ def test_upload_local_dump_success(client, monkeypatch):
 
 
 def test_settings_page_overrides_and_fallback(client, monkeypatch):
-    from app.env_config import get_org_env_var, get_org_env_var_override
+    from speedhive.settings import get_org_env_var, get_org_env_var_override
     import json as jsonlib
     from app import data_root
 
