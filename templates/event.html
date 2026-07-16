@@ -4,18 +4,16 @@
 
 {% block content %}
 <div class="row g-4">
-    <div class="col-12">
-        <div class="breadcrumb-custom">
-            <a href="/">Dashboard</a>
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            {% if event and event.organizationId %}
-                <a href="/org/{{ event.organizationId }}">Organization #{{ event.organizationId }}</a>
-            {% else %}
-                <span>Organization</span>
-            {% endif %}
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            <span>{% if event %}{{ event.name }}{% else %}Event Details{% endif %}</span>
-        </div>
+    <div class="col-12 text-muted small d-flex align-items-center gap-2">
+        <a href="/" class="text-info text-decoration-none">Dashboard</a>
+        <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
+        {% if event and event.organizationId %}
+            <a href="/org/{{ event.organizationId }}" class="text-info text-decoration-none">Organization #{{ event.organizationId }}</a>
+        {% else %}
+            <span>Organization</span>
+        {% endif %}
+        <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
+        <span>{% if event %}{{ event.name }}{% else %}Event Details{% endif %}</span>
     </div>
 
     {% if error %}

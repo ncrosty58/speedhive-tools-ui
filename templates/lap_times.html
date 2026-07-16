@@ -4,18 +4,16 @@
 
 {% block content %}
 <div class="row g-4">
-    <div class="col-12">
-        <div class="breadcrumb-custom">
-            <a href="/">Dashboard</a>
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            {% if session_id %}
-                <a href="/session/{{ session_id }}">Session #{{ session_id }}</a>
-            {% else %}
-                <span>Session</span>
-            {% endif %}
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            <span>Lap Trace</span>
-        </div>
+    <div class="col-12 text-muted small d-flex align-items-center gap-2">
+        <a href="/" class="text-info text-decoration-none">Dashboard</a>
+        <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
+        {% if session_id %}
+            <a href="/session/{{ session_id }}" class="text-info text-decoration-none">Session #{{ session_id }}</a>
+        {% else %}
+            <span>Session</span>
+        {% endif %}
+        <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
+        <span>Lap Trace</span>
     </div>
 
     {% if error %}
@@ -27,7 +25,7 @@
         <div class="col-12">
             <div class="glass-card">
                 <div class="text-muted small">Session #{{ session_id }} Trace</div>
-                <h1 class="page-header mb-1"><i class="fa-solid fa-user-astronaut text-info me-2"></i>{{ driver_name }}</h1>
+                <h1 class="h2 fw-bold mb-1"><i class="fa-solid fa-user-astronaut text-info me-2"></i>{{ driver_name }}</h1>
                 <p class="text-muted mb-0">Lap-by-lap timing trace analysis, sector breakdowns, and consistency metrics.</p>
             </div>
         </div>
@@ -35,14 +33,14 @@
         <!-- Stats Panel -->
         <div class="col-lg-4">
             <div class="glass-card h-100">
-                <div class="glass-card-header"><i class="fa-solid fa-calculator text-info"></i> Performance Stats</div>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-calculator text-info"></i> Performance Stats</h3>
                 <ul class="meta-list">
                     <li><span>Total Laps</span><span class="val">{{ stats.lap_count }}</span></li>
                     <li><span>Best Lap</span><span class="val text-info fw-bold">{{ stats.best_lap }}</span></li>
                     <li><span>Mean Lap</span><span class="val">{{ stats.mean }}</span></li>
                     <li><span>Median Lap</span><span class="val">{{ stats.median }}</span></li>
                     <li><span>Std Dev</span><span class="val">{{ stats.stdev }}s</span></li>
-                    <li><span>CV (Consistency)</span><span class="val text-gradient fw-bold">{{ stats.cv }}</span></li>
+                    <li><span>CV (Consistency)</span><span class="val text-info fw-bold">{{ stats.cv }}</span></li>
                 </ul>
             </div>
         </div>
@@ -50,7 +48,7 @@
         <!-- Chart Panel -->
         <div class="col-lg-8">
             <div class="glass-card h-100">
-                <div class="glass-card-header"><i class="fa-solid fa-chart-line text-info"></i> Lap Timeline Trace</div>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-chart-line text-info"></i> Lap Timeline Trace</h3>
                 <div class="position-relative" style="height: 300px;">
                     <canvas id="lapChartCanvas"></canvas>
                 </div>
@@ -60,7 +58,7 @@
         <!-- Breakdown Panel -->
         <div class="col-12">
             <div class="glass-card">
-                <div class="glass-card-header"><i class="fa-solid fa-list-ol text-info"></i> Lap Breakdown</div>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-list-ol text-info"></i> Lap Breakdown</h3>
                 <div class="table-custom-container">
                     <table class="table table-custom">
                         <thead>
@@ -76,7 +74,7 @@
                             {% for lap in laps %}
                                 <tr {% if lap.is_outlier %}class="opacity-50 text-muted" title="Outlier ignored from stats"{% endif %}>
                                     <td class="text-secondary fw-semibold">#{{ lap.lapNumber or lap.lap or loop.index }} {% if lap.is_outlier %}(Outlier){% endif %}</td>
-                                    <td class="fw-semibold text-gradient {% if lap.is_outlier %}text-decoration-line-through text-muted{% endif %}">{{ lap.lapTime or lap.lap_time or 'N/A' }}</td>
+                                    <td class="fw-semibold text-info {% if lap.is_outlier %}text-decoration-line-through text-muted{% endif %}">{{ lap.lapTime or lap.lap_time or 'N/A' }}</td>
                                     <td class="text-secondary">{{ lap.speed or '—' }}</td>
                                     <td class="text-secondary">
                                         {% if lap.sectorTimes or lap.sector_times %}

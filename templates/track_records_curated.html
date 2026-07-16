@@ -1,69 +1,157 @@
 {% extends 'base.html' %}
 
-{% block title %}Curated Track Records — Org {{ org_id }}{% endblock %}
+{% block title %}Track Records | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
-    <div class="col-12 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-        <div>
-            <h1 class="h2 fw-bold mb-1">Curated Track Records</h1>
-            <span class="text-muted small">
-                {% if curated_date %}As of {{ curated_date }}{% endif %} &bull;
-                <a href="{{ url_for('org_track_records_review', org_id=org_id) }}">Review pending candidates</a>
-            </span>
-        </div>
-        <span class="text-muted small">{{ records|length }} record(s)</span>
-    </div>
+    {% include "_org_nav.html" %}
+    {% include "_track_records_subnav.html" %}
 
+    {% if notice %}
+    <div class="col-12">
+        <div class="notice-banner success">{{ notice }}</div>
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="col-12">
+        <div class="notice-banner error">{{ error }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Add Record Manually -->
     <div class="col-12">
         <div class="glass-card">
-            <div class="d-flex flex-wrap align-items-center gap-2">
-                <a class="btn-custom-outline" href="{{ url_for('org_track_records_settings', org_id=org_id) }}">
-                    <i class="fa-solid fa-cog me-1"></i>Settings
-                </a>
-                <a class="btn-custom-outline" href="{{ url_for('org_track_records_review', org_id=org_id) }}">
-                    Review Pending Candidates
-                </a>
-            </div>
-            <div class="text-muted mt-2" style="font-size: 0.75rem;">
-                Import and export are now in Operations so the curated list page stays focused on editing and review.
-            </div>
+            <h3 class="h5 fw-bold mb-1">Add Record Manually</h3>
+            <div class="text-muted small mb-3">Add a curated record directly, without going through the scan/review workflow.</div>
+
+            <form method="POST" action="{{ url_for('org_track_records_curated_add', org_id=org.id) }}" class="row g-2 align-items-end">
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-muted mb-1">Class</label>
+                    <input class="form-control form-control-custom form-control-sm" name="classAbbreviation" required>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small text-muted mb-1">Lap Time</label>
+                    <input class="form-control form-control-custom form-control-sm" name="lapTime" placeholder="1:23.456" required>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-muted mb-1">Driver</label>
+                    <input class="form-control form-control-custom form-control-sm" name="driverName">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small text-muted mb-1">Marque</label>
+                    <input class="form-control form-control-custom form-control-sm" name="marque">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small text-muted mb-1">Date</label>
+                    <input type="date" class="form-control form-control-custom form-control-sm" name="date" required>
+                </div>
+                <div class="col-12 d-flex gap-2 mt-2">
+                    <button type="submit" class="btn-custom py-1 px-3">
+                        <i class="fa-solid fa-plus"></i> Add Record
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
+    <!-- Curated List -->
     <div class="col-12">
         <div class="glass-card">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                <div>
+                    <h3 class="h5 fw-bold mb-1">Curated Track Records</h3>
+                    <span class="text-muted small">
+                        {% if curated_date %}As of {{ curated_date }} &bull; {% endif %}
+                        <a href="{{ url_for('org_operations', org_id=org.id) }}" class="text-info">Rescan, import & export in Data</a>
+                    </span>
+                </div>
+                <span class="text-muted small">{{ records|length }} record(s)</span>
+            </div>
+
             <div class="table-responsive">
                 <table class="table table-custom table-sm mb-0">
                     <thead>
                         <tr>
-                            <th>Class</th>
-                            <th>Lap Time</th>
+                            <th class="text-nowrap">Class</th>
+                            <th class="text-nowrap">Lap Time</th>
                             <th>Driver</th>
                             <th>Marque</th>
-                            <th>Date</th>
+                            <th class="text-nowrap">Date</th>
+                            <th class="text-nowrap">Source</th>
                             <th></th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for r in records %}
                         <tr>
-                            <td>{{ r.classAbbreviation }}</td>
-                            <td>{{ r.lapTime }}</td>
+                            <td class="text-nowrap">{{ r.classAbbreviation }}</td>
+                            <td class="text-nowrap">{{ r.lapTime }}</td>
                             <td>{{ r.driverName }}</td>
                             <td>{{ r.marque or '—' }}</td>
-                            <td>{{ r.date }}</td>
-                            <td class="text-end">
-                                <form method="POST" action="{{ url_for('org_track_records_curated_delete', org_id=org_id) }}"
-                                      onsubmit="return confirm('Remove this record? It will not automatically reappear on future scans.');">
+                            <td class="text-nowrap">{{ r.date }}</td>
+                            <td class="text-nowrap">
+                                {% if r.source == 'manual' %}
+                                    <span class="badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">Manual</span>
+                                {% else %}
+                                    <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Speedhive</span>
+                                    {% if r.modified %}
+                                        <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" title="Edited by a human since the scan">Modified</span>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                <button class="btn-custom-outline py-1 px-2" style="font-size: 0.75rem;" type="button" data-bs-toggle="collapse" data-bs-target="#edit-row-{{ loop.index }}">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <form method="POST" action="{{ url_for('org_track_records_curated_delete', org_id=org.id) }}" class="d-inline"
+                                      onsubmit="return confirm({% if r.source == 'manual' %}'Permanently delete this manual record? This cannot be undone.'{% else %}'Remove this record? It will be blocked from reappearing on future scans.'{% endif %});">
                                     <input type="hidden" name="classAbbreviation" value="{{ r.classAbbreviation }}">
                                     <input type="hidden" name="lapTime" value="{{ r.lapTime }}">
                                     <input type="hidden" name="driverName" value="{{ r.driverName }}">
                                     <input type="hidden" name="date" value="{{ r.date }}">
-                                    <button type="submit" class="btn-custom-outline border-danger text-danger py-1 px-2" style="font-size: 0.75rem;">
+                                    <button class="btn-custom-outline border-danger text-danger py-1 px-2" style="font-size: 0.75rem;">
                                         <i class="fa-solid fa-trash"></i>
                                     </button>
                                 </form>
+                            </td>
+                        </tr>
+                        <tr class="collapse-row">
+                            <td colspan="7" class="p-0 border-0">
+                                <div class="collapse" id="edit-row-{{ loop.index }}">
+                                    <div class="p-3 bg-surface-2 border-top border-bottom border-secondary border-opacity-10">
+                                        <form method="POST" action="{{ url_for('org_track_records_curated_edit', org_id=org.id) }}" class="row g-2 align-items-end">
+                                            <input type="hidden" name="orig_classAbbreviation" value="{{ r.classAbbreviation }}">
+                                            <input type="hidden" name="orig_lapTime" value="{{ r.lapTime }}">
+                                            <input type="hidden" name="orig_driverName" value="{{ r.driverName }}">
+                                            <input type="hidden" name="orig_date" value="{{ r.date }}">
+                                            <div class="col-6 col-md-2">
+                                                <label class="form-label small text-muted mb-1">Class</label>
+                                                <input class="form-control form-control-custom form-control-sm" name="classAbbreviation" value="{{ r.classAbbreviation }}" required>
+                                            </div>
+                                            <div class="col-6 col-md-2">
+                                                <label class="form-label small text-muted mb-1">Lap Time</label>
+                                                <input class="form-control form-control-custom form-control-sm" name="lapTime" value="{{ r.lapTime }}" required>
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label small text-muted mb-1">Driver</label>
+                                                <input class="form-control form-control-custom form-control-sm" name="driverName" value="{{ r.driverName or '' }}">
+                                            </div>
+                                            <div class="col-6 col-md-2">
+                                                <label class="form-label small text-muted mb-1">Marque</label>
+                                                <input class="form-control form-control-custom form-control-sm" name="marque" value="{{ r.marque or '' }}">
+                                            </div>
+                                            <div class="col-6 col-md-2">
+                                                <label class="form-label small text-muted mb-1">Date</label>
+                                                <input type="date" class="form-control form-control-custom form-control-sm" name="date" value="{{ r.date }}" required>
+                                            </div>
+                                            <div class="col-12 col-md-1 d-flex">
+                                                <button type="submit" class="btn-custom py-1 px-3 w-100">
+                                                    <i class="fa-solid fa-check"></i>
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}

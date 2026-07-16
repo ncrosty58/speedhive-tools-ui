@@ -4,13 +4,12 @@
 
 {% block content %}
 <div class="row g-4">
+    {% include "_org_nav.html" %}
+    {% include "_track_records_subnav.html" %}
+
     <div class="col-12 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
         <div>
-            <h1 class="h2 fw-bold mb-1">Rejected Track Records</h1>
-            <span class="text-muted small">
-                <a href="{{ url_for('org_track_records_curated', org_id=org_id) }}">Back to Curated Records</a> &bull;
-                <a href="{{ url_for('org_track_records_review', org_id=org_id) }}">Review pending candidates</a>
-            </span>
+            <h1 class="h4 fw-bold mb-1">Rejected</h1>
         </div>
         <span class="text-muted small">{{ records|length }} rejected record(s)</span>
     </div>

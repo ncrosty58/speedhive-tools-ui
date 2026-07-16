@@ -4,18 +4,16 @@
 
 {% block content %}
 <div class="row g-4">
-    <div class="col-12">
-        <div class="breadcrumb-custom">
-            <a href="/">Dashboard</a>
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            {% if championship and championship.organizationId %}
-                <a href="/org/{{ championship.organizationId }}">Organization #{{ championship.organizationId }}</a>
-            {% else %}
-                <span>Organization</span>
-            {% endif %}
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
-            <span>Championship Details</span>
-        </div>
+    <div class="col-12 text-muted small d-flex align-items-center gap-2">
+        <a href="/" class="text-info text-decoration-none">Dashboard</a>
+        <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
+        {% if championship and championship.organizationId %}
+            <a href="/org/{{ championship.organizationId }}" class="text-info text-decoration-none">Organization #{{ championship.organizationId }}</a>
+        {% else %}
+            <span>Organization</span>
+        {% endif %}
+        <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
+        <span>Championship Details</span>
     </div>
 
     {% if error %}
@@ -27,7 +25,7 @@
         <div class="col-12">
             <div class="glass-card">
                 <span class="badge-custom badge-race mb-2">Championship #{{ championship.id }}</span>
-                <h1 class="page-header mb-1"><i class="fa-solid fa-trophy text-warning me-2"></i>{{ championship.name }}</h1>
+                <h1 class="h2 fw-bold mb-1"><i class="fa-solid fa-trophy text-warning me-2"></i>{{ championship.name }}</h1>
                 {% if championship.year %}
                     <p class="text-muted mb-0"><i class="fa-regular fa-calendar me-1"></i> Season / Year: {{ championship.year }}</p>
                 {% endif %}
@@ -37,7 +35,7 @@
         <!-- Standings and Rounds -->
         <div class="col-lg-8">
             <div class="glass-card h-100">
-                <div class="glass-card-header"><i class="fa-solid fa-ranking-star text-info"></i> Championship Standings</div>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-ranking-star text-info"></i> Championship Standings</h3>
                 
                 {% if championship.standings or championship.competitors %}
                     {% set competitors = championship.standings or championship.competitors or [] %}
@@ -57,7 +55,7 @@
                                         <td class="fw-bold text-info">#{{ comp.position or loop.index }}</td>
                                         <td class="fw-semibold">{{ comp.name or comp.competitorName or 'Unknown Competitor' }}</td>
                                         <td class="text-secondary">{{ comp.class or comp.className or 'N/A' }}</td>
-                                        <td class="text-end text-gradient fw-bold fs-5">{{ comp.points or 0 }}</td>
+                                        <td class="text-end text-info fw-bold fs-5">{{ comp.points or 0 }}</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -74,7 +72,7 @@
 
         <div class="col-lg-4">
             <div class="glass-card h-100">
-                <div class="glass-card-header"><i class="fa-solid fa-calendar-check text-info"></i> Rounds List</div>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-calendar-check text-info"></i> Rounds List</h3>
                 
                 {% if championship.rounds or championship.events %}
                     {% set rounds = championship.rounds or championship.events or [] %}

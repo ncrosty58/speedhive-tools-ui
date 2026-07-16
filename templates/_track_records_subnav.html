@@ -1,0 +1,16 @@
+<div class="col-12">
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn-custom {% if active_track_tab == 'curated' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_curated', org_id=org.id) }}">Curated</a>
+        <a class="btn-custom {% if active_track_tab == 'live' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('lap_records', org_id=org.id) }}">Live Lookup</a>
+        <a class="btn-custom {% if active_track_tab == 'review' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_review', org_id=org.id) }}">
+            Review Queue{% if pending_count %} <span class="badge bg-warning text-dark ms-1">{{ pending_count }}</span>{% endif %}
+        </a>
+        <a class="btn-custom {% if active_track_tab == 'rejected' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_rejected', org_id=org.id) }}">Rejected</a>
+        <a class="btn-custom {% if active_track_tab == 'history' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_history', org_id=org.id) }}">
+            <i class="fa-solid fa-history me-1"></i>Scan History
+        </a>
+        <a class="btn-custom {% if active_track_tab == 'settings' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_settings', org_id=org.id) }}">
+            <i class="fa-solid fa-cog me-1"></i>Settings
+        </a>
+    </div>
+</div>

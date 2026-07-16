@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from speedhive.utils.lap_analysis import first_non_empty, safe_int
-from app.utils import cache_meta, utc_now, parse_iso_utc, iso_utc
+from app.utils import cache_meta, utc_now, parse_iso_utc, iso_utc, _country_name_from_value
 
 # Constants
 MAX_ORG_EVENTS = 150
@@ -50,6 +50,36 @@ def read_organization_from_store(org_id: int) -> tuple[Dict[str, Any], Dict[str,
     from app import storage
     payload, meta = read_from_store(lambda: storage.get_organization(org_id), empty_value={})
     return payload if isinstance(payload, dict) else {}, meta
+
+
+def get_org_view(org_id: int, client: Any = None) -> Dict[str, Any]:
+    """Org dict enriched with `_display_location` for the shared org header/nav.
+
+    If nothing is cached and a Speedhive client is given, falls back to a live
+    lookup (matching the dashboard's historical behavior); otherwise falls
+    back to a bare id/name placeholder.
+    """
+    org, _ = read_organization_from_store(org_id)
+    if not org and client is not None:
+        org = client.get_organization(org_id) or {}
+    org_view = dict(org) if isinstance(org, dict) and org else {"id": org_id, "name": f"Organization #{org_id}"}
+
+    org_city = first_non_empty(
+        org_view.get("city"),
+        (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
+        (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
+    )
+    org_country = _country_name_from_value(
+        first_non_empty(
+            org_view.get("country"),
+            (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
+            (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
+        )
+    )
+    org_view["_display_city"] = org_city
+    org_view["_display_country"] = org_country
+    org_view["_display_location"] = ", ".join(p for p in (org_city, org_country) if p)
+    return org_view
 
 
 def read_championships_from_store(org_id: int) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:

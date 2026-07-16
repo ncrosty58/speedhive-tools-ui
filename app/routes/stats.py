@@ -2,9 +2,8 @@ import json
 import re
 from flask import request, redirect, url_for, render_template, current_app
 from app import storage
-from app.db import read_organization_from_store, read_events_from_store
+from app.db import get_org_view, read_events_from_store
 from app.utils import (
-    _country_name_from_value,
     format_datetime_display,
     format_seconds,
     iso_utc,
@@ -45,24 +44,7 @@ def org_stats(org_id):
     session_types_str = ",".join(session_types_list)
     session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
 
-    org, _ = read_organization_from_store(org_id_int)
-    if not org:
-        org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-    
-    org_city = first_non_empty(
-        org_view.get("city"),
-        (org_view.get("location") or {}).get("city") if isinstance(org_view.get("location"), dict) else None,
-        (org_view.get("address") or {}).get("city") if isinstance(org_view.get("address"), dict) else None,
-    )
-    org_country = _country_name_from_value(
-        first_non_empty(
-            org_view.get("country"),
-            (org_view.get("location") or {}).get("country") if isinstance(org_view.get("location"), dict) else None,
-            (org_view.get("address") or {}).get("country") if isinstance(org_view.get("address"), dict) else None,
-        )
-    )
-    org_view["_display_location"] = ", ".join([p for p in (org_city, org_country) if p])
+    org_view = get_org_view(org_id_int)
 
     events_data, events_meta = read_events_from_store(org_id_int)
     cache_status = events_meta
@@ -314,10 +296,7 @@ def driver_stats_breakdown(org_id, driver_name):
     except ValueError:
         min_laps = 20
 
-    org, _ = read_organization_from_store(org_id_int)
-    if not org:
-        org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
+    org_view = get_org_view(org_id_int)
 
     aliases = {driver_name}
     overall_stats = None

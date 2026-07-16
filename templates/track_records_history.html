@@ -4,16 +4,16 @@
 
 {% block content %}
 <div class="row g-4">
+    {% include "_org_nav.html" %}
+    {% include "_track_records_subnav.html" %}
+
     <div class="col-12 d-flex justify-content-between align-items-center">
         <div>
-            <h1 class="h2 fw-bold mb-1">Track Records Scan History</h1>
+            <h1 class="h4 fw-bold mb-1">Scan History</h1>
             <span class="text-muted small">
                 Logs of previous background scan runs.
             </span>
         </div>
-        <a class="btn-custom-outline" href="/org/{{ org_id }}">
-            <i class="fa-solid fa-arrow-left"></i> Back to Overview
-        </a>
     </div>
 
     <div class="col-12">
@@ -33,7 +33,7 @@
                     <tbody>
                         {% for t in tasks %}
                         <tr>
-                            <td class="font-monospace">{{ t.started_at }}</td>
+                            <td class="text-secondary">{{ t.started_at }}</td>
                             <td>
                                 {% if t.finished_at %}
                                     <!-- Simple duration calculation in minutes/seconds -->
@@ -55,16 +55,16 @@
                             </td>
                             <td>
                                 {% if t.status == 'done' and t.result %}
-                                    <span class="text-success font-monospace" style="font-size: 0.85rem;">
-                                        Found {{ t.result.candidates_found // 0 }} candidate(s) 
-                                        ({{ t.result.new_record_candidates // 0 }} new records, {{ t.result.unmapped_candidates // 0 }} unmapped)
+                                    <span class="text-success small">
+                                        Found {{ t.result.candidates_found | default(0) }} candidate(s)
+                                        ({{ t.result.new_record_candidates | default(0) }} new records, {{ t.result.unmapped_candidates | default(0) }} unmapped)
                                     </span>
                                 {% elif t.status == 'error' %}
-                                    <span class="text-danger font-monospace" style="font-size: 0.85rem; max-width: 400px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ t.error }}">
+                                    <span class="text-danger small" style="max-width: 400px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ t.error }}">
                                         {{ t.error }}
                                     </span>
                                 {% else %}
-                                    <span class="text-muted font-monospace" style="font-size: 0.85rem;">{{ t.phase }}</span>
+                                    <span class="text-muted small">{{ t.phase }}</span>
                                 {% endif %}
                             </td>
                             <td>

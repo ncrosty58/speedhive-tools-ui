@@ -19,21 +19,7 @@
     }
 </style>
 <div class="row g-4">
-    <!-- Header & Tabs -->
-    <div class="col-12 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
-        <div>
-            <h1 class="h2 fw-bold mb-1">{{ org.name }}</h1>
-            {% if org._display_location %}
-                <span class="text-muted small">{{ org._display_location }}</span>
-            {% endif %}
-        </div>
-        
-        <div class="d-flex gap-2">
-            <a class="btn-custom {% if active_tab == 'dashboard' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/?org_id={{ org.id }}">Dashboard</a>
-            <a class="btn-custom {% if active_tab == 'stats' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/stats">Stats</a>
-            <a class="btn-custom {% if active_tab == 'operations' %}active{% else %}btn-custom-outline{% endif %} py-2 px-3" href="/org/{{ org.id }}/operations">Operations</a>
-        </div>
-    </div>
+    {% include "_org_nav.html" %}
 
     <!-- Back Button -->
     <div class="col-12">

@@ -198,10 +198,10 @@ def test_app_home_route(client):
     assert b"Organization ID" in resp.data
 
 def test_track_records_redirect(client):
-    """Test that track-records route redirects to index with proper parameters."""
+    """Test that track-records route redirects to the Lap Records page with proper parameters."""
     resp = client.get("/track-records?org_id=123&classification=Kart")
     assert resp.status_code == 302
-    assert "org_id=123" in resp.headers["Location"]
+    assert "/org/123/lap-records" in resp.headers["Location"]
     assert "classification=Kart" in resp.headers["Location"]
 
 def test_org_search_redirect(client):

@@ -5,15 +5,15 @@
 {% block content %}
 <div class="row g-4">
     <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div class="breadcrumb-custom mb-0">
-            <a href="/">Dashboard</a>
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+        <div class="text-muted small d-flex align-items-center gap-2">
+            <a href="/" class="text-info text-decoration-none">Dashboard</a>
+            <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
             {% if session and session.eventId %}
-                <a href="/event/{{ session.eventId }}">Event #{{ session.eventId }}</a>
+                <a href="/event/{{ session.eventId }}" class="text-info text-decoration-none">Event #{{ session.eventId }}</a>
             {% else %}
                 <span>Event</span>
             {% endif %}
-            <span class="separator"><i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i></span>
+            <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
             <span>{% if session %}{{ session.name or 'Session' }}{% else %}Session{% endif %}</span>
         </div>
         <a href="/session/{{ session_id }}/export-laps.json" class="btn-custom-outline"><i class="fa-solid fa-file-arrow-down"></i> Export Laps JSON</a>
@@ -30,7 +30,7 @@
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div>
                         <div class="text-muted small">Session #{{ session_id }}</div>
-                        <h1 class="page-header mb-1"><i class="fa-solid fa-flag-checkered text-info me-2"></i>{{ session.name or 'Session Results' }}</h1>
+                        <h1 class="h2 fw-bold mb-1"><i class="fa-solid fa-flag-checkered text-info me-2"></i>{{ session.name or 'Session Results' }}</h1>
                         <p class="text-muted mb-0"><i class="fa-regular fa-clock me-1"></i>{{ session._display_start or 'Time N/A' }}</p>
                     </div>
                     {% if cache_status %}
@@ -45,7 +45,7 @@
         <!-- Tabs card -->
         <div class="col-12">
             <div class="glass-card">
-                <ul class="nav nav-tabs mb-4" id="sessionTab" role="tablist">
+                <ul class="nav nav-tabs nav-tabs-custom mb-4" id="sessionTab" role="tablist">
                     <li class="nav-item">
                         <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#results" type="button">
                             <i class="fa-solid fa-ranking-star me-2"></i>Classification
@@ -125,7 +125,7 @@
                                 {% for ann in announcements %}
                                     <div class="p-3 rounded bg-surface-2 border border-secondary border-opacity-10">
                                         <div class="small text-secondary mb-1"><i class="fa-regular fa-clock me-1"></i>{{ ann.timestamp or ann.time or 'N/A' }}</div>
-                                        <div class="fw-semibold text-gradient">{{ ann.text or ann.message or '' }}</div>
+                                        <div class="fw-semibold text-info">{{ ann.text or ann.message or '' }}</div>
                                     </div>
                                 {% endfor %}
                             </div>

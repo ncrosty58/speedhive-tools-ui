@@ -48,6 +48,14 @@
             overflow-x: hidden;
         }
 
+        .bg-surface {
+            background: var(--bg-surface);
+        }
+
+        .bg-surface-2 {
+            background: var(--bg-surface-2);
+        }
+
         .custom-navbar {
             border-bottom: 1px solid var(--border);
             background: var(--bg-surface);
@@ -125,6 +133,50 @@
             background: rgba(255, 255, 255, 0.04);
             color: var(--text-muted);
             border: 1px solid var(--border);
+        }
+
+        .badge-alert {
+            background: var(--warning-soft);
+            color: var(--warning);
+        }
+
+        .badge-ok {
+            background: var(--success-soft);
+            color: var(--success);
+        }
+
+        .nav-tabs-custom {
+            border-bottom: 1px solid var(--border) !important;
+            margin-bottom: 1.5rem;
+        }
+
+        .nav-tabs-custom .nav-item {
+            margin-bottom: -1px;
+        }
+
+        .nav-tabs-custom .nav-link {
+            color: var(--text-muted);
+            background: transparent;
+            border: 1px solid transparent;
+            padding: 0.6rem 1.2rem;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: var(--transition);
+            border-top-left-radius: var(--radius-md);
+            border-top-right-radius: var(--radius-md);
+        }
+
+        .nav-tabs-custom .nav-link:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.02);
+            border-color: transparent;
+        }
+
+        .nav-tabs-custom .nav-link.active {
+            color: var(--brand) !important;
+            background: var(--bg-surface) !important;
+            border-color: var(--border) var(--border) var(--bg-surface) !important;
+            font-weight: 600;
         }
 
         .btn-custom {

@@ -416,19 +416,18 @@ def org_operations(org_id):
     except Exception:
         return redirect(url_for("index", error="Invalid organization ID."))
 
-    from app.db import read_organization_from_store, read_events_from_store, read_org_refresh_state
-    org, _ = read_organization_from_store(org_id_int)
-    if not org:
-        org = {"id": org_id_int, "name": f"Organization #{org_id_int}"}
-
-    org_view = dict(org) if isinstance(org, dict) else {"id": org_id_int, "name": f"Organization #{org_id_int}"}
+    from app.db import get_org_view, read_events_from_store, read_org_refresh_state
+    org_view = get_org_view(org_id_int)
     org_refresh_state = read_org_refresh_state(org_id_int)
     events_data, events_meta = read_events_from_store(org_id_int)
     cache_status = events_meta
     dumps_list = _list_org_dumps(org_id_int)
 
+    from app.tasks import _get_running_track_records_task_for_org
     running_task = _get_running_task_for_org(org_id_int)
     running_task_id = running_task["task_id"] if running_task else None
+    running_track_records_task = _get_running_track_records_task_for_org(org_id_int)
+    running_track_records_task_id = running_track_records_task["task_id"] if running_track_records_task else None
 
     return render_template(
         "org_operations.html",
@@ -439,9 +438,10 @@ def org_operations(org_id):
         dumps=dumps_list,
         dump_history=dumps_list,
         incremental_backfill_events=DEFAULT_INCREMENTAL_BACKFILL_EVENTS,
-        active_tab="operations",
+        active_tab="data",
         cache_status=cache_status,
         running_task_id=running_task_id,
+        running_track_records_task_id=running_track_records_task_id,
     )
 
 
