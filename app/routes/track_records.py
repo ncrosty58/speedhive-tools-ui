@@ -20,7 +20,6 @@ from app.utils import (
     read_json_file,
 )
 from app.notifications import _send_resend_notification
-from app.llm import get_llm_config, save_llm_config
 from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
@@ -428,9 +427,7 @@ def org_track_records_settings(org_id):
 
         alias_map_json_str = request.form.get("alias_map_json", "").strip()
 
-        gemini_api_key = request.form.get("gemini_api_key", "").strip() or None
-        gemini_model = request.form.get("gemini_model", "").strip() or None
-        parser_engine = "regex" if request.form.get("parser_engine") == "regex" else "llm"
+        parser_engine = "llm" if request.form.get("parser_engine") == "llm" else "regex"
 
         try:
             alias_map_data = json.loads(alias_map_json_str)
@@ -446,7 +443,6 @@ def org_track_records_settings(org_id):
                 active_track_tab="settings",
                 notif_config=notif_data,
                 alias_map_json=alias_map_json_str,
-                llm_config=get_llm_config(),
                 parsing_config=parsing_data,
                 error=f"Invalid Alias Map JSON: {str(exc)}"
             )
@@ -465,7 +461,6 @@ def org_track_records_settings(org_id):
         }
         track_records.save_json(config_file, notif_config)
         track_records.save_json(alias_map_file, alias_map_data)
-        save_llm_config(gemini_api_key, gemini_model)
 
         return render_template(
             "track_records_settings.html",
@@ -475,7 +470,6 @@ def org_track_records_settings(org_id):
             active_track_tab="settings",
             notif_config=notif_config["notifications"],
             alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
-            llm_config=get_llm_config(),
             parsing_config=notif_config["parsing"],
             notice="Configuration saved successfully."
         )
@@ -488,7 +482,7 @@ def org_track_records_settings(org_id):
         "from_email": None,
         "to_emails": []
     })
-    parsing_data = notif_config.get("parsing", {"engine": "llm"})
+    parsing_data = notif_config.get("parsing", {"engine": "regex"})
 
     alias_map_data = read_json_file(alias_map_file) or {
         "aliases": {},
@@ -504,7 +498,6 @@ def org_track_records_settings(org_id):
         active_track_tab="settings",
         notif_config=notif_data,
         alias_map_json=alias_map_json_str,
-        llm_config=get_llm_config(),
         parsing_config=parsing_data
     )
 

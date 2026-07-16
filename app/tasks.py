@@ -196,12 +196,12 @@ def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, A
 def _get_bulk_parser_for_org(org_id: int):
     """Return the bulk announcement parser configured for this org's scans.
 
-    LLM (Gemini) is the project default -- it's used unless config.json
-    explicitly sets 'parsing.engine' to 'regex' (for users who'd rather not
-    use an LLM / don't have a Gemini key configured). When LLM is active, all
-    of the org's announcements are parsed in a single call rather than one
-    call per announcement -- storage.get_track_records() falls back to the
-    regex parser (one call per text, but nearly instant) when this is None.
+    Regex is the default for every org -- LLM (Gemini) is opt-in per org via
+    'parsing.engine': 'llm' in that org's own config.json (Track Records
+    Settings). When LLM is active, all of the org's announcements are parsed
+    in a single call rather than one call per announcement --
+    storage.get_track_records() falls back to the regex parser (one call per
+    text, but nearly instant) when this returns None.
     """
     from speedhive.workflows.track_records import curation as track_records
     from app.utils import read_json_file
@@ -209,9 +209,9 @@ def _get_bulk_parser_for_org(org_id: int):
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)
     config = read_json_file(p["dir"] / "config.json") or {}
     engine = (config.get("parsing") or {}).get("engine")
-    if engine == "regex":
+    if engine != "llm":
         return None
-    from app.llm import parse_track_records_bulk_with_gemini
+    from speedhive.llm import parse_track_records_bulk_with_gemini
     return parse_track_records_bulk_with_gemini
 
 
