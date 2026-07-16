@@ -193,6 +193,28 @@ def _get_running_track_records_task_for_org(org_id: int) -> Optional[Dict[str, A
             return task
 
 
+def _get_bulk_parser_for_org(org_id: int):
+    """Return the bulk announcement parser configured for this org's scans.
+
+    LLM (Gemini) is the project default -- it's used unless config.json
+    explicitly sets 'parsing.engine' to 'regex' (for users who'd rather not
+    use an LLM / don't have a Gemini key configured). When LLM is active, all
+    of the org's announcements are parsed in a single call rather than one
+    call per announcement -- storage.get_track_records() falls back to the
+    regex parser (one call per text, but nearly instant) when this is None.
+    """
+    from speedhive.workflows.track_records import curation as track_records
+    from app.utils import read_json_file
+
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id)
+    config = read_json_file(p["dir"] / "config.json") or {}
+    engine = (config.get("parsing") or {}).get("engine")
+    if engine == "regex":
+        return None
+    from app.llm import parse_track_records_bulk_with_gemini
+    return parse_track_records_bulk_with_gemini
+
+
 def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: bool) -> None:
     from app import client, storage
     from app.notifications import _auto_notify_for_org
@@ -213,11 +235,49 @@ def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: b
             recent_backfill_events=20,
             cleanup_on_full=True,
             progress_cb=report,
+            bulk_parser=_get_bulk_parser_for_org(org_id),
         )
         scan_result = outcome["scan"]
         _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=scan_result)
 
         # Automatically check and trigger notification emails upon successful scan completion
+        if scan_result.get("candidates_found", 0) > 0:
+            _auto_notify_for_org(org_id)
+
+    except Exception as exc:
+        _update_track_records_task(org_id, task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
+
+
+def _trigger_track_records_rescan(org_id: int) -> None:
+    """Fire-and-forget local rescan, used to keep the Review Queue self-consistent
+    after anything that changes the curated list or the synced cache (a Speedhive
+    sync completing, curated add/delete/import/approve). No-op if a track-records
+    task is already running for this org.
+    """
+    if _get_running_track_records_task_for_org(org_id):
+        return
+    task_id = _new_track_records_task(org_id)
+    t = threading.Thread(target=_run_track_records_scan_only_task, args=(task_id, org_id), daemon=True)
+    t.start()
+
+
+def _run_track_records_scan_only_task(task_id: str, org_id: int) -> None:
+    """Diff the already-synced cache against the curated list. Never contacts
+    Speedhive -- callers are responsible for syncing first (see _run_refresh_task).
+    """
+    from app import storage
+    from app.notifications import _auto_notify_for_org
+    from speedhive.workflows.track_records import curation as track_records
+
+    def report(phase):
+        _update_track_records_task(org_id, task_id, phase=phase)
+
+    try:
+        scan_result = track_records.run_sync_and_diff(
+            org_id, storage, TRACK_RECORDS_ROOT, progress_cb=report, bulk_parser=_get_bulk_parser_for_org(org_id)
+        )
+        _update_track_records_task(org_id, task_id, status="done", finished_at=iso_utc(utc_now()), result=scan_result)
+
         if scan_result.get("candidates_found", 0) > 0:
             _auto_notify_for_org(org_id)
 
@@ -416,6 +476,7 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
             finished_at=iso_utc(utc_now()),
             summary=refresh_state,
         )
+        _trigger_track_records_rescan(org_id)
     except Exception as exc:
         _update_task(
             task_id,

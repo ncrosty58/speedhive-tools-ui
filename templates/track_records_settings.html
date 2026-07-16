@@ -1,19 +1,19 @@
 {% extends 'base.html' %}
 
-{% block title %}Settings — Org {{ org_id }}{% endblock %}
+{% block title %}Track Records Settings | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
+    {% include "_org_nav.html" %}
+    {% include "_track_records_subnav.html" %}
+
     <div class="col-12 d-flex justify-content-between align-items-center">
         <div>
-            <h1 class="h2 fw-bold mb-1">Settings</h1>
+            <h1 class="h4 fw-bold mb-1">Track Records Settings</h1>
             <span class="text-muted small">
-                Configure notifications and class alias mapping for organization {{ org_id }}.
+                Notification and class alias mapping used by the Track Records scan.
             </span>
         </div>
-        <a class="btn-custom-outline" href="/org/{{ org_id }}">
-            <i class="fa-solid fa-arrow-left"></i> Back to Overview
-        </a>
     </div>
 
     {% if notice %}
@@ -84,7 +84,7 @@
                 <div class="col-lg-6">
                     <div class="glass-card h-100 d-flex flex-column">
                         <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-tags"></i> Class Alias Mapping & Curation</h3>
-                        
+
                         <div class="flex-grow-1 d-flex flex-column">
                             <label for="alias_map_json" class="form-label fw-semibold">Aliases & Rules (JSON)</label>
                             <textarea class="form-control bg-dark text-light border-secondary border-opacity-50 font-monospace flex-grow-1" id="alias_map_json" name="alias_map_json" rows="12" style="font-size: 0.85rem;">{{ alias_map_json }}</textarea>
@@ -95,9 +95,41 @@
                     </div>
                 </div>
 
+                <!-- LLM / AI Settings Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-robot"></i> AI / LLM Settings</h3>
+                        <span class="text-muted small mb-3">
+                            Global setting, shared across all organizations — used to parse track record announcements with an LLM instead of the regex-based parser.
+                        </span>
+
+                        <div class="mb-3">
+                            <label for="gemini_api_key" class="form-label fw-semibold">Gemini API Key</label>
+                            <input type="password" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_api_key" name="gemini_api_key" value="{{ llm_config.gemini_api_key or '' }}" placeholder="AIza...">
+                            <span class="text-muted small">Leave empty to fallback to the GEMINI_API_KEY server environment variable.</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="gemini_model" class="form-label fw-semibold">Gemini Model</label>
+                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_model" name="gemini_model" value="{{ llm_config.model or '' }}" placeholder="gemini-2.5-flash">
+                        </div>
+
+                        <hr class="border-secondary opacity-25">
+
+                        <div class="mb-3">
+                            <label for="parser_engine" class="form-label fw-semibold">Announcement Parser</label>
+                            <select class="form-select" id="parser_engine" name="parser_engine">
+                                <option value="llm" {% if parsing_config.engine != 'regex' %}selected{% endif %}>LLM (Gemini) — default</option>
+                                <option value="regex" {% if parsing_config.engine == 'regex' %}selected{% endif %}>Regex (legacy, no API key needed)</option>
+                            </select>
+                            <span class="text-muted small">Records the parser is unsure about (ambiguous classification, low-confidence LLM extraction) are auto-filed to Rejected instead of the review queue — restore them from the Rejected tab if that's wrong.</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="col-12">
                     <div class="glass-card d-flex justify-content-end gap-2">
-                        <a class="btn-custom-outline py-2" href="/org/{{ org_id }}">Cancel</a>
+                        <a class="btn-custom-outline py-2" href="{{ url_for('org_track_records_curated', org_id=org_id) }}">Cancel</a>
                         <button type="submit" class="btn-custom py-2 px-4">
                             <i class="fa-solid fa-save me-1"></i> Save Config
                         </button>

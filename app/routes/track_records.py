@@ -4,11 +4,14 @@ import threading
 from datetime import datetime
 from flask import request, redirect, url_for, render_template, jsonify, Response
 from app import client, storage
+from app.db import get_org_view
 from app.tasks import (
     _get_running_track_records_task_for_org,
     _new_track_records_task,
     _run_track_records_sync_task,
+    _run_track_records_scan_only_task,
     _get_track_records_task,
+    _trigger_track_records_rescan,
     TRACK_RECORDS_ROOT,
 )
 from app.utils import (
@@ -17,6 +20,7 @@ from app.utils import (
     read_json_file,
 )
 from app.notifications import _send_resend_notification
+from app.llm import get_llm_config, save_llm_config
 from speedhive.workflows.track_records import curation as track_records
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
 from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
@@ -84,6 +88,27 @@ def org_track_records_sync_status(org_id, task_id):
     return jsonify(task)
 
 
+def org_track_records_scan_only(org_id):
+    """Diff the already-synced cache against the curated list. Never contacts
+    Speedhive -- use Sync from Speedhive (refresh_org_start) first if the
+    cache needs updating. Distinct from org_track_records_sync, which is the
+    public/automation entrypoint that syncs-then-scans in one call.
+    """
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return jsonify({"error": "Invalid org_id"}), 400
+
+    running_task = _get_running_track_records_task_for_org(org_id_int)
+    if running_task:
+        return jsonify({"task_id": running_task["task_id"], "org_id": org_id_int, "already_running": True})
+
+    task_id = _new_track_records_task(org_id_int)
+    t = threading.Thread(target=_run_track_records_scan_only_task, args=(task_id, org_id_int), daemon=True)
+    t.start()
+    return jsonify({"task_id": task_id, "org_id": org_id_int})
+
+
 def org_track_records_review(org_id):
     try:
         org_id_int = int(org_id)
@@ -93,9 +118,13 @@ def org_track_records_review(org_id):
     payload = track_records.load_candidates(p)
     return render_template(
         "track_records_review.html",
+        org=get_org_view(org_id_int),
         org_id=org_id_int,
+        active_tab="track_records",
+        active_track_tab="review",
         generated_at=payload.get("generated_at"),
         candidates=payload.get("candidates", []),
+        pending_count=len(payload.get("candidates", [])),
         notice=request.args.get("notice"),
         error=request.args.get("error"),
     )
@@ -121,6 +150,7 @@ def org_track_records_review_apply(org_id):
         "marque": (request.form.get("marque") or "").strip() or None,
         "date": (request.form.get("date") or "").strip(),
         "addedAt": iso_utc(utc_now()),
+        "source": "speedhive",
     }
     if not final_record["classAbbreviation"] or not final_record["lapTime"] or not final_record["date"]:
         return redirect(url_for("org_track_records_review", org_id=org_id_int, error="Class, lap time, and date are required to approve a candidate."))
@@ -134,6 +164,7 @@ def org_track_records_review_apply(org_id):
     payload["candidates"] = [c for c in payload.get("candidates", []) if _track_records_candidate_identity(c) != identity]
     track_records.save_candidates(p, payload)
 
+    _trigger_track_records_rescan(org_id_int)
     return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Approved {final_record['classAbbreviation']} — {final_record['lapTime']} by {final_record['driverName']}."))
 
 
@@ -168,6 +199,33 @@ def org_track_records_review_reject(org_id):
     return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=f"Rejected {identity[0]} — {identity[1]} by {identity[2]}."))
 
 
+def org_track_records_review_approve_all(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    result = track_records.approve_all_candidates(p)
+    notice = f"Approved {result['approved']} record(s)."
+    if result["skipped"]:
+        notice += f" {result['skipped']} unmapped-classification candidate(s) still need manual review."
+
+    _trigger_track_records_rescan(org_id_int)
+    return redirect(url_for("org_track_records_review", org_id=org_id_int, notice=notice))
+
+
+def org_track_records_curated_dedupe(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    result = track_records.dedupe_curated_speedhive_additions(p)
+    return jsonify(result)
+
+
 def org_track_records_curated(org_id):
     try:
         org_id_int = int(org_id)
@@ -176,14 +234,58 @@ def org_track_records_curated(org_id):
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
     curated = track_records.load_curated(p)
     records = sorted(curated.get("records", []), key=lambda r: (r.get("classAbbreviation") or "", r.get("date") or ""))
+
+    pending_count = len(track_records.load_candidates(p).get("candidates", []))
+
     return render_template(
         "track_records_curated.html",
+        org=get_org_view(org_id_int),
         org_id=org_id_int,
+        active_tab="track_records",
+        active_track_tab="curated",
         curated_date=curated.get("date"),
         records=records,
+        pending_count=pending_count,
         notice=request.args.get("notice"),
         error=request.args.get("error"),
     )
+
+
+def org_track_records_curated_add(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    record = track_records.add_curated_record(p, request.form)
+    if record is None:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="Class, lap time, and date are required to add a record."))
+
+    _trigger_track_records_rescan(org_id_int)
+    return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Added {record['classAbbreviation']} — {record['lapTime']} by {record['driverName'] or 'unknown driver'}."))
+
+
+def org_track_records_curated_edit(org_id):
+    try:
+        org_id_int = int(org_id)
+    except ValueError:
+        return redirect(url_for("index", error="Invalid organization ID."))
+    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+
+    orig_identity = (
+        request.form.get("orig_classAbbreviation"),
+        request.form.get("orig_lapTime"),
+        request.form.get("orig_driverName"),
+        request.form.get("orig_date"),
+    )
+
+    record = track_records.edit_curated_record(p, orig_identity, request.form)
+    if record is None:
+        return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="Record not found, or class/lap time/date missing."))
+
+    _trigger_track_records_rescan(org_id_int)
+    return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Updated {record['classAbbreviation']} — {record['lapTime']} by {record['driverName'] or 'unknown driver'}."))
 
 
 def org_track_records_curated_delete(org_id):
@@ -200,31 +302,17 @@ def org_track_records_curated_delete(org_id):
         request.form.get("date"),
     )
 
-    curated = track_records.load_curated(p)
-    before_count = len(curated.get("records", []))
-    curated["records"] = [
-        r for r in curated.get("records", [])
-        if (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date")) != identity
-    ]
-    removed = before_count - len(curated["records"])
-    if removed == 0:
+    result = track_records.delete_curated_record(p, identity)
+    if not result["found"]:
         return redirect(url_for("org_track_records_curated", org_id=org_id_int, error="Record not found (already removed?)."))
 
-    curated["date"] = utc_now().strftime("%Y-%m-%d")
-    track_records.save_curated(p, curated)
+    if result["permanent"]:
+        notice = f"Permanently deleted {identity[0]} — {identity[1]} by {identity[2]}."
+    else:
+        notice = f"Removed {identity[0]} — {identity[1]} by {identity[2]}. Blocked from future scans."
 
-    rejected_payload = track_records.load_rejected(p)
-    rejected_payload.setdefault("rejected", []).append({
-        "classAbbreviation": identity[0],
-        "lapTime": identity[1],
-        "driverName": identity[2],
-        "date": identity[3],
-        "rejected_at": iso_utc(utc_now()),
-        "reason": "deleted_from_curated",
-    })
-    track_records.save_rejected(p, rejected_payload)
-
-    return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=f"Removed {identity[0]} — {identity[1]} by {identity[2]}."))
+    _trigger_track_records_rescan(org_id_int)
+    return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=notice))
 
 
 def org_track_records_export_ndjson(org_id):
@@ -263,6 +351,7 @@ def org_track_records_import(org_id):
     except ValueError as exc:
         return redirect(url_for("org_track_records_curated", org_id=org_id_int, error=str(exc)))
 
+    _trigger_track_records_rescan(org_id_int)
     return redirect(url_for("org_track_records_curated", org_id=org_id_int, notice=notice))
 
 
@@ -277,7 +366,10 @@ def org_track_records_rejected(org_id):
     records = sorted(records, key=lambda r: (r.get("classAbbreviation") or "", r.get("date") or ""))
     return render_template(
         "track_records_rejected.html",
+        org=get_org_view(org_id_int),
         org_id=org_id_int,
+        active_tab="track_records",
+        active_track_tab="rejected",
         records=records,
         notice=request.args.get("notice"),
         error=request.args.get("error"),
@@ -289,7 +381,6 @@ def org_track_records_rejected_restore(org_id):
         org_id_int = int(org_id)
     except ValueError:
         return redirect(url_for("index", error="Invalid organization ID."))
-    p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
 
     identity = (
         request.form.get("classAbbreviation"),
@@ -298,34 +389,20 @@ def org_track_records_rejected_restore(org_id):
         request.form.get("date"),
     )
 
-    rejected_payload = track_records.load_rejected(p)
-    before_count = len(rejected_payload.get("rejected", []))
-    rejected_payload["rejected"] = [
-        r for r in rejected_payload.get("rejected", [])
-        if (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date")) != identity
-    ]
-    removed = before_count - len(rejected_payload["rejected"])
-    if removed == 0:
+    result = track_records.restore_rejected_record(org_id_int, storage, TRACK_RECORDS_ROOT, identity)
+    if not result["found"]:
         return redirect(url_for("org_track_records_rejected", org_id=org_id_int, error="Record not found (already restored?)."))
 
-    track_records.save_rejected(p, rejected_payload)
-
     base_notice = f"Restored {identity[0]} — {identity[1]} by {identity[2]}."
-    try:
-        track_records.run_sync_and_diff(org_id_int, storage, TRACK_RECORDS_ROOT)
-        reappeared = any(
-            c.get("proposed", {}).get("classAbbreviation") == identity[0]
-            and c.get("proposed", {}).get("lapTime") == identity[1]
-            and c.get("proposed", {}).get("driverName") == identity[2]
-            for c in track_records.load_candidates(p).get("candidates", [])
-        )
-        notice = (
-            f"{base_notice} It's back in the review queue."
-            if reappeared
-            else f"{base_notice} Rescanned, but it isn't a candidate right now (a curated time may already be faster)."
-        )
-    except Exception as exc:
-        notice = f"{base_notice} Automatic rescan failed ({exc}); it'll reappear on the next scan instead."
+    if result["restored_to_curated"]:
+        notice = f"{base_notice} Back in the curated list."
+        _trigger_track_records_rescan(org_id_int)
+    elif result.get("rescan_error"):
+        notice = f"{base_notice} Automatic rescan failed ({result['rescan_error']}); it'll reappear on the next scan instead."
+    elif result.get("reappeared"):
+        notice = f"{base_notice} It's back in the review queue."
+    else:
+        notice = f"{base_notice} Rescanned, but it isn't a candidate right now (a curated time may already be faster)."
 
     return redirect(url_for("org_track_records_rejected", org_id=org_id_int, notice=notice))
 
@@ -351,16 +428,26 @@ def org_track_records_settings(org_id):
 
         alias_map_json_str = request.form.get("alias_map_json", "").strip()
 
+        gemini_api_key = request.form.get("gemini_api_key", "").strip() or None
+        gemini_model = request.form.get("gemini_model", "").strip() or None
+        parser_engine = "regex" if request.form.get("parser_engine") == "regex" else "llm"
+
         try:
             alias_map_data = json.loads(alias_map_json_str)
         except Exception as exc:
             notif_config = read_json_file(config_file) or {}
             notif_data = notif_config.get("notifications", {})
+            parsing_data = notif_config.get("parsing", {})
             return render_template(
                 "track_records_settings.html",
+                org=get_org_view(org_id_int),
                 org_id=org_id_int,
+                active_tab="track_records",
+                active_track_tab="settings",
                 notif_config=notif_data,
                 alias_map_json=alias_map_json_str,
+                llm_config=get_llm_config(),
+                parsing_config=parsing_data,
                 error=f"Invalid Alias Map JSON: {str(exc)}"
             )
 
@@ -371,16 +458,25 @@ def org_track_records_settings(org_id):
                 "resend_api_key": resend_api_key,
                 "from_email": from_email,
                 "to_emails": to_emails
+            },
+            "parsing": {
+                "engine": parser_engine
             }
         }
         track_records.save_json(config_file, notif_config)
         track_records.save_json(alias_map_file, alias_map_data)
+        save_llm_config(gemini_api_key, gemini_model)
 
         return render_template(
             "track_records_settings.html",
+            org=get_org_view(org_id_int),
             org_id=org_id_int,
+            active_tab="track_records",
+            active_track_tab="settings",
             notif_config=notif_config["notifications"],
             alias_map_json=json.dumps(alias_map_data, indent=2, ensure_ascii=False),
+            llm_config=get_llm_config(),
+            parsing_config=notif_config["parsing"],
             notice="Configuration saved successfully."
         )
 
@@ -392,6 +488,7 @@ def org_track_records_settings(org_id):
         "from_email": None,
         "to_emails": []
     })
+    parsing_data = notif_config.get("parsing", {"engine": "llm"})
 
     alias_map_data = read_json_file(alias_map_file) or {
         "aliases": {},
@@ -401,9 +498,14 @@ def org_track_records_settings(org_id):
 
     return render_template(
         "track_records_settings.html",
+        org=get_org_view(org_id_int),
         org_id=org_id_int,
+        active_tab="track_records",
+        active_track_tab="settings",
         notif_config=notif_data,
-        alias_map_json=alias_map_json_str
+        alias_map_json=alias_map_json_str,
+        llm_config=get_llm_config(),
+        parsing_config=parsing_data
     )
 
 
@@ -461,7 +563,10 @@ def org_track_records_history(org_id):
 
     return render_template(
         "track_records_history.html",
+        org=get_org_view(org_id_int),
         org_id=org_id_int,
+        active_tab="track_records",
+        active_track_tab="history",
         tasks=tasks
     )
 
@@ -473,7 +578,7 @@ def org_track_records_json(org_id):
         return jsonify({"error": "Invalid org_id"}), 400
     p = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
     curated = track_records.load_curated(p)
-    body = json.dumps(curated, ensure_ascii=False)
+    body = json.dumps(curated, ensure_ascii=False, indent=2)
     resp = Response(body, mimetype="application/json")
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET"
@@ -550,11 +655,16 @@ def register_routes(app):
     app.add_url_rule("/org/<org_id>/track-records/update/status", "org_track_records_status", org_track_records_status)
     app.add_url_rule("/org/<org_id>/track-records/update", "org_track_records_sync", org_track_records_sync, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/update/<task_id>", "org_track_records_sync_status", org_track_records_sync_status)
+    app.add_url_rule("/org/<org_id>/track-records/scan", "org_track_records_scan_only", org_track_records_scan_only, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/review", "org_track_records_review", org_track_records_review)
     app.add_url_rule("/org/<org_id>/track-records/review/approve", "org_track_records_review_apply", org_track_records_review_apply, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/review/apply", "org_track_records_review_apply", org_track_records_review_apply, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/review/reject", "org_track_records_review_reject", org_track_records_review_reject, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/track-records/review/approve-all", "org_track_records_review_approve_all", org_track_records_review_approve_all, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/track-records/curated/dedupe", "org_track_records_curated_dedupe", org_track_records_curated_dedupe, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/curated", "org_track_records_curated", org_track_records_curated)
+    app.add_url_rule("/org/<org_id>/track-records/curated/add", "org_track_records_curated_add", org_track_records_curated_add, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/track-records/curated/edit", "org_track_records_curated_edit", org_track_records_curated_edit, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/curated/remove", "org_track_records_curated_delete", org_track_records_curated_delete, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/curated/delete", "org_track_records_curated_delete", org_track_records_curated_delete, methods=["POST"])
     app.add_url_rule("/org/<org_id>/track-records/curated.ndjson", "org_track_records_export_ndjson", org_track_records_export_ndjson)
