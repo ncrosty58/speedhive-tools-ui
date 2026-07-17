@@ -47,7 +47,7 @@
                                 <div class="form-check mb-0">
                                     <input class="form-check-input" type="checkbox" name="ignore_outliers" id="ignore_outliers" value="1" {% if ignore_outliers %}checked{% endif %} onchange="this.form.submit()">
                                     <input type="hidden" name="ignore_outliers" value="0">
-                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) using statistical IQR bounds">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) (slower than 130% of the session median)">
                                         <i class="fa-solid fa-filter text-brand me-1"></i>Ignore Outliers
                                     </label>
                                 </div>

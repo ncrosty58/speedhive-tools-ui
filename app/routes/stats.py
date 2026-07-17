@@ -197,6 +197,47 @@ def org_stats(org_id):
         )
 
 
+def _store_org_stats_payload(org_id_int, session_types_key, payload_obj):
+    calculated_at = iso_utc(utc_now())
+    payload_str = json.dumps(payload_obj, default=str)
+    with storage.connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+            (org_id_int, session_types_key, payload_str, calculated_at)
+        )
+        conn.commit()
+
+
+def _recalc_consistency_stats(org_id_int, session_types_list, ignore_outliers):
+    """Compute and store the clustered per-driver consistency payload for one
+    session-types/ignore-outliers combination. Shared by the Stats page's
+    Recalculate button and the Operations page's recalculate-all action."""
+    from speedhive.analyzers.analyze_consistency import (
+        load_session_types_from_storage,
+        aggregate_by_name,
+        cluster_names,
+    )
+    from app.analysis_cache import get_org_analysis
+
+    session_types_list = sorted(session_types_list)
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
+
+    enriched = get_org_analysis(storage, org_id_int, ignore_outliers)["enriched"]
+    session_map = load_session_types_from_storage(storage, org_id_int)
+    by_name = aggregate_by_name(enriched, session_map, session_types=session_types_list)
+    clustered = cluster_names(by_name, threshold=0.85)
+    _store_org_stats_payload(org_id_int, session_types_key, clustered)
+
+    # Prune older file cache if present
+    cache_file = DATA_ROOT / f"org_{org_id_int}_stats_cache.json"
+    if cache_file.exists():
+        try:
+            cache_file.unlink()
+        except Exception:
+            pass
+
+
 def generate_org_stats(org_id):
     try:
         org_id_int = int(org_id)
@@ -228,8 +269,6 @@ def generate_org_stats(org_id):
         session_types_list = ["race"]
 
     session_types_list.sort()
-    session_types_str = ",".join(session_types_list)
-    session_types_key = f"{session_types_str}:ignore_outliers" if ignore_outliers else session_types_str
 
     if not has_db_stats:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": "No synced session data available to analyze."}
@@ -237,34 +276,7 @@ def generate_org_stats(org_id):
         return redirect(url_for("org_stats", **redirect_args))
 
     try:
-        from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
-        from speedhive.analyzers.analyze_consistency import (
-            load_session_types_from_storage,
-            aggregate_by_name,
-            cluster_names,
-        )
-
-        _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
-        session_map = load_session_types_from_storage(storage, org_id_int)
-        by_name = aggregate_by_name(enriched, session_map, session_types=session_types_list)
-        clustered = cluster_names(by_name, threshold=0.85)
-
-        calculated_at = iso_utc(utc_now())
-        payload_str = json.dumps(clustered, default=str)
-        with storage.connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                (org_id_int, session_types_key, payload_str, calculated_at)
-            )
-            conn.commit()
-
-        # Prune older file cache if present
-        cache_file = DATA_ROOT / f"org_{org_id_int}_stats_cache.json"
-        if cache_file.exists():
-            try:
-                cache_file.unlink()
-            except Exception:
-                pass
+        _recalc_consistency_stats(org_id_int, session_types_list, ignore_outliers)
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
         redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
@@ -309,6 +321,14 @@ def driver_stats_breakdown(org_id, driver_name):
     min_laps = get_stats_min_laps(org_id_int)
 
     org_view = get_org_view(org_id_int)
+
+    from speedhive.workflows.track_records import curation as track_records
+    from speedhive.utils.lap_analysis import normalize_classification
+    
+    # Load class alias map and curated track records
+    tr_paths = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)
+    alias_map = track_records.load_json(tr_paths["alias_map"], {"aliases": {}, "always_review": []})
+    curated_fastest = track_records.build_curated_fastest_index(track_records.load_curated(tr_paths))
 
     aliases = {driver_name}
     overall_stats = None
@@ -363,18 +383,18 @@ def driver_stats_breakdown(org_id, driver_name):
 
     try:
         from collections import defaultdict
-        from speedhive.utils.lap_analysis import (
-            compute_laps_and_enriched_from_storage,
-            normalize_name,
-        )
+        from speedhive.utils.lap_analysis import normalize_name
         from speedhive.analyzers.analyze_consistency import (
             load_session_types_from_storage,
             matches_session_type,
         )
+        from app.analysis_cache import get_org_analysis
 
-        laps_by_driver, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+        bundle = get_org_analysis(storage, org_id_int, ignore_outliers)
+        laps_by_driver = bundle["laps_by_driver"]
+        enriched = bundle["enriched"]
+        results_payloads = bundle["results_payloads"]
         session_map = load_session_types_from_storage(storage, org_id_int)
-        results_payloads = storage.load_results_payloads(org_id_int)
 
         driver_sessions = []
         normalized_aliases = {normalize_name(a) for a in aliases}
@@ -384,6 +404,8 @@ def driver_stats_breakdown(org_id, driver_name):
         total_podiums = 0
         class_stats = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0, "best_lap": None})
         all_time_best_seconds = None
+        all_time_best_session = ""
+        all_time_best_date = ""
 
         for key, value in enriched.items():
             name = value.get("name")
@@ -438,20 +460,21 @@ def driver_stats_breakdown(org_id, driver_name):
                                 driver_result.get("class"),
                             )
 
-                        class_name = first_non_empty(
+                        raw_class_name = first_non_empty(
                             driver_cls,
                             session_raw.get("classification"),
                             session_raw.get("class"),
                             session_raw.get("classificationName"),
                             session_raw.get("className")
-                        ) or "Unknown Class"
+                        )
+                        class_name = "Unknown Class"
+                        if raw_class_name:
+                            status_cls, resolved_cls = normalize_classification(raw_class_name, alias_map)
+                            if status_cls == "ok":
+                                class_name = resolved_cls
 
                         laps = laps_by_driver.get(key, [])
                         best_lap = min(laps) if laps else None
-
-                        if best_lap is not None:
-                            if all_time_best_seconds is None or best_lap < all_time_best_seconds:
-                                all_time_best_seconds = best_lap
 
                         if is_race and status != "DNS":
                             total_starts += 1
@@ -477,6 +500,13 @@ def driver_stats_breakdown(org_id, driver_name):
                             session_raw.get("date"),
                         )
                         date_display = format_datetime_display(start_time_raw, include_time=True) or "N/A"
+                        date_only = format_datetime_display(start_time_raw, include_time=False) or "N/A"
+                        
+                        if best_lap is not None:
+                            if all_time_best_seconds is None or best_lap < all_time_best_seconds:
+                                all_time_best_seconds = best_lap
+                                all_time_best_session = session_name
+                                all_time_best_date = date_only
                         
                         formatted_laps = []
                         filtered_laps = value.get("filtered_laps", laps)
@@ -508,6 +538,7 @@ def driver_stats_breakdown(org_id, driver_name):
                             "class_name": class_name,
                             "session_type": matched_types[0].title(),
                             "date_display": date_display,
+                            "date_only": date_only,
                             "lap_count": len(laps) if not ignore_outliers else len(filtered_laps),
                             "mean_display": format_seconds(mean_val) if mean_val else "N/A",
                             "stdev_display": f"{stdev_val:.3f}s" if stdev_val else "N/A",
@@ -526,15 +557,16 @@ def driver_stats_breakdown(org_id, driver_name):
         win_rate = (total_wins / total_starts * 100) if total_starts > 0 else 0.0
         podium_rate = (total_podiums / total_starts * 100) if total_starts > 0 else 0.0
         
-        # Calculate win/podium rates and format best lap for class_stats
-        for cls, cstats in class_stats.items():
-            starts = cstats["starts"]
-            cstats["win_rate"] = f"{(cstats['wins'] / starts * 100):.1f}%" if starts > 0 else "0.0%"
-            cstats["podium_rate"] = f"{(cstats['podiums'] / starts * 100):.1f}%" if starts > 0 else "0.0%"
-            cstats["best_lap_display"] = format_seconds(cstats["best_lap"]) if cstats["best_lap"] else "N/A"
-
-        sorted_class_stats = dict(sorted(class_stats.items(), key=lambda item: item[1]["starts"], reverse=True))
-        all_time_best_display = format_seconds(all_time_best_seconds) if all_time_best_seconds else "N/A"
+        # Class stats will be enriched with class-specific best lap ranks and sorted lower down
+        if all_time_best_seconds is not None:
+            all_time_best_display = format_seconds(all_time_best_seconds)
+            if all_time_best_date and all_time_best_date != "N/A":
+                all_time_best_event = f"{all_time_best_session} ({all_time_best_date})"
+            else:
+                all_time_best_event = all_time_best_session
+        else:
+            all_time_best_display = "N/A"
+            all_time_best_event = ""
 
         # Peak career consistency (lowest CV in any session)
         valid_cvs = []
@@ -545,13 +577,16 @@ def driver_stats_breakdown(org_id, driver_name):
                     # Filter out exactly 0.00% or extremely small CVs (<= 0.02%)
                     # as these represent data/timing anomalies rather than real lap consistency.
                     if cv_val > 0.02:
-                        valid_cvs.append((cv_val, s["session_name"]))
-            except:
+                        valid_cvs.append((cv_val, s["session_name"], s.get("date_only", "N/A")))
+            except (TypeError, ValueError):
                 pass
         if valid_cvs:
-            best_cv, best_cv_sess = min(valid_cvs, key=lambda x: x[0])
+            best_cv, best_cv_sess, best_cv_date = min(valid_cvs, key=lambda x: x[0])
             peak_consistency_val = f"{best_cv:.2f}%"
-            peak_consistency_sess = best_cv_sess
+            if best_cv_date and best_cv_date != "N/A":
+                peak_consistency_sess = f"{best_cv_sess} ({best_cv_date})"
+            else:
+                peak_consistency_sess = best_cv_sess
         else:
             peak_consistency_val = "N/A"
             peak_consistency_sess = ""
@@ -562,12 +597,12 @@ def driver_stats_breakdown(org_id, driver_name):
             try:
                 val = float(s.get("cv_display", "").replace("%", ""))
                 return val if val > 0.02 else None
-            except:
+            except (TypeError, ValueError):
                 return None
 
         chrono_sessions = sorted(
             [s for s in driver_sessions if s.get("cv_display") != "N/A" and get_valid_cv_float(s) is not None],
-            key=lambda s: s["session_id"]
+            key=lambda s: (s.get("date_only") or "9999-99-99", s["session_id"])
         )
         trend_text = "N/A"
         trend_direction = "stable"
@@ -596,55 +631,68 @@ def driver_stats_breakdown(org_id, driver_name):
             def parse_cv(s):
                 try:
                     return float(s["cv_display"].replace("%", ""))
-                except:
+                except (TypeError, ValueError):
                     return None
             cv_vals = [parse_cv(s) for s in chrono_sessions]
             cv_vals = [v for v in cv_vals if v is not None]
             if len(cv_vals) >= 2:
-                n = min(3, len(cv_vals) // 2)
-                if n == 0:
-                    n = 1
-                first_avg = sum(cv_vals[:n]) / n
-                last_avg = sum(cv_vals[-n:]) / n
-                delta = first_avg - last_avg  # Positive is improvement (lower CV)
+                # Compare absolute first data point to absolute last data point
+                first_val = cv_vals[0]
+                last_val = cv_vals[-1]
+                delta = first_val - last_val  # Positive is improvement (lower CV)
                 if delta > 0.05:
-                    trend_text = f"Improving by {delta:.2f}pp ({first_avg:.2f}% → {last_avg:.2f}%)"
+                    trend_text = f"Improving by {delta:.2f}pp ({first_val:.2f}% → {last_val:.2f}%)"
                     trend_direction = "improving"
                 elif delta < -0.05:
-                    trend_text = f"Declining by {abs(delta):.2f}pp ({first_avg:.2f}% → {last_avg:.2f}%)"
+                    trend_text = f"Declining by {abs(delta):.2f}pp ({first_val:.2f}% → {last_val:.2f}%)"
                     trend_direction = "declining"
                 else:
-                    trend_text = f"Stable ({first_avg:.2f}% → {last_avg:.2f}%)"
+                    trend_text = f"Stable ({first_val:.2f}% → {last_val:.2f}%)"
                     trend_direction = "stable"
 
-        # Compute best lap ranking for all drivers at this track
-        driver_best_laps = {}
+        # Compute best lap for all drivers, grouped by resolved class
+        # driver_class_best_laps[class_name][driver_name_norm] = best_lap_seconds
+        driver_class_best_laps = defaultdict(dict)
+        
         for key, val in enriched.items():
             name = val.get("name")
             if not name:
                 continue
+            
+            # Resolve session class name using alias_map
+            raw_cls = val.get("class_name") or val.get("resultClass") or val.get("class")
+            if not raw_cls:
+                s_id = key.split("_")[0]
+                s_raw = session_map.get(s_id, {})
+                raw_cls = first_non_empty(
+                    s_raw.get("classification"),
+                    s_raw.get("class"),
+                    s_raw.get("classificationName"),
+                    s_raw.get("className")
+                )
+            
+            resolved_cls = "Unknown Class"
+            if raw_cls:
+                status_c, resolved_c = normalize_classification(raw_cls, alias_map)
+                if status_c == "ok":
+                    resolved_cls = resolved_c
+            
             laps = laps_by_driver.get(key, [])
             filtered_laps = val.get("filtered_laps", laps)
-            non_outliers = [l for l in filtered_laps if l > 0.1]
+            non_outliers = [lap for lap in filtered_laps if lap > 0.1]
             if non_outliers:
                 best = min(non_outliers)
                 norm_name = normalize_name(name)
-                if norm_name not in driver_best_laps or best < driver_best_laps[norm_name]["best_seconds"]:
-                    driver_best_laps[norm_name] = {
-                        "name": name,
-                        "best_seconds": best
-                    }
-        
-        sorted_best_laps = sorted(driver_best_laps.values(), key=lambda x: x["best_seconds"])
-        total_drivers_laps = len(sorted_best_laps)
-        best_lap_rank = None
-        
-        for idx, item in enumerate(sorted_best_laps):
-            if item["name"] == driver_name or item["name"] in aliases or normalize_name(item["name"]) in normalized_aliases:
-                best_lap_rank = idx + 1
-                break
+                current_best = driver_class_best_laps[resolved_cls].get(norm_name)
+                if current_best is None or best < current_best:
+                    driver_class_best_laps[resolved_cls][norm_name] = best
+                    
+        # Sort each class's best laps
+        class_rankings = {}
+        for cls, driver_laps in driver_class_best_laps.items():
+            class_rankings[cls] = sorted(driver_laps.items(), key=lambda x: x[1])
 
-        # Compute starts/wins/podiums for all drivers at this track (to rank wins)
+        # Compute starts/wins/podiums for all drivers at this track (to rank starts & wins)
         driver_stats_all = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0})
         for sid, results in results_payloads.items():
             s_raw = session_map.get(sid, {})
@@ -661,7 +709,7 @@ def driver_stats_breakdown(org_id, driver_name):
                         class_pos = None
                         try:
                             class_pos = int(r.get("positionInClass"))
-                        except:
+                        except (TypeError, ValueError):
                             pass
                             
                         if status == "Normal" and class_pos is not None:
@@ -670,6 +718,21 @@ def driver_stats_breakdown(org_id, driver_name):
                             if class_pos <= 3:
                                 driver_stats_all[norm_name]["podiums"] += 1
 
+        # Calculate starts rank
+        sorted_starts = sorted(
+            [{"name_key": k, "starts": v["starts"]} for k, v in driver_stats_all.items()],
+            key=lambda x: x["starts"],
+            reverse=True
+        )
+        total_drivers_starts = len(sorted_starts)
+        starts_rank = None
+        for idx, item in enumerate(sorted_starts):
+            norm_k = item["name_key"]
+            if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
+                starts_rank = idx + 1
+                break
+
+        # Calculate wins rank
         sorted_wins = sorted(
             [{"name_key": k, "wins": v["wins"]} for k, v in driver_stats_all.items()],
             key=lambda x: x["wins"],
@@ -682,6 +745,56 @@ def driver_stats_breakdown(org_id, driver_name):
             if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
                 wins_rank = idx + 1
                 break
+
+        # Calculate podiums rank
+        sorted_podiums = sorted(
+            [{"name_key": k, "podiums": v["podiums"]} for k, v in driver_stats_all.items()],
+            key=lambda x: x["podiums"],
+            reverse=True
+        )
+        podiums_rank = None
+        for idx, item in enumerate(sorted_podiums):
+            norm_k = item["name_key"]
+            if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
+                podiums_rank = idx + 1
+                break
+
+        # Enrich class_stats with best lap rank and rates
+        for cls, cstats in class_stats.items():
+            starts = cstats["starts"]
+            cstats["win_rate"] = f"{(cstats['wins'] / starts * 100):.1f}%" if starts > 0 else "0.0%"
+            cstats["podium_rate"] = f"{(cstats['podiums'] / starts * 100):.1f}%" if starts > 0 else "0.0%"
+            
+            # Find fastest lap rank for this driver in this class
+            rank_display = ""
+            if cls in class_rankings and cstats["best_lap"] is not None:
+                sorted_laps = class_rankings[cls]
+                total_in_class = len(sorted_laps)
+                driver_rank = None
+                for idx, (norm_name, lap_time) in enumerate(sorted_laps):
+                    if norm_name == normalize_name(driver_name) or norm_name in normalized_aliases:
+                        driver_rank = idx + 1
+                        break
+                if driver_rank:
+                    rank_display = f" (P{driver_rank} of {total_in_class})"
+
+            cstats["best_lap_display"] = f"{format_seconds(cstats['best_lap'])}{rank_display}" if cstats["best_lap"] else "N/A"
+
+            # Compare against the org's curated official track record for this class
+            record_gap_display = ""
+            holds_record = False
+            record_entry = curated_fastest.get(cls)
+            if record_entry and cstats["best_lap"] is not None:
+                gap = cstats["best_lap"] - record_entry["_seconds"]
+                if gap <= 0.0005:
+                    record_gap_display = "Track Record"
+                    holds_record = True
+                else:
+                    record_gap_display = f"+{gap:.3f}s"
+            cstats["record_gap_display"] = record_gap_display
+            cstats["holds_record"] = holds_record
+
+        sorted_class_stats = dict(sorted(class_stats.items(), key=lambda item: item[1]["starts"], reverse=True))
 
         return render_template(
             "driver_stats_breakdown.html",
@@ -702,6 +815,7 @@ def driver_stats_breakdown(org_id, driver_name):
             podium_rate_display=f"{podium_rate:.1f}%" if total_starts > 0 else "0.0%",
             class_stats=sorted_class_stats,
             all_time_best_display=all_time_best_display,
+            all_time_best_event=all_time_best_event,
             peak_consistency_val=peak_consistency_val,
             peak_consistency_sess=peak_consistency_sess,
             trend_text=trend_text,
@@ -709,10 +823,11 @@ def driver_stats_breakdown(org_id, driver_name):
             trend_timeframe=trend_timeframe,
             consistency_rank=consistency_rank,
             total_drivers_consistency=total_drivers_consistency,
-            best_lap_rank=best_lap_rank,
-            total_drivers_laps=total_drivers_laps,
+            starts_rank=starts_rank,
+            total_drivers_starts=total_drivers_starts,
             wins_rank=wins_rank,
             total_drivers_wins=total_drivers_wins,
+            podiums_rank=podiums_rank,
         )
     except Exception as exc:
         return render_template(
@@ -929,6 +1044,51 @@ def set_class_pace_config(org_id):
     return redirect(url_for("org_class_pace", **redirect_args))
 
 
+def _recalc_class_pace(org_id_int, session_types_list, ignore_outliers):
+    """Compute and store the class pace + participation payload for one
+    session-types/ignore-outliers combination. Shared by the Class Pace and
+    Participation pages' Recalculate buttons and the Operations page's
+    recalculate-all action."""
+    from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+    from speedhive.analyzers.analyze_class_pace import (
+        compute_avg_lap_by_class_year,
+        compute_participation_by_class_year,
+        compute_participation_by_year,
+    )
+    from speedhive.workflows.track_records import curation as track_records
+    from app.analysis_cache import get_org_analysis
+
+    session_types_list = sorted(session_types_list)
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"classpace_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    bundle = get_org_analysis(storage, org_id_int, ignore_outliers)
+    enriched = bundle["enriched"]
+    results_map = bundle["results_payloads"]
+    session_map = load_session_types_from_storage(storage, org_id_int)
+    # Same alias map (and resolution logic) track-record curation uses,
+    # so "Spec Miata" and "SM" group together consistently everywhere,
+    # not just in curated records -- see analyze_class_pace docstrings.
+    alias_map_path = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)["alias_map"]
+    alias_map = track_records.load_json(alias_map_path, {"aliases": {}, "always_review": []})
+    # Cache every qualifying class here, uncapped -- the chart's own
+    # inline class picker and the 8-class display cap (validated
+    # categorical palette in class_pace.html, see dataviz skill) are both
+    # applied at display time in org_class_pace, over this same cached
+    # payload, so neither needs a recompute to change what's shown.
+    chart_data = compute_avg_lap_by_class_year(
+        enriched, session_map, results_map, session_types=session_types_list, max_classes=None, alias_map=alias_map
+    )
+    # Combined-across-classes participation trend, and the per-class
+    # breakdown behind it, cached alongside the per-class pace data since
+    # they all share the same Generate/Recalculate action.
+    chart_data["participation"] = compute_participation_by_year(enriched, session_map, session_types=session_types_list)
+    chart_data["participation_by_class"] = compute_participation_by_class_year(
+        enriched, session_map, results_map, session_types=session_types_list, max_classes=None, alias_map=alias_map
+    )
+    _store_org_stats_payload(org_id_int, session_types_key, chart_data)
+
+
 def generate_org_class_pace(org_id):
     try:
         org_id_int = int(org_id)
@@ -958,8 +1118,6 @@ def generate_org_class_pace(org_id):
         session_types_list = ["race"]
 
     session_types_list.sort()
-    session_types_str = ",".join(session_types_list)
-    session_types_key = f"classpace_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
     if not has_db_stats:
@@ -968,47 +1126,7 @@ def generate_org_class_pace(org_id):
         return redirect(url_for(redirect_endpoint, **redirect_args))
 
     try:
-        from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
-        from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
-        from speedhive.analyzers.analyze_class_pace import (
-            compute_avg_lap_by_class_year,
-            compute_participation_by_class_year,
-            compute_participation_by_year,
-        )
-        from speedhive.workflows.track_records import curation as track_records
-
-        _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
-        session_map = load_session_types_from_storage(storage, org_id_int)
-        results_map = storage.load_results_payloads(org_id_int)
-        # Same alias map (and resolution logic) track-record curation uses,
-        # so "Spec Miata" and "SM" group together consistently everywhere,
-        # not just in curated records -- see analyze_class_pace docstrings.
-        alias_map_path = track_records.paths_for_org(TRACK_RECORDS_ROOT, org_id_int)["alias_map"]
-        alias_map = track_records.load_json(alias_map_path, {"aliases": {}, "always_review": []})
-        # Cache every qualifying class here, uncapped -- the chart's own
-        # inline class picker and the 8-class display cap (validated
-        # categorical palette in class_pace.html, see dataviz skill) are both
-        # applied at display time in org_class_pace, over this same cached
-        # payload, so neither needs a recompute to change what's shown.
-        chart_data = compute_avg_lap_by_class_year(
-            enriched, session_map, results_map, session_types=session_types_list, max_classes=None, alias_map=alias_map
-        )
-        # Combined-across-classes participation trend, and the per-class
-        # breakdown behind it, cached alongside the per-class pace data since
-        # they all share the same Generate/Recalculate action.
-        chart_data["participation"] = compute_participation_by_year(enriched, session_map, session_types=session_types_list)
-        chart_data["participation_by_class"] = compute_participation_by_class_year(
-            enriched, session_map, results_map, session_types=session_types_list, max_classes=None, alias_map=alias_map
-        )
-
-        calculated_at = iso_utc(utc_now())
-        payload_str = json.dumps(chart_data, default=str)
-        with storage.connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                (org_id_int, session_types_key, payload_str, calculated_at)
-            )
-            conn.commit()
+        _recalc_class_pace(org_id_int, session_types_list, ignore_outliers)
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
         redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
@@ -1078,10 +1196,10 @@ def org_most_improved(org_id):
             # automatically recalculate inline to cache the full list of drivers.
             if most_improved is not None and len(most_improved) <= 15:
                 try:
-                    from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
                     from speedhive.analyzers.analyze_consistency import get_most_improved_rankings, load_session_types_from_storage
-                    
-                    _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+                    from app.analysis_cache import get_org_analysis
+
+                    enriched = get_org_analysis(storage, org_id_int, ignore_outliers)["enriched"]
                     s_map = load_session_types_from_storage(storage, org_id_int)
                     min_laps = get_stats_min_laps(org_id_int)
                     
@@ -1123,6 +1241,27 @@ def org_most_improved(org_id):
     )
 
 
+def _recalc_most_improved(org_id_int, session_types_list, ignore_outliers):
+    """Compute and store the most improved/declined payload for one
+    session-types/ignore-outliers combination. Shared by the Most Improved
+    page's Recalculate button and the Operations page's recalculate-all
+    action."""
+    from speedhive.analyzers.analyze_consistency import load_session_types_from_storage, get_most_improved_rankings
+    from app.analysis_cache import get_org_analysis
+
+    session_types_list = sorted(session_types_list)
+    session_types_str = ",".join(session_types_list)
+    session_types_key = f"most_improved_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
+
+    enriched = get_org_analysis(storage, org_id_int, ignore_outliers)["enriched"]
+    session_map = load_session_types_from_storage(storage, org_id_int)
+    min_laps = get_stats_min_laps(org_id_int)
+    most_improved, most_declined = get_most_improved_rankings(
+        enriched, session_map, session_types=session_types_list, min_laps=min_laps, limit=None
+    )
+    _store_org_stats_payload(org_id_int, session_types_key, {"most_improved": most_improved, "most_declined": most_declined})
+
+
 def generate_org_most_improved(org_id):
     try:
         org_id_int = int(org_id)
@@ -1144,8 +1283,6 @@ def generate_org_most_improved(org_id):
         session_types_list = ["race"]
 
     session_types_list.sort()
-    session_types_str = ",".join(session_types_list)
-    session_types_key = f"most_improved_{session_types_str}" + (":ignore_outliers" if ignore_outliers else "")
 
     has_db_stats = storage.org_has_sessions(org_id_int)
     if not has_db_stats:
@@ -1154,24 +1291,7 @@ def generate_org_most_improved(org_id):
         return redirect(url_for("org_most_improved", **redirect_args))
 
     try:
-        from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
-        from speedhive.analyzers.analyze_consistency import load_session_types_from_storage, get_most_improved_rankings
-
-        _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
-        session_map = load_session_types_from_storage(storage, org_id_int)
-        min_laps = get_stats_min_laps(org_id_int)
-        most_improved, most_declined = get_most_improved_rankings(
-            enriched, session_map, session_types=session_types_list, min_laps=min_laps, limit=None
-        )
-
-        calculated_at = iso_utc(utc_now())
-        payload_str = json.dumps({"most_improved": most_improved, "most_declined": most_declined}, default=str)
-        with storage.connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                (org_id_int, session_types_key, payload_str, calculated_at)
-            )
-            conn.commit()
+        _recalc_most_improved(org_id_int, session_types_list, ignore_outliers)
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
         redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
@@ -1229,9 +1349,12 @@ def org_wins_podiums(org_id):
                 try:
                     from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
                     from speedhive.analyzers.analyze_results import get_wins_podiums_rankings
-                    results_payloads = storage.load_results_payloads(org_id_int)
+                    from app.analysis_cache import get_org_analysis
+
+                    # bundle results are already deduped, so no laps_payloads needed
+                    results_payloads = get_org_analysis(storage, org_id_int, True)["results_payloads"]
                     s_map = load_session_types_from_storage(storage, org_id_int)
-                    
+
                     full_wins, full_podiums = get_wins_podiums_rankings(results_payloads, s_map, limit=None)
                     
                     calculated_at = iso_utc(utc_now())
@@ -1264,6 +1387,21 @@ def org_wins_podiums(org_id):
     )
 
 
+def _recalc_wins_podiums(org_id_int):
+    """Compute and store the wins/podiums leaderboard payload. Shared by the
+    Wins & Podiums page's Recalculate button and the Operations page's
+    recalculate-all action."""
+    from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+    from speedhive.analyzers.analyze_results import get_wins_podiums_rankings
+    from app.analysis_cache import get_org_analysis
+
+    # bundle results are already deduped, so no laps_payloads needed
+    results_payloads = get_org_analysis(storage, org_id_int, True)["results_payloads"]
+    session_map = load_session_types_from_storage(storage, org_id_int)
+    most_wins, most_podiums = get_wins_podiums_rankings(results_payloads, session_map, limit=None)
+    _store_org_stats_payload(org_id_int, WINS_PODIUMS_CACHE_KEY, {"most_wins": most_wins, "most_podiums": most_podiums})
+
+
 def generate_org_wins_podiums(org_id):
     try:
         org_id_int = int(org_id)
@@ -1275,30 +1413,80 @@ def generate_org_wins_podiums(org_id):
         return redirect(url_for("org_wins_podiums", org_id=org_id_int, error="No synced session data available to analyze."))
 
     try:
-        from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
-        from speedhive.analyzers.analyze_results import get_wins_podiums_rankings
-
-        results_payloads = storage.load_results_payloads(org_id_int)
-        session_map = load_session_types_from_storage(storage, org_id_int)
-        most_wins, most_podiums = get_wins_podiums_rankings(results_payloads, session_map, limit=None)
-
-        calculated_at = iso_utc(utc_now())
-        payload_str = json.dumps({"most_wins": most_wins, "most_podiums": most_podiums}, default=str)
-        with storage.connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                (org_id_int, WINS_PODIUMS_CACHE_KEY, payload_str, calculated_at)
-            )
-            conn.commit()
+        _recalc_wins_podiums(org_id_int)
     except Exception as exc:
         return redirect(url_for("org_wins_podiums", org_id=org_id_int, error=f"Analysis failed: {exc}"))
 
     return redirect(url_for("org_wins_podiums", org_id=org_id_int))
 
 
+VALID_SESSION_TYPES = ("race", "qualifying", "practice")
+
+
+def generate_org_all_stats(org_id):
+    """Recalculate every cached stat view this org has (consistency, class
+    pace, most improved, wins/podiums -- all session-type/outlier variants
+    present in org_stats), plus the defaults for a fresh org. One button on
+    the Operations page instead of visiting each stats tab's Recalculate.
+    Also leaves the org-analysis cache warm, so driver reports load fast."""
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    if not storage.org_has_sessions(org_id_int):
+        return redirect(url_for("org_operations", org_id=org_id_int, error="No synced session data available to analyze."))
+
+    with storage.connect() as conn:
+        rows = conn.execute("SELECT session_type FROM org_stats WHERE org_id = ?", (org_id_int,)).fetchall()
+    keys = {row["session_type"] for row in rows}
+    # Defaults so a freshly synced org gets its primary views without having
+    # to visit each stats tab once first
+    keys.add("race:ignore_outliers")
+    keys.add(WINS_PODIUMS_CACHE_KEY)
+
+    recalculated = 0
+    failures = []
+    for key in sorted(keys):
+        base = key
+        ignore_outliers = base.endswith(":ignore_outliers")
+        if ignore_outliers:
+            base = base[: -len(":ignore_outliers")]
+        try:
+            if key == WINS_PODIUMS_CACHE_KEY:
+                _recalc_wins_podiums(org_id_int)
+            elif base.startswith("classpace_"):
+                types = [t for t in base[len("classpace_"):].split(",") if t in VALID_SESSION_TYPES]
+                if not types:
+                    continue
+                _recalc_class_pace(org_id_int, types, ignore_outliers)
+            elif base.startswith("most_improved_"):
+                types = [t for t in base[len("most_improved_"):].split(",") if t in VALID_SESSION_TYPES]
+                if not types:
+                    continue
+                _recalc_most_improved(org_id_int, types, ignore_outliers)
+            else:
+                types = [t for t in base.split(",") if t in VALID_SESSION_TYPES]
+                if not types:
+                    continue
+                _recalc_consistency_stats(org_id_int, types, ignore_outliers)
+            recalculated += 1
+        except Exception as exc:
+            current_app.logger.warning(f"Recalculate-all failed for org {org_id_int} view '{key}': {exc}")
+            failures.append(key)
+
+    if failures:
+        return redirect(url_for(
+            "org_operations", org_id=org_id_int,
+            error=f"Recalculated {recalculated} stat views; {len(failures)} failed: {', '.join(failures)}",
+        ))
+    return redirect(url_for("org_operations", org_id=org_id_int, notice=f"Recalculated {recalculated} stat views."))
+
+
 def register_routes(app):
     app.add_url_rule("/org/<org_id>/stats", "org_stats", org_stats)
     app.add_url_rule("/org/<org_id>/stats/generate", "generate_org_stats", generate_org_stats, methods=["POST"])
+    app.add_url_rule("/org/<org_id>/stats/generate-all", "generate_org_all_stats", generate_org_all_stats, methods=["POST"])
     app.add_url_rule("/org/<org_id>/stats/driver/<driver_name>", "driver_stats_breakdown", driver_stats_breakdown)
     app.add_url_rule("/org/<org_id>/stats/class-pace", "org_class_pace", org_class_pace)
     app.add_url_rule("/org/<org_id>/stats/class-pace/generate", "generate_org_class_pace", generate_org_class_pace, methods=["POST"])

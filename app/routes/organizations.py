@@ -443,6 +443,8 @@ def org_operations(org_id):
         cache_status=cache_status,
         running_task_id=running_task_id,
         running_track_records_task_id=running_track_records_task_id,
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
     )
 
 

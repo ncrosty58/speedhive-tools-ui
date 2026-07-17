@@ -4,6 +4,81 @@
 
 {% block content %}
 <style>
+    .kpi-label {
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.25rem;
+    }
+    .kpi-value {
+        display: block;
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.2;
+    }
+    .kpi-sub {
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.65rem;
+        line-height: 1.3;
+        margin-top: 0.15rem;
+        word-break: break-word;
+    }
+    .kpi-section {
+        border-top: 1px solid var(--border);
+        padding-top: 1rem;
+        margin-top: 1rem;
+    }
+    .kpi-section-label {
+        display: block;
+        color: var(--brand);
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.75rem;
+    }
+    .kpi-rank {
+        display: block;
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+    }
+    .kpi-rank-first {
+        color: #34d399;
+    }
+    .kpi-rank-podium {
+        color: #fbbf24;
+    }
+    .kpi-stat {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-main);
+        line-height: 1.3;
+        margin-top: 0.25rem;
+    }
+    .pill-win {
+        background: rgba(16, 185, 129, 0.14) !important;
+        color: #34d399 !important;
+        border-color: rgba(16, 185, 129, 0.35) !important;
+    }
+    .pill-podium {
+        background: rgba(245, 158, 11, 0.14) !important;
+        color: #fbbf24 !important;
+        border-color: rgba(245, 158, 11, 0.35) !important;
+    }
+    .pill-status {
+        background: rgba(239, 68, 68, 0.14) !important;
+        color: #f87171 !important;
+        border-color: rgba(239, 68, 68, 0.35) !important;
+    }
     @media (max-width: 576px) {
         .session-header-stats {
             display: grid !important;
@@ -37,172 +112,173 @@
     <!-- Driver Overview Card -->
     <div class="col-12">
         <div class="glass-card">
-            <div class="row g-4 align-items-center">
-                <div class="col-lg-6">
-                    <span class="text-brand small fw-bold text-uppercase tracking-wider">Driver Profile</span>
-                    <h2 class="h3 fw-bold mb-1 text-white">{{ driver_name }}</h2>
-                    
-                    {% if aliases|length > 1 %}
-                        <p class="small text-muted mb-2">
-                            <span class="fw-semibold text-secondary me-1">Matched aliases:</span>
-                            <span class="text-light">{{ aliases | join(', ') }}</span>
-                        </p>
-                    {% else %}
-                        <div class="mb-2"></div>
-                    {% endif %}
-
-                    <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-2">
-                        <div class="row g-3 text-center">
-                            <!-- Best Lap -->
-                            <div class="col-4 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Best Lap (Track All-Time)</span>
-                                <span class="h5 fw-bold text-brand fw-mono mb-0">{{ all_time_best_display }}</span>
-                            </div>
-                            
-                            <!-- Peak Session Consistency -->
-                            <div class="col-4 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Peak Consistency</span>
-                                <span class="h5 fw-bold text-white mb-0">{{ peak_consistency_val }}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem; line-height: 1.2; word-break: break-word;">{{ peak_consistency_sess }}</small>
-                            </div>
-
-                            <!-- Consistency Trend -->
-                            <div class="col-4">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Trend {{ trend_timeframe }}</span>
-                                {% if trend_direction == 'improving' %}
-                                    <span class="h5 fw-bold text-success mb-0 d-flex align-items-center justify-content-center gap-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-arrow-up-right-circle-fill" viewBox="0 0 16 16">
-                                          <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
-                                        </svg>
-                                        {{ trend_text.split('by ')[1].split(' ')[0] if 'by ' in trend_text else '' }}
-                                    </span>
-                                    <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('pp ')[1] if 'pp ' in trend_text else '' }}</small>
-                                {% elif trend_direction == 'declining' %}
-                                    <span class="h5 fw-bold text-danger mb-0 d-flex align-items-center justify-content-center gap-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-arrow-down-right-circle-fill" viewBox="0 0 16 16">
-                                          <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
-                                        </svg>
-                                        {{ trend_text.split('by ')[1].split(' ')[0] if 'by ' in trend_text else '' }}
-                                    </span>
-                                    <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('pp ')[1] if 'pp ' in trend_text else '' }}</small>
-                                {% else %}
-                                    <span class="h5 fw-bold text-secondary mb-0 d-flex align-items-center justify-content-center gap-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-dash-circle-fill" viewBox="0 0 16 16">
-                                          <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0M4.5 7.5a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1z"/>
-                                        </svg>
-                                        Stable
-                                    </span>
-                                    <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('Stable ')[1] if 'Stable ' in trend_text else '' }}</small>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Track Standings -->
-                    <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-3">
-                        <span class="text-brand small fw-bold text-uppercase tracking-wider d-block mb-2" style="font-size: 0.7rem;">Track Standings</span>
-                        <div class="row g-2 text-center">
-                            <div class="col-4 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Fastest Lap Rank</span>
-                                <span class="h5 fw-bold text-white mb-0">{% if best_lap_rank %}P{{ best_lap_rank }}{% else %}-{% endif %}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">of {{ total_drivers_laps }} drivers</small>
-                            </div>
-                            <div class="col-4 border-end border-secondary border-opacity-10">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Consistency Rank</span>
-                                <span class="h5 fw-bold text-white mb-0">{% if consistency_rank %}P{{ consistency_rank }}{% else %}-{% endif %}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">of {{ total_drivers_consistency }} drivers</small>
-                            </div>
-                            <div class="col-4">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Race Wins Rank</span>
-                                <span class="h5 fw-bold text-white mb-0">{% if wins_rank %}P{{ wins_rank }}{% else %}-{% endif %}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">of {{ total_drivers_wins }} drivers</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-lg-6">
-                    <span class="text-brand small fw-bold text-uppercase tracking-wider">Track Metrics Summary</span>
-                    <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-2">
-                        <div class="row g-4 text-center">
-                            <!-- Performance Stats -->
-                            <div class="col-4">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.75rem;">Starts</span>
-                                <span class="h4 fw-bold text-white">{{ total_starts }}</span>
-                            </div>
-                            <div class="col-4">
-                                <span class="text-success small d-block mb-1" style="font-size: 0.75rem;">Wins</span>
-                                <span class="h4 fw-bold text-success">{{ total_wins }}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.65rem;">Rate: {{ win_rate_display }}</small>
-                            </div>
-                            <div class="col-4">
-                                <span class="text-warning small d-block mb-1" style="font-size: 0.75rem;">Podiums</span>
-                                <span class="h4 fw-bold text-warning">{{ total_podiums }}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.65rem;">Rate: {{ podium_rate_display }}</small>
-                            </div>
-
-                            <!-- Divider line -->
-                            <div class="col-12 py-0">
-                                <hr class="my-0 border-secondary border-opacity-15">
-                            </div>
-
-                            <!-- Consistency/Laps Stats -->
-                            <div class="col-4">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.75rem;">Total Laps</span>
-                                <span class="h4 fw-bold text-white">{% if overall_stats %}{{ overall_stats.lap_count }}{% else %}-{% endif %}</span>
-                            </div>
-                            <div class="col-4">
-                                <span class="text-muted small d-block mb-1" style="font-size: 0.75rem;">Average Lap</span>
-                                <span class="h4 fw-bold text-white">{% if overall_stats and overall_stats.mean_display %}{{ overall_stats.mean_display }}{% else %}-{% endif %}</span>
-                            </div>
-                            <div class="col-4">
-                                <span class="text-brand small d-block mb-1" style="font-size: 0.75rem;">CV (%)</span>
-                                <span class="h4 fw-bold text-brand">{% if overall_stats and overall_stats.cv_display %}{{ overall_stats.cv_display }}{% else %}-{% endif %}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {% if class_stats %}
-                    <div class="col-12 mt-4 pt-3 border-top border-secondary border-opacity-10">
-                        <span class="text-brand small fw-bold text-uppercase tracking-wider d-block mb-3">Activity by Class</span>
-                        <div class="table-responsive">
-                            <table class="table table-custom align-middle mb-0 text-white" style="border: 1px solid rgba(255,255,255,0.08);">
-                                <thead>
-                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.15);">
-                                        <th class="text-secondary small fw-bold text-uppercase pb-2">Class</th>
-                                        <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Starts</th>
-                                        <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Wins</th>
-                                        <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Podiums</th>
-                                        <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Win %</th>
-                                        <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Podium %</th>
-                                        <th class="text-secondary small fw-bold text-uppercase text-end pb-2">Best Lap</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for cls, cstats in class_stats.items() %}
-                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                            <td class="fw-bold text-light py-2.5">{{ cls }}</td>
-                                            <td class="text-center text-white py-2.5">{{ cstats.starts }}</td>
-                                            <td class="text-center text-success fw-semibold py-2.5">{% if cstats.wins > 0 %}{{ cstats.wins }}{% else %}-{% endif %}</td>
-                                            <td class="text-center text-warning fw-semibold py-2.5">{% if cstats.podiums > 0 %}{{ cstats.podiums }}{% else %}-{% endif %}</td>
-                                            <td class="text-center text-success fw-semibold py-2.5">{{ cstats.win_rate }}</td>
-                                            <td class="text-center text-warning fw-semibold py-2.5">{{ cstats.podium_rate }}</td>
-                                            <td class="text-end text-brand fw-mono py-2.5">{{ cstats.best_lap_display }}</td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+            <!-- Identity -->
+            <div>
+                <span class="text-brand small fw-bold text-uppercase tracking-wider">Driver Profile</span>
+                <h2 class="h3 fw-bold mb-0 text-white">{{ driver_name }}</h2>
+                {% if aliases|length > 1 %}
+                    <p class="small text-muted mt-1 mb-0">
+                        <span class="fw-semibold text-secondary me-1">Matched aliases:</span>
+                        <span class="text-light">{{ aliases | join(', ') }}</span>
+                    </p>
                 {% endif %}
             </div>
+
+            <!-- Ranking -->
+            <div class="kpi-section">
+                <span class="kpi-section-label">Ranking</span>
+                <div class="row row-cols-2 row-cols-md-4 g-3 text-center">
+                    <div class="col">
+                        <span class="kpi-label">Starts</span>
+                        {% if starts_rank %}
+                            <span class="kpi-rank {% if starts_rank == 1 %}kpi-rank-first{% elif starts_rank <= 3 %}kpi-rank-podium{% endif %}">P{{ starts_rank }}</span>
+                            <span class="kpi-stat">{{ "{:,}".format(total_starts) }} starts</span>
+                            <span class="kpi-sub">of {{ "{:,}".format(total_drivers_starts) }} drivers</span>
+                        {% else %}
+                            <span class="kpi-rank text-muted">&mdash;</span>
+                            <span class="kpi-stat">{{ "{:,}".format(total_starts) }} starts</span>
+                            <span class="kpi-sub">unranked</span>
+                        {% endif %}
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Wins</span>
+                        {% if wins_rank %}
+                            <span class="kpi-rank {% if wins_rank == 1 %}kpi-rank-first{% elif wins_rank <= 3 %}kpi-rank-podium{% endif %}">P{{ wins_rank }}</span>
+                            <span class="kpi-stat">{{ "{:,}".format(total_wins) }} wins &bull; {{ win_rate_display }}</span>
+                            <span class="kpi-sub">of {{ "{:,}".format(total_drivers_wins) }} drivers</span>
+                        {% else %}
+                            <span class="kpi-rank text-muted">&mdash;</span>
+                            <span class="kpi-stat">{{ "{:,}".format(total_wins) }} wins &bull; {{ win_rate_display }}</span>
+                            <span class="kpi-sub">unranked</span>
+                        {% endif %}
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Podiums</span>
+                        {% if podiums_rank %}
+                            <span class="kpi-rank {% if podiums_rank == 1 %}kpi-rank-first{% elif podiums_rank <= 3 %}kpi-rank-podium{% endif %}">P{{ podiums_rank }}</span>
+                            <span class="kpi-stat">{{ "{:,}".format(total_podiums) }} podiums &bull; {{ podium_rate_display }}</span>
+                            <span class="kpi-sub">of {{ "{:,}".format(total_drivers_starts) }} drivers</span>
+                        {% else %}
+                            <span class="kpi-rank text-muted">&mdash;</span>
+                            <span class="kpi-stat">{{ "{:,}".format(total_podiums) }} podiums &bull; {{ podium_rate_display }}</span>
+                            <span class="kpi-sub">unranked</span>
+                        {% endif %}
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Consistency</span>
+                        {% if consistency_rank %}
+                            <span class="kpi-rank {% if consistency_rank == 1 %}kpi-rank-first{% elif consistency_rank <= 3 %}kpi-rank-podium{% endif %}">P{{ consistency_rank }}</span>
+                            <span class="kpi-stat">{% if overall_stats and overall_stats.cv_display %}{{ overall_stats.cv_display }} CV{% else %}&mdash;{% endif %}</span>
+                            <span class="kpi-sub">of {{ "{:,}".format(total_drivers_consistency) }} drivers</span>
+                        {% else %}
+                            <span class="kpi-rank text-muted">&mdash;</span>
+                            <span class="kpi-stat">{% if overall_stats and overall_stats.cv_display %}{{ overall_stats.cv_display }} CV{% else %}&mdash;{% endif %}</span>
+                            <span class="kpi-sub">unranked</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pace & Consistency -->
+            <div class="kpi-section">
+                <span class="kpi-section-label">Pace &amp; Consistency</span>
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-6 g-3 text-center">
+                    <div class="col">
+                        <span class="kpi-label">Best Lap (Track All-Time)</span>
+                        <span class="kpi-value text-brand fw-mono">{{ all_time_best_display }}</span>
+                        <span class="kpi-sub">{{ all_time_best_event }}</span>
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Average Lap</span>
+                        <span class="kpi-value">{% if overall_stats and overall_stats.mean_display %}{{ overall_stats.mean_display }}{% else %}-{% endif %}</span>
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">CV (%)</span>
+                        <span class="kpi-value text-brand">{% if overall_stats and overall_stats.cv_display %}{{ overall_stats.cv_display }}{% else %}-{% endif %}</span>
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Total Laps</span>
+                        <span class="kpi-value">{% if overall_stats %}{{ overall_stats.lap_count }}{% else %}-{% endif %}</span>
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Peak Consistency</span>
+                        <span class="kpi-value">{{ peak_consistency_val }}</span>
+                        <span class="kpi-sub">{{ peak_consistency_sess }}</span>
+                    </div>
+                    <div class="col">
+                        <span class="kpi-label">Trend {{ trend_timeframe }}</span>
+                        {% if trend_direction == 'improving' %}
+                            <span class="kpi-value text-success d-flex align-items-center justify-content-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-arrow-up-right-circle-fill" viewBox="0 0 16 16">
+                                  <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
+                                </svg>
+                                {{ trend_text.split('by ')[1].split(' ')[0] if 'by ' in trend_text else '' }}
+                            </span>
+                            <span class="kpi-sub">{{ trend_text.split('pp ')[1] if 'pp ' in trend_text else '' }}</span>
+                        {% elif trend_direction == 'declining' %}
+                            <span class="kpi-value text-danger d-flex align-items-center justify-content-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-arrow-down-right-circle-fill" viewBox="0 0 16 16">
+                                  <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
+                                </svg>
+                                {{ trend_text.split('by ')[1].split(' ')[0] if 'by ' in trend_text else '' }}
+                            </span>
+                            <span class="kpi-sub">{{ trend_text.split('pp ')[1] if 'pp ' in trend_text else '' }}</span>
+                        {% else %}
+                            <span class="kpi-value text-secondary d-flex align-items-center justify-content-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-dash-circle-fill" viewBox="0 0 16 16">
+                                  <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0M4.5 7.5a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1z"/>
+                                </svg>
+                                Stable
+                            </span>
+                            <span class="kpi-sub">{{ trend_text.split('Stable ')[1] if 'Stable ' in trend_text else '' }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {% if class_stats %}
+                <div class="kpi-section">
+                    <span class="kpi-section-label">Activity by Class</span>
+                    <div class="table-responsive">
+                        <table class="table table-custom align-middle mb-0 text-white" style="border: 1px solid rgba(255,255,255,0.08);">
+                            <thead>
+                                <tr style="border-bottom: 2px solid rgba(255,255,255,0.15);">
+                                    <th class="text-secondary small fw-bold text-uppercase pb-2">Class</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Starts</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Wins</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Podiums</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Win %</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-center pb-2">Podium %</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-end pb-2">Best Lap</th>
+                                    <th class="text-secondary small fw-bold text-uppercase text-end pb-2">vs. Track Record</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cls, cstats in class_stats.items() %}
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td class="fw-bold text-light py-2.5">{{ cls }}</td>
+                                        <td class="text-center text-white py-2.5">{{ cstats.starts }}</td>
+                                        <td class="text-center text-success fw-semibold py-2.5">{% if cstats.wins > 0 %}{{ cstats.wins }}{% else %}-{% endif %}</td>
+                                        <td class="text-center text-warning fw-semibold py-2.5">{% if cstats.podiums > 0 %}{{ cstats.podiums }}{% else %}-{% endif %}</td>
+                                        <td class="text-center text-success fw-semibold py-2.5">{{ cstats.win_rate }}</td>
+                                        <td class="text-center text-warning fw-semibold py-2.5">{{ cstats.podium_rate }}</td>
+                                        <td class="text-end text-brand fw-mono py-2.5">{{ cstats.best_lap_display }}</td>
+                                        <td class="text-end fw-mono py-2.5 {% if cstats.holds_record %}text-brand fw-bold{% else %}text-muted{% endif %}">
+                                            {% if cstats.holds_record %}<i class="fa-solid fa-trophy me-1"></i>{% endif %}{{ cstats.record_gap_display or '—' }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            {% endif %}
         </div>
     </div>
 
     <!-- Session Breakdowns -->
     <div class="col-12">
-        <h3 class="h4 fw-bold mb-3">Analyzed Sessions</h3>
+        <h3 class="h4 fw-bold mb-3">Analyzed Sessions <span class="text-muted fw-normal">({{ driver_sessions|length }})</span></h3>
         {% if driver_sessions %}
             <div class="d-flex flex-column gap-4">
                 {% for session in driver_sessions %}
@@ -219,25 +295,25 @@
                                 {% if session.finish_pos is not none or session.class_pos is not none or (session.status and session.status != 'Normal') %}
                                     <div class="d-flex flex-wrap gap-2 mt-2 align-items-center">
                                         {% if session.status and session.status != 'Normal' %}
-                                            <span class="badge bg-danger bg-opacity-20 text-danger border border-danger border-opacity-30 small px-2 py-1 fw-bold">{{ session.status }}</span>
+                                            <span class="badge pill-status border small px-2 py-1 fw-bold">{{ session.status }}</span>
                                         {% endif %}
                                         {% if session.class_pos is not none %}
                                             {% if session.class_pos == 1 %}
-                                                <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-20 small px-2 py-1 fw-semibold">
+                                                <span class="badge pill-win border small px-2 py-1 fw-semibold">
                                                     P{{ session.class_pos }} in Class
                                                 </span>
                                             {% elif session.class_pos <= 3 %}
-                                                <span class="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-20 small px-2 py-1 fw-semibold">
+                                                <span class="badge pill-podium border small px-2 py-1 fw-semibold">
                                                     P{{ session.class_pos }} in Class
                                                 </span>
                                             {% else %}
-                                                <span class="badge bg-light bg-opacity-10 text-white border border-secondary border-opacity-20 small px-2 py-1 fw-semibold">
+                                                <span class="badge bg-light bg-opacity-10 text-white border border-secondary border-opacity-25 small px-2 py-1 fw-semibold">
                                                     P{{ session.class_pos }} in Class
                                                 </span>
                                             {% endif %}
                                         {% endif %}
                                         {% if session.finish_pos is not none %}
-                                            <span class="badge bg-light bg-opacity-10 text-white border border-secondary border-opacity-20 small px-2 py-1 fw-semibold">
+                                            <span class="badge bg-light bg-opacity-10 text-white border border-secondary border-opacity-25 small px-2 py-1 fw-semibold">
                                                 P{{ session.finish_pos }} Overall
                                             </span>
                                         {% endif %}
@@ -295,7 +371,7 @@
                             <div class="row g-2">
                                 {% for lap in session.laps %}
                                     <div class="col-6 col-sm-4 col-md-3 col-lg-2">
-                                        <div class="p-2 rounded text-center {% if lap.is_outlier %}bg-danger bg-opacity-5 border border-danger border-opacity-20 text-muted opacity-50{% elif lap.is_best %}bg-brand bg-opacity-15 border border-brand border-opacity-40{% else %}bg-surface border border-secondary border-opacity-10{% endif %}" {% if lap.is_outlier %}title="Outlier ignored from stats"{% endif %}>
+                                        <div class="p-2 rounded text-center {% if lap.is_outlier %}bg-danger bg-opacity-10 border border-danger border-opacity-25 text-muted opacity-50{% elif lap.is_best %}bg-brand bg-opacity-10 border border-brand border-opacity-50{% else %}bg-surface border border-secondary border-opacity-10{% endif %}" {% if lap.is_outlier %}title="Outlier ignored from stats"{% endif %}>
                                             <span class="text-muted d-block" style="font-size: 0.75rem;">Lap {{ lap.number }}{% if lap.is_outlier %}<span class="d-none d-sm-inline"> (Outlier)</span>{% endif %}</span>
                                             <span class="fw-mono fw-semibold small {% if lap.is_outlier %}text-decoration-line-through text-muted{% elif lap.is_best %}text-brand{% else %}text-white{% endif %}">{{ lap.display }}</span>
                                         </div>

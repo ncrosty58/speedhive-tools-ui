@@ -256,8 +256,8 @@ def lap_times(session_id, driver_id):
                     sec = parse_time_value(time_str)
                     if sec is not None and sec > 0:
                         times.append((lap, sec))
-            from speedhive.utils.lap_analysis import filter_outliers_iqr
-            filtered_seconds = filter_outliers_iqr([t[1] for t in times])
+            from speedhive.utils.lap_analysis import filter_outlier_laps
+            filtered_seconds = filter_outlier_laps([t[1] for t in times])
             filtered_seconds_pool = list(filtered_seconds)
             for lap, sec in times:
                 if sec in filtered_seconds_pool:
