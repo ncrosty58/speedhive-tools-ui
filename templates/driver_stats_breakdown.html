@@ -104,6 +104,24 @@
                         </div>
                     </div>
                 </div>
+
+                {% if class_stats %}
+                    <div class="col-12 mt-3 pt-3 border-top border-secondary border-opacity-10">
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <span class="text-muted small fw-bold text-uppercase tracking-wider me-2" style="font-size: 0.7rem;">Starts by Class:</span>
+                            {% for cls, cstats in class_stats.items() %}
+                                <div class="bg-surface border border-secondary border-opacity-15 rounded px-3 py-1.5 d-flex align-items-center gap-2">
+                                    <span class="fw-bold text-white small">{{ cls }}</span>
+                                    <span class="text-muted small" style="font-size: 0.75rem;">
+                                        <strong>{{ cstats.starts }}</strong> starts
+                                        {% if cstats.wins > 0 %}(<span class="text-success fw-semibold">{{ cstats.wins }} W</span>){% endif %}
+                                        {% if cstats.podiums > 0 %}(<span class="text-warning fw-semibold">{{ cstats.podiums }} P</span>){% endif %}
+                                    </span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
             </div>
         </div>
     </div>

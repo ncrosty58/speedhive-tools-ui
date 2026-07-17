@@ -339,6 +339,7 @@ def driver_stats_breakdown(org_id, driver_name):
         return redirect(url_for("org_stats", org_id=org_id_int, error="No synced session data available."))
 
     try:
+        from collections import defaultdict
         from speedhive.utils.lap_analysis import (
             compute_laps_and_enriched_from_storage,
             normalize_name,
@@ -358,6 +359,7 @@ def driver_stats_breakdown(org_id, driver_name):
         total_starts = 0
         total_wins = 0
         total_podiums = 0
+        class_stats = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0})
 
         for key, value in enriched.items():
             name = value.get("name")
@@ -404,22 +406,35 @@ def driver_stats_breakdown(org_id, driver_name):
                             except (TypeError, ValueError):
                                 pass
 
-                            if is_race and status != "DNS":
-                                total_starts += 1
-                                if status == "Normal" and class_pos is not None:
-                                    if class_pos == 1:
-                                        total_wins += 1
-                                    if class_pos <= 3:
-                                        total_podiums += 1
+                        # Fetch the driver's class name from driver_result or fallback to session
+                        driver_cls = None
+                        if driver_result:
+                            driver_cls = first_non_empty(
+                                driver_result.get("resultClass"),
+                                driver_result.get("class"),
+                            )
 
-                        laps = laps_by_driver.get(key, [])
-                        session_name = session_raw.get("name") or session_raw.get("sessionName") or f"Session #{sid}"
                         class_name = first_non_empty(
+                            driver_cls,
                             session_raw.get("classification"),
                             session_raw.get("class"),
                             session_raw.get("classificationName"),
                             session_raw.get("className")
                         ) or "Unknown Class"
+
+                        if is_race and status != "DNS":
+                            total_starts += 1
+                            class_stats[class_name]["starts"] += 1
+                            if status == "Normal" and class_pos is not None:
+                                if class_pos == 1:
+                                    total_wins += 1
+                                    class_stats[class_name]["wins"] += 1
+                                if class_pos <= 3:
+                                    total_podiums += 1
+                                    class_stats[class_name]["podiums"] += 1
+
+                        laps = laps_by_driver.get(key, [])
+                        session_name = session_raw.get("name") or session_raw.get("sessionName") or f"Session #{sid}"
                         
                         start_time_raw = first_non_empty(
                             session_raw.get("startTime"),
@@ -477,6 +492,7 @@ def driver_stats_breakdown(org_id, driver_name):
 
         win_rate = (total_wins / total_starts * 100) if total_starts > 0 else 0.0
         podium_rate = (total_podiums / total_starts * 100) if total_starts > 0 else 0.0
+        sorted_class_stats = dict(sorted(class_stats.items(), key=lambda item: item[1]["starts"], reverse=True))
 
         return render_template(
             "driver_stats_breakdown.html",
@@ -495,6 +511,7 @@ def driver_stats_breakdown(org_id, driver_name):
             total_podiums=total_podiums,
             win_rate_display=f"{win_rate:.1f}%" if total_starts > 0 else "0.0%",
             podium_rate_display=f"{podium_rate:.1f}%" if total_starts > 0 else "0.0%",
+            class_stats=sorted_class_stats,
         )
     except Exception as exc:
         return render_template(
