@@ -1,0 +1,23 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PATH: /home/nathan/.pyenv/shims:/home/nathan/.pyenv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest code
+        run: git -C /opt/speedhive-tools-ui pull
+
+      - name: Rebuild and restart web container
+        run: docker compose -f /opt/speedhive-tools-ui/docker-compose.yml up --build -d
+
+      - name: Clean up Docker Builder Cache
+        run: |
+          docker builder prune -f
+          docker image prune -f
