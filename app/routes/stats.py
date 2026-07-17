@@ -872,6 +872,35 @@ def org_most_improved(org_id):
             most_improved = payload.get("most_improved")
             most_declined = payload.get("most_declined")
             calculated_at = row["calculated_at"]
+
+            # If the database payload was generated with the old limit=15 cap,
+            # automatically recalculate inline to cache the full list of drivers.
+            if most_improved is not None and len(most_improved) <= 15:
+                try:
+                    from speedhive.utils.lap_analysis import compute_laps_and_enriched_from_storage
+                    from speedhive.analyzers.analyze_consistency import get_most_improved_rankings, load_session_types_from_storage
+                    
+                    _, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
+                    s_map = load_session_types_from_storage(storage, org_id_int)
+                    min_laps = get_stats_min_laps(org_id_int)
+                    
+                    full_improved, full_declined = get_most_improved_rankings(
+                        enriched, s_map, session_types=session_types_list, min_laps=min_laps, limit=None
+                    )
+                    
+                    calculated_at = iso_utc(utc_now())
+                    payload_str = json.dumps({"most_improved": full_improved, "most_declined": full_declined}, default=str)
+                    with storage.connect() as conn:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+                            (org_id_int, session_types_key, payload_str, calculated_at)
+                        )
+                        conn.commit()
+                    
+                    most_improved = full_improved
+                    most_declined = full_declined
+                except Exception as e:
+                    current_app.logger.warning(f"Failed to auto-recalculate full most_improved: {e}")
     except Exception as e:
         current_app.logger.warning(f"Error loading most-improved stats from DB for org {org_id_int}: {e}")
 
@@ -992,6 +1021,31 @@ def org_wins_podiums(org_id):
             most_wins = payload.get("most_wins")
             most_podiums = payload.get("most_podiums")
             calculated_at = row["calculated_at"]
+
+            # If the database payload was generated with the old limit=15 cap,
+            # automatically recalculate inline to cache the full list of drivers.
+            if most_wins is not None and len(most_wins) <= 15:
+                try:
+                    from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+                    from speedhive.analyzers.analyze_results import get_wins_podiums_rankings
+                    results_payloads = storage.load_results_payloads(org_id_int)
+                    s_map = load_session_types_from_storage(storage, org_id_int)
+                    
+                    full_wins, full_podiums = get_wins_podiums_rankings(results_payloads, s_map, limit=None)
+                    
+                    calculated_at = iso_utc(utc_now())
+                    payload_str = json.dumps({"most_wins": full_wins, "most_podiums": full_podiums}, default=str)
+                    with storage.connect() as conn:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
+                            (org_id_int, WINS_PODIUMS_CACHE_KEY, payload_str, calculated_at)
+                        )
+                        conn.commit()
+                        
+                    most_wins = full_wins
+                    most_podiums = full_podiums
+                except Exception as e:
+                    current_app.logger.warning(f"Failed to auto-recalculate full wins/podiums: {e}")
     except Exception as e:
         current_app.logger.warning(f"Error loading wins/podiums stats from DB for org {org_id_int}: {e}")
 

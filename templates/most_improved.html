@@ -133,7 +133,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="improved-table-body">
-                                    {% for r in most_improved %}
+                                    {% for r in most_improved[:15] %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
                                             <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}&ignore_outliers={{ '1' if ignore_outliers else '0' }}" class="driver-link">{{ r.name }}</a></td>
@@ -165,7 +165,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="declined-table-body">
-                                    {% for r in most_declined %}
+                                    {% for r in most_declined[:15] %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
                                             <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}&ignore_outliers={{ '1' if ignore_outliers else '0' }}" class="driver-link">{{ r.name }}</a></td>

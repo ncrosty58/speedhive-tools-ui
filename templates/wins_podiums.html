@@ -90,7 +90,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="wins-table-body">
-                                    {% for r in most_wins %}
+                                    {% for r in most_wins[:15] %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
                                             <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
@@ -126,7 +126,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="podiums-table-body">
-                                    {% for r in most_podiums %}
+                                    {% for r in most_podiums[:15] %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
                                             <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
