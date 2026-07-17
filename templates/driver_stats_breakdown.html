@@ -53,7 +53,7 @@
 
                     <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-2">
                         <div class="row g-3 text-center">
-                            <!-- Career Best Lap -->
+                            <!-- Best Lap -->
                             <div class="col-4 border-end border-secondary border-opacity-10">
                                 <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Best Lap (Track All-Time)</span>
                                 <span class="h5 fw-bold text-brand fw-mono mb-0">{{ all_time_best_display }}</span>
@@ -63,7 +63,7 @@
                             <div class="col-4 border-end border-secondary border-opacity-10">
                                 <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Peak Consistency</span>
                                 <span class="h5 fw-bold text-white mb-0">{{ peak_consistency_val }}</span>
-                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ peak_consistency_sess }}</small>
+                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem; line-height: 1.2; word-break: break-word;">{{ peak_consistency_sess }}</small>
                             </div>
 
                             <!-- Consistency Trend -->
@@ -94,6 +94,28 @@
                                     </span>
                                     <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('Stable ')[1] if 'Stable ' in trend_text else '' }}</small>
                                 {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Track Standings -->
+                    <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-3">
+                        <span class="text-brand small fw-bold text-uppercase tracking-wider d-block mb-2" style="font-size: 0.7rem;">Track Standings</span>
+                        <div class="row g-2 text-center">
+                            <div class="col-4 border-end border-secondary border-opacity-10">
+                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Fastest Lap Rank</span>
+                                <span class="h5 fw-bold text-white mb-0">{% if best_lap_rank %}P{{ best_lap_rank }}{% else %}-{% endif %}</span>
+                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">of {{ total_drivers_laps }} drivers</small>
+                            </div>
+                            <div class="col-4 border-end border-secondary border-opacity-10">
+                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Consistency Rank</span>
+                                <span class="h5 fw-bold text-white mb-0">{% if consistency_rank %}P{{ consistency_rank }}{% else %}-{% endif %}</span>
+                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">of {{ total_drivers_consistency }} drivers</small>
+                            </div>
+                            <div class="col-4">
+                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Race Wins Rank</span>
+                                <span class="h5 fw-bold text-white mb-0">{% if wins_rank %}P{{ wins_rank }}{% else %}-{% endif %}</span>
+                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">of {{ total_drivers_wins }} drivers</small>
                             </div>
                         </div>
                     </div>

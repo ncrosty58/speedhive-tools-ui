@@ -318,6 +318,10 @@ def driver_stats_breakdown(org_id, driver_name):
                 "SELECT payload FROM org_stats WHERE org_id = ? AND session_type = ?",
                 (org_id_int, session_types_key)
             ).fetchone()
+            
+        total_drivers_consistency = 0
+        consistency_rank = None
+        
         if row:
             clustered = json.loads(row["payload"])
             if driver_name in clustered:
@@ -330,6 +334,25 @@ def driver_stats_breakdown(org_id, driver_name):
                 overall_stats["mean_display"] = format_seconds(mean_v) if mean_v else "N/A"
                 overall_stats["stdev_display"] = f"{stdev_v:.3f}s" if stdev_v else "N/A"
                 overall_stats["cv_display"] = f"{cv_v * 100:.2f}%" if cv_v is not None else "N/A"
+
+            # Compute consistency ranking
+            from speedhive.utils.lap_analysis import normalize_name
+            normalized_aliases = {normalize_name(a) for a in aliases}
+            driver_cvs = []
+            for name, stats in clustered.items():
+                cv = stats.get("cv")
+                lap_count = stats.get("lap_count", 0)
+                if cv is not None and cv > 0.0002 and lap_count >= 10:
+                    driver_cvs.append((name, cv))
+            
+            driver_cvs.sort(key=lambda x: x[1])
+            total_drivers_consistency = len(driver_cvs)
+            
+            # Find the rank of our driver
+            for idx, (name, cv) in enumerate(driver_cvs):
+                if name == driver_name or name in aliases or normalize_name(name) in normalized_aliases:
+                    consistency_rank = idx + 1
+                    break
     except Exception as e:
         current_app.logger.warning(f"Error loading stats for aliases of driver {driver_name}: {e}")
 
@@ -594,6 +617,72 @@ def driver_stats_breakdown(org_id, driver_name):
                     trend_text = f"Stable ({first_avg:.2f}% → {last_avg:.2f}%)"
                     trend_direction = "stable"
 
+        # Compute best lap ranking for all drivers at this track
+        driver_best_laps = {}
+        for key, val in enriched.items():
+            name = val.get("name")
+            if not name:
+                continue
+            laps = laps_by_driver.get(key, [])
+            filtered_laps = val.get("filtered_laps", laps)
+            non_outliers = [l for l in filtered_laps if l > 0.1]
+            if non_outliers:
+                best = min(non_outliers)
+                norm_name = normalize_name(name)
+                if norm_name not in driver_best_laps or best < driver_best_laps[norm_name]["best_seconds"]:
+                    driver_best_laps[norm_name] = {
+                        "name": name,
+                        "best_seconds": best
+                    }
+        
+        sorted_best_laps = sorted(driver_best_laps.values(), key=lambda x: x["best_seconds"])
+        total_drivers_laps = len(sorted_best_laps)
+        best_lap_rank = None
+        
+        for idx, item in enumerate(sorted_best_laps):
+            if item["name"] == driver_name or item["name"] in aliases or normalize_name(item["name"]) in normalized_aliases:
+                best_lap_rank = idx + 1
+                break
+
+        # Compute starts/wins/podiums for all drivers at this track (to rank wins)
+        driver_stats_all = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0})
+        for sid, results in results_payloads.items():
+            s_raw = session_map.get(sid, {})
+            if matches_session_type(s_raw, "race"):
+                for r in results:
+                    r_name = r.get("name") or (r.get("competitor") or {}).get("name")
+                    if not r_name:
+                        continue
+                    status = r.get("status")
+                    if status != "DNS":
+                        norm_name = normalize_name(r_name)
+                        driver_stats_all[norm_name]["starts"] += 1
+                        
+                        class_pos = None
+                        try:
+                            class_pos = int(r.get("positionInClass"))
+                        except:
+                            pass
+                            
+                        if status == "Normal" and class_pos is not None:
+                            if class_pos == 1:
+                                driver_stats_all[norm_name]["wins"] += 1
+                            if class_pos <= 3:
+                                driver_stats_all[norm_name]["podiums"] += 1
+
+        sorted_wins = sorted(
+            [{"name_key": k, "wins": v["wins"]} for k, v in driver_stats_all.items()],
+            key=lambda x: x["wins"],
+            reverse=True
+        )
+        total_drivers_wins = len(sorted_wins)
+        wins_rank = None
+        for idx, item in enumerate(sorted_wins):
+            norm_k = item["name_key"]
+            if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
+                wins_rank = idx + 1
+                break
+
         return render_template(
             "driver_stats_breakdown.html",
             org=org_view,
@@ -618,6 +707,12 @@ def driver_stats_breakdown(org_id, driver_name):
             trend_text=trend_text,
             trend_direction=trend_direction,
             trend_timeframe=trend_timeframe,
+            consistency_rank=consistency_rank,
+            total_drivers_consistency=total_drivers_consistency,
+            best_lap_rank=best_lap_rank,
+            total_drivers_laps=total_drivers_laps,
+            wins_rank=wins_rank,
+            total_drivers_wins=total_drivers_wins,
         )
     except Exception as exc:
         return render_template(
