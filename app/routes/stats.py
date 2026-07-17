@@ -350,10 +350,15 @@ def driver_stats_breakdown(org_id, driver_name):
 
         laps_by_driver, enriched = compute_laps_and_enriched_from_storage(storage, org_id_int, ignore_outliers=ignore_outliers)
         session_map = load_session_types_from_storage(storage, org_id_int)
+        results_payloads = storage.load_results_payloads(org_id_int)
 
         driver_sessions = []
         normalized_aliases = {normalize_name(a) for a in aliases}
         
+        total_starts = 0
+        total_wins = 0
+        total_podiums = 0
+
         for key, value in enriched.items():
             name = value.get("name")
             if not name:
@@ -367,6 +372,46 @@ def driver_stats_breakdown(org_id, driver_name):
                     
                     matched_types = [t for t in session_types_list if matches_session_type(session_raw, t)]
                     if matched_types:
+                        # Find results for this session
+                        driver_result = None
+                        for r in results_payloads.get(sid, []):
+                            r_name = r.get("name") or (r.get("competitor") or {}).get("name")
+                            if r_name and (r_name in aliases or normalize_name(r_name) in normalized_aliases):
+                                driver_result = r
+                                break
+
+                        finish_pos = None
+                        class_pos = None
+                        status = None
+                        total_time = None
+                        best_lap_time = None
+                        start_number = None
+                        is_race = (matched_types[0] == "race")
+
+                        if driver_result:
+                            status = driver_result.get("status")
+                            total_time = driver_result.get("totalTime")
+                            best_lap_time = driver_result.get("bestTime")
+                            start_number = driver_result.get("startNumber")
+                            
+                            try:
+                                finish_pos = int(driver_result.get("position"))
+                            except (TypeError, ValueError):
+                                pass
+                                
+                            try:
+                                class_pos = int(driver_result.get("positionInClass"))
+                            except (TypeError, ValueError):
+                                pass
+
+                            if is_race and status != "DNS":
+                                total_starts += 1
+                                if status == "Normal" and class_pos is not None:
+                                    if class_pos == 1:
+                                        total_wins += 1
+                                    if class_pos <= 3:
+                                        total_podiums += 1
+
                         laps = laps_by_driver.get(key, [])
                         session_name = session_raw.get("name") or session_raw.get("sessionName") or f"Session #{sid}"
                         class_name = first_non_empty(
@@ -420,9 +465,18 @@ def driver_stats_breakdown(org_id, driver_name):
                             "stdev_display": f"{stdev_val:.3f}s" if stdev_val else "N/A",
                             "cv_display": f"{cv_val * 100:.2f}%" if cv_val is not None else "N/A",
                             "laps": formatted_laps,
+                            "finish_pos": finish_pos,
+                            "class_pos": class_pos,
+                            "status": status,
+                            "total_time": total_time,
+                            "best_lap_time": best_lap_time,
+                            "start_number": start_number,
                         })
 
         driver_sessions.sort(key=lambda s: s["session_id"], reverse=True)
+
+        win_rate = (total_wins / total_starts * 100) if total_starts > 0 else 0.0
+        podium_rate = (total_podiums / total_starts * 100) if total_starts > 0 else 0.0
 
         return render_template(
             "driver_stats_breakdown.html",
@@ -436,6 +490,11 @@ def driver_stats_breakdown(org_id, driver_name):
             min_laps=min_laps,
             active_tab="stats",
             ignore_outliers=ignore_outliers,
+            total_starts=total_starts,
+            total_wins=total_wins,
+            total_podiums=total_podiums,
+            win_rate_display=f"{win_rate:.1f}%" if total_starts > 0 else "0.0%",
+            podium_rate_display=f"{podium_rate:.1f}%" if total_starts > 0 else "0.0%",
         )
     except Exception as exc:
         return render_template(
