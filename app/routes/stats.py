@@ -359,7 +359,8 @@ def driver_stats_breakdown(org_id, driver_name):
         total_starts = 0
         total_wins = 0
         total_podiums = 0
-        class_stats = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0})
+        class_stats = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0, "best_lap": None})
+        all_time_best_seconds = None
 
         for key, value in enriched.items():
             name = value.get("name")
@@ -422,6 +423,13 @@ def driver_stats_breakdown(org_id, driver_name):
                             session_raw.get("className")
                         ) or "Unknown Class"
 
+                        laps = laps_by_driver.get(key, [])
+                        best_lap = min(laps) if laps else None
+
+                        if best_lap is not None:
+                            if all_time_best_seconds is None or best_lap < all_time_best_seconds:
+                                all_time_best_seconds = best_lap
+
                         if is_race and status != "DNS":
                             total_starts += 1
                             class_stats[class_name]["starts"] += 1
@@ -432,8 +440,11 @@ def driver_stats_breakdown(org_id, driver_name):
                                 if class_pos <= 3:
                                     total_podiums += 1
                                     class_stats[class_name]["podiums"] += 1
+                            
+                            if best_lap is not None:
+                                if class_stats[class_name]["best_lap"] is None or best_lap < class_stats[class_name]["best_lap"]:
+                                    class_stats[class_name]["best_lap"] = best_lap
 
-                        laps = laps_by_driver.get(key, [])
                         session_name = session_raw.get("name") or session_raw.get("sessionName") or f"Session #{sid}"
                         
                         start_time_raw = first_non_empty(
@@ -445,7 +456,6 @@ def driver_stats_breakdown(org_id, driver_name):
                         date_display = format_datetime_display(start_time_raw, include_time=True) or "N/A"
                         
                         formatted_laps = []
-                        best_lap = min(laps) if laps else None
                         filtered_laps = value.get("filtered_laps", laps)
                         non_outliers_pool = list(filtered_laps) if filtered_laps else []
 
@@ -492,7 +502,62 @@ def driver_stats_breakdown(org_id, driver_name):
 
         win_rate = (total_wins / total_starts * 100) if total_starts > 0 else 0.0
         podium_rate = (total_podiums / total_starts * 100) if total_starts > 0 else 0.0
+        
+        # Calculate win/podium rates and format best lap for class_stats
+        for cls, cstats in class_stats.items():
+            starts = cstats["starts"]
+            cstats["win_rate"] = f"{(cstats['wins'] / starts * 100):.1f}%" if starts > 0 else "0.0%"
+            cstats["podium_rate"] = f"{(cstats['podiums'] / starts * 100):.1f}%" if starts > 0 else "0.0%"
+            cstats["best_lap_display"] = format_seconds(cstats["best_lap"]) if cstats["best_lap"] else "N/A"
+
         sorted_class_stats = dict(sorted(class_stats.items(), key=lambda item: item[1]["starts"], reverse=True))
+        all_time_best_display = format_seconds(all_time_best_seconds) if all_time_best_seconds else "N/A"
+
+        # Peak career consistency (lowest CV in any session)
+        valid_cvs = []
+        for s in driver_sessions:
+            try:
+                if s.get("cv_display") != "N/A":
+                    valid_cvs.append((float(s["cv_display"].replace("%", "")), s["session_name"]))
+            except:
+                pass
+        if valid_cvs:
+            best_cv, best_cv_sess = min(valid_cvs, key=lambda x: x[0])
+            peak_consistency_display = f"{best_cv:.2f}% ({best_cv_sess})"
+        else:
+            peak_consistency_display = "N/A"
+
+        # Consistency Trend (Earliest vs. Recent session averages)
+        chrono_sessions = sorted(
+            [s for s in driver_sessions if s.get("cv_display") != "N/A"],
+            key=lambda s: s["session_id"]
+        )
+        trend_text = "N/A"
+        trend_direction = "stable"
+        if len(chrono_sessions) >= 2:
+            def parse_cv(s):
+                try:
+                    return float(s["cv_display"].replace("%", ""))
+                except:
+                    return None
+            cv_vals = [parse_cv(s) for s in chrono_sessions]
+            cv_vals = [v for v in cv_vals if v is not None]
+            if len(cv_vals) >= 2:
+                n = min(3, len(cv_vals) // 2)
+                if n == 0:
+                    n = 1
+                first_avg = sum(cv_vals[:n]) / n
+                last_avg = sum(cv_vals[-n:]) / n
+                delta = first_avg - last_avg  # Positive is improvement (lower CV)
+                if delta > 0.05:
+                    trend_text = f"Improving by {delta:.2f}pp ({first_avg:.2f}% → {last_avg:.2f}%)"
+                    trend_direction = "improving"
+                elif delta < -0.05:
+                    trend_text = f"Declining by {abs(delta):.2f}pp ({first_avg:.2f}% → {last_avg:.2f}%)"
+                    trend_direction = "declining"
+                else:
+                    trend_text = f"Stable ({first_avg:.2f}% → {last_avg:.2f}%)"
+                    trend_direction = "stable"
 
         return render_template(
             "driver_stats_breakdown.html",
@@ -512,6 +577,10 @@ def driver_stats_breakdown(org_id, driver_name):
             win_rate_display=f"{win_rate:.1f}%" if total_starts > 0 else "0.0%",
             podium_rate_display=f"{podium_rate:.1f}%" if total_starts > 0 else "0.0%",
             class_stats=sorted_class_stats,
+            all_time_best_display=all_time_best_display,
+            peak_consistency_display=peak_consistency_display,
+            trend_text=trend_text,
+            trend_direction=trend_direction,
         )
     except Exception as exc:
         return render_template(
