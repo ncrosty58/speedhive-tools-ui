@@ -51,6 +51,28 @@
                             </div>
                         </div>
                     {% endif %}
+
+                    {% if class_stats %}
+                        <div class="mt-3 pt-2">
+                            <span class="text-brand small fw-bold text-uppercase tracking-wider d-block mb-2" style="font-size: 0.7rem;">Activity by Class</span>
+                            <div class="d-flex flex-column gap-2">
+                                {% for cls, cstats in class_stats.items() %}
+                                    <div class="bg-surface border border-secondary border-opacity-15 rounded p-2.5 d-flex align-items-center justify-content-between gap-3">
+                                        <span class="fw-bold text-white small" style="font-size: 0.8rem;">{{ cls }}</span>
+                                        <div class="d-flex flex-wrap gap-1.5 align-items-center justify-content-end">
+                                            <span class="badge bg-secondary bg-opacity-25 text-brand small px-2 py-0.5 fw-semibold" style="font-size: 0.7rem;">{{ cstats.starts }} start{% if cstats.starts > 1 %}s{% endif %}</span>
+                                            {% if cstats.wins > 0 %}
+                                                <span class="badge bg-success bg-opacity-15 text-success small px-2 py-0.5 fw-semibold border border-success border-opacity-20" style="font-size: 0.7rem;">{{ cstats.wins }} Win{% if cstats.wins > 1 %}s{% endif %}</span>
+                                            {% endif %}
+                                            {% if cstats.podiums > 0 %}
+                                                <span class="badge bg-warning bg-opacity-15 text-warning small px-2 py-0.5 fw-semibold border border-warning border-opacity-20" style="font-size: 0.7rem;">{{ cstats.podiums }} Pod{% if cstats.podiums > 1 %}s{% endif %}</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
                 
                 <div class="col-lg-8">
@@ -106,32 +128,6 @@
                         </div>
                     </div>
                 </div>
-
-                {% if class_stats %}
-                    <div class="col-12 mt-3 pt-3 border-top border-secondary border-opacity-10">
-                        <div class="row g-2 align-items-center">
-                            <div class="col-12 col-md-auto mb-1 mb-md-0">
-                                <span class="text-brand small fw-bold text-uppercase tracking-wider me-2" style="font-size: 0.7rem;">Starts by Class:</span>
-                            </div>
-                            <div class="col-12 col-md">
-                                <div class="d-flex flex-wrap gap-2">
-                                    {% for cls, cstats in class_stats.items() %}
-                                        <div class="bg-surface border border-secondary border-opacity-15 rounded-pill px-3 py-1 d-inline-flex align-items-center gap-2">
-                                            <span class="fw-bold text-white small" style="font-size: 0.8rem;">{{ cls }}</span>
-                                            <span class="badge bg-secondary bg-opacity-25 text-brand small px-2 py-0.5 fw-semibold" style="font-size: 0.7rem;">{{ cstats.starts }} starts</span>
-                                            {% if cstats.wins > 0 %}
-                                                <span class="badge bg-success bg-opacity-15 text-success small px-2 py-0.5 fw-semibold border border-success border-opacity-20" style="font-size: 0.7rem;">{{ cstats.wins }} Win{% if cstats.wins > 1 %}s{% endif %}</span>
-                                            {% endif %}
-                                            {% if cstats.podiums > 0 %}
-                                                <span class="badge bg-warning bg-opacity-15 text-warning small px-2 py-0.5 fw-semibold border border-warning border-opacity-20" style="font-size: 0.7rem;">{{ cstats.podiums }} Pod{% if cstats.podiums > 1 %}s{% endif %}</span>
-                                            {% endif %}
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endif %}
             </div>
         </div>
     </div>
