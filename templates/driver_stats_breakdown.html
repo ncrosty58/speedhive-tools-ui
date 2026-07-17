@@ -222,9 +222,19 @@
                                             <span class="badge bg-danger bg-opacity-20 text-danger border border-danger border-opacity-30 small px-2 py-1 fw-bold">{{ session.status }}</span>
                                         {% endif %}
                                         {% if session.class_pos is not none %}
-                                            <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-20 small px-2 py-1 fw-semibold">
-                                                P{{ session.class_pos }} in Class
-                                            </span>
+                                            {% if session.class_pos == 1 %}
+                                                <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-20 small px-2 py-1 fw-semibold">
+                                                    P{{ session.class_pos }} in Class
+                                                </span>
+                                            {% elif session.class_pos <= 3 %}
+                                                <span class="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-20 small px-2 py-1 fw-semibold">
+                                                    P{{ session.class_pos }} in Class
+                                                </span>
+                                            {% else %}
+                                                <span class="badge bg-light bg-opacity-10 text-white border border-secondary border-opacity-20 small px-2 py-1 fw-semibold">
+                                                    P{{ session.class_pos }} in Class
+                                                </span>
+                                            {% endif %}
                                         {% endif %}
                                         {% if session.finish_pos is not none %}
                                             <span class="badge bg-light bg-opacity-10 text-white border border-secondary border-opacity-20 small px-2 py-1 fw-semibold">
