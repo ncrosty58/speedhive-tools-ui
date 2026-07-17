@@ -8,7 +8,8 @@
         <a href="/" class="text-info text-decoration-none">Dashboard</a>
         <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
         {% if event and event.organizationId %}
-            <a href="/org/{{ event.organizationId }}" class="text-info text-decoration-none">Organization #{{ event.organizationId }}</a>
+            {% set org_names = org_list | selectattr('id', 'equalto', event.organizationId | int) | map(attribute='name') | list %}
+            <a href="/org/{{ event.organizationId }}" class="text-info text-decoration-none">{{ org_names[0] if org_names else 'Organization #' ~ event.organizationId }}</a>
         {% else %}
             <span>Organization</span>
         {% endif %}
@@ -59,21 +60,18 @@
                 <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-flag-checkered text-info"></i> Event Sessions</h3>
                 {% if sessions %}
                     <div class="table-custom-container">
-                        <table class="table table-custom">
+                        <table class="table table-custom" data-sortable>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Session Title</th>
-                                    <th>Category Type</th>
-                                    <th>Start Schedule</th>
-                                    <th class="text-end">Action</th>
+                                    <th data-sort-key="name" data-sort-dir="asc">Session<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="type" data-sort-dir="asc">Type<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="start" data-sort-dir="asc">Start<span class="sort-arrow">&#8597;</span></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for session in sessions %}
                                     <tr>
-                                        <td class="text-secondary">#{{ session.id }}</td>
-                                        <td class="fw-semibold">{{ session.name }}</td>
+                                        <td class="fw-semibold"><a href="/session/{{ session.id }}" class="driver-link">{{ session.name }}</a></td>
                                         <td>
                                             {% set stype = (session.type or 'Practice') | lower %}
                                             {% if 'race' in stype %}
@@ -84,10 +82,7 @@
                                                 <span class="badge-custom badge-practice"><i class="fa-solid fa-gauge"></i> Practice</span>
                                             {% endif %}
                                         </td>
-                                        <td class="text-secondary">{{ session._display_start or 'N/A' }}</td>
-                                        <td class="text-end">
-                                            <a href="/session/{{ session.id }}" class="btn-custom py-2 px-3"><i class="fa-solid fa-chart-line"></i> View Results</a>
-                                        </td>
+                                        <td class="text-secondary" data-sort-value="{{ session.startTime or session.scheduledStart or session._display_start or '' }}">{{ session._display_start or 'N/A' }}</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>

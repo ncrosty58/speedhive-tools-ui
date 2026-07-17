@@ -20,7 +20,7 @@
         <form method="post" action="/organizations/add" class="d-flex gap-2 mb-3">
             <input type="number" name="org_id" value="{{ org_id_input }}" required autofocus
                    class="form-control form-control-custom" placeholder="e.g. 30476">
-            <button type="submit" class="btn-custom-outline flex-shrink-0">Look up</button>
+            <button type="submit" class="btn-custom-outline flex-shrink-0">Look up organization</button>
         </form>
 
         {% if lookup %}
@@ -29,11 +29,11 @@
             <div style="color: var(--text-muted); font-size: 0.8rem;">Speedhive organization #{{ lookup.id }}</div>
         </div>
         <a href="/?org_id={{ lookup.id }}" class="btn-custom w-100 d-block text-center">
-            Open workspace
+            Open organization
         </a>
         <p class="mt-2 mb-0" style="color: var(--text-muted); font-size: 0.75rem;">
-            The workspace starts empty — run a refresh from its dashboard to pull
-            events into the local store; it then appears in the workspace dropdown.
+            The organization starts empty — sync its data under Settings &gt; Data
+            to pull in events; it then appears in the organization dropdown.
         </p>
         {% endif %}
     </div>

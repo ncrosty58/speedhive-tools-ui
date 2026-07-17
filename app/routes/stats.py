@@ -107,6 +107,7 @@ def org_stats(org_id):
         if row:
             clustered = json.loads(row["payload"])
             calculated_at = row["calculated_at"]
+            _touch_org_stats_access(org_id_int, session_types_key)
     except Exception as e:
         current_app.logger.warning(f"Error loading stats from DB for org {org_id_int}: {e}")
 
@@ -125,40 +126,57 @@ def org_stats(org_id):
             session_types=session_types_list,
             session_types_str=session_types_str,
             ignore_outliers=ignore_outliers,
+            error=request.args.get("error"),
         )
 
     try:
+        from speedhive.utils.lap_analysis import normalize_name
+
         min_laps = get_stats_min_laps(org_id_int)
 
-        from speedhive.analyzers.analyze_consistency import get_consistency_rankings
-        top_consistent, least_consistent, total_drivers, total_laps_analyzed = get_consistency_rankings(
-            clustered, min_laps=min_laps, limit=15
-        )
-        
-        driver_search = (request.args.get("driver_search") or "").strip()
-        search_result = None
-        if driver_search:
-            from speedhive.analyzers.analyze_consistency import find_driver_percentile
-            res = find_driver_percentile(clustered, driver_search, min_laps=min_laps, threshold=0.85)
-            if res:
-                nearby_formatted = []
-                for name, laps, mean_v, stdev_v, cv in res["nearby"]:
-                    nearby_formatted.append({
-                        "name": name,
-                        "lap_count": laps,
-                        "mean_display": format_seconds(mean_v) if mean_v else "N/A",
-                        "stdev_display": f"{stdev_v:.3f}s" if stdev_v else "N/A",
-                        "cv_display": f"{cv * 100:.2f}%" if cv is not None else "N/A",
-                    })
-                search_result = {
-                    "matched": res["matched"],
-                    "score": res["score"],
-                    "rank": res["rank"],
-                    "total": res["total"],
-                    "percentile": round(res["percentile"], 1),
-                    "nearby": nearby_formatted,
-                }
-        
+        total_drivers = len(clustered)
+        total_laps_analyzed = sum(d.get("lap_count", 0) for d in clustered.values())
+
+        # Consistency ranks for the CV column, from the same filtered
+        # population as the driver report's rank tile
+        cv_rank_rows = _consistency_rank_rows(clustered)
+        cv_ranks = {name: idx + 1 for idx, (name, _cv) in enumerate(cv_rank_rows)}
+        consistency_total = len(cv_rank_rows)
+
+        # All-drivers directory (race starts/wins/podiums with ranks)
+        directory, directory_calculated_at = _load_driver_directory(org_id_int)
+
+        # Map normalized keys back to the clustered representative name so
+        # table links hit the report's exact-match path and the CV join works
+        norm_to_rep = {}
+        for rep, entry in clustered.items():
+            norm_to_rep.setdefault(normalize_name(rep), rep)
+            for alias in entry.get("aliases", []) or []:
+                norm_to_rep.setdefault(normalize_name(alias), rep)
+
+        directory_rows = []
+        for r in (directory or {}).get("drivers", []):
+            rep = norm_to_rep.get(r["key"])
+            entry = clustered.get(rep) if rep else None
+            cv = entry.get("cv") if entry else None
+            cv_rank = cv_ranks.get(rep) if rep else None
+            directory_rows.append({
+                "key": r["key"],
+                "name": rep or r["name"],
+                "starts": r["starts"],
+                "wins": r["wins"],
+                "podiums": r["podiums"],
+                "win_pct": r["win_pct"],
+                "podium_pct": r["podium_pct"],
+                "starts_rank": r["starts_rank"],
+                "wins_rank": r["wins_rank"],
+                "podiums_rank": r["podiums_rank"],
+                # CV shown only for drivers in the ranked population; others
+                # get a dash in the table
+                "cv_pct": round(cv * 100, 2) if cv is not None and cv_rank is not None else None,
+                "cv_rank": cv_rank,
+            })
+
         return render_template(
             "org_stats.html",
             org=org_view,
@@ -167,19 +185,20 @@ def org_stats(org_id):
             manifest_exists=True,
             has_persisted_stats=True,
             calculated_at=calculated_at,
-            top_consistent=top_consistent,
-            least_consistent=least_consistent,
             total_drivers=total_drivers,
             total_laps_analyzed=total_laps_analyzed,
+            directory_rows=directory_rows,
+            directory_total=(directory or {}).get("total_drivers", 0),
+            consistency_total=consistency_total,
             min_laps=min_laps,
-            driver_search=driver_search,
-            search_result=search_result,
             active_tab="stats",
             active_stats_tab="overview",
             cache_status=cache_status,
             session_types=session_types_list,
             session_types_str=session_types_str,
             ignore_outliers=ignore_outliers,
+            freshness=stats_freshness(org_id_int, variant_calculated_at=calculated_at),
+            error=request.args.get("error"),
         )
     except Exception as exc:
         return render_template(
@@ -201,9 +220,11 @@ def _store_org_stats_payload(org_id_int, session_types_key, payload_obj):
     calculated_at = iso_utc(utc_now())
     payload_str = json.dumps(payload_obj, default=str)
     with storage.connect() as conn:
+        # Preserve accessed_at across recalculations — it drives stale-variant pruning.
         conn.execute(
-            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-            (org_id_int, session_types_key, payload_str, calculated_at)
+            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at, accessed_at) "
+            "VALUES (?, ?, ?, ?, (SELECT accessed_at FROM org_stats WHERE org_id = ? AND session_type = ?))",
+            (org_id_int, session_types_key, payload_str, calculated_at, org_id_int, session_types_key)
         )
         conn.commit()
 
@@ -236,6 +257,151 @@ def _recalc_consistency_stats(org_id_int, session_types_list, ignore_outliers):
             cache_file.unlink()
         except Exception:
             pass
+
+
+# The all-drivers directory counts race starts only and has no lap-time
+# computation, so like wins_podiums it has a single fixed cache key with no
+# session-type/outlier variants. CV is joined in at request time from the
+# consistency payload instead of being cached here.
+DRIVER_DIRECTORY_CACHE_KEY = "driver_directory"
+
+# The views every org gets by default. Automatic post-sync recalculation
+# covers exactly these; any other (session_types, ignore_outliers) variant a
+# user has explored refreshes on demand from its own page instead, so sync
+# cost doesn't grow with every filter combination ever viewed.
+PRIMARY_STATS_KEYS = (
+    "race:ignore_outliers",
+    "wins_podiums",
+    "driver_directory",
+    "most_improved_race:ignore_outliers",
+    "classpace_race:ignore_outliers",
+)
+
+# Incidental variants nobody has opened in this many days are dropped during
+# a full recalculation instead of being recomputed forever.
+STALE_VARIANT_PRUNE_DAYS = 45
+
+
+def _touch_org_stats_access(org_id_int, session_types_key):
+    """Record that a cached stats view was actually served, for pruning."""
+    try:
+        with storage.connect() as conn:
+            conn.execute(
+                "UPDATE org_stats SET accessed_at = ? WHERE org_id = ? AND session_type = ?",
+                (iso_utc(utc_now()), org_id_int, session_types_key),
+            )
+            conn.commit()
+    except Exception as e:
+        current_app.logger.warning(f"Failed to touch org_stats access for {org_id_int}/{session_types_key}: {e}")
+
+
+def _recalc_driver_directory(org_id_int):
+    """Compute and store the all-drivers starts/wins/podiums directory with
+    precomputed ranks. Shared by the Drivers page, the driver report's rank
+    tiles, and the recalculate-all action."""
+    from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+    from speedhive.analyzers.analyze_results import compute_driver_directory
+    from app.analysis_cache import get_org_analysis
+
+    # bundle results are already deduped, so no laps_payloads needed
+    results_payloads = get_org_analysis(storage, org_id_int, True)["results_payloads"]
+    session_map = load_session_types_from_storage(storage, org_id_int)
+    payload = compute_driver_directory(results_payloads, session_map)
+    _store_org_stats_payload(org_id_int, DRIVER_DIRECTORY_CACHE_KEY, payload)
+    return payload
+
+
+def _load_driver_directory(org_id_int, auto_recalc=True):
+    """Read the cached driver directory, computing it inline once for orgs
+    that predate the cache key (mirrors the wins/podiums auto-backfill).
+    Returns (payload, calculated_at) or (None, None)."""
+    try:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT payload, calculated_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+                (org_id_int, DRIVER_DIRECTORY_CACHE_KEY)
+            ).fetchone()
+        if row:
+            return json.loads(row["payload"]), row["calculated_at"]
+    except Exception as e:
+        current_app.logger.warning(f"Error loading driver directory for org {org_id_int}: {e}")
+    if not auto_recalc:
+        return None, None
+    try:
+        return _recalc_driver_directory(org_id_int), iso_utc(utc_now())
+    except Exception as e:
+        current_app.logger.warning(f"Driver directory backfill failed for org {org_id_int}: {e}")
+        return None, None
+
+
+def _parse_iso_ts(val):
+    from datetime import datetime
+
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def stats_freshness(org_id_int, variant_calculated_at=None):
+    """Freshness of the cached stats vs the last data sync.
+
+    "stale" considers only the PRIMARY_STATS_KEYS views -- incidental filter
+    variants going stale is expected under primary-only auto-recalc and is
+    reported per page via variant_stale instead. Pass the current page's
+    variant_calculated_at to get "variant_stale" for that specific view.
+    "recalc_running" is True while a background recalc task is in flight
+    (pages show an "updating" note instead of a stale warning)."""
+    from app.db import read_org_refresh_state
+    from app.tasks import _get_running_recalc_stats_task_for_org
+
+    placeholders = ", ".join(["?"] * len(PRIMARY_STATS_KEYS))
+    with storage.connect() as conn:
+        row = conn.execute(
+            f"SELECT MIN(calculated_at) AS oldest, COUNT(*) AS n FROM org_stats "
+            f"WHERE org_id = ? AND session_type IN ({placeholders})",
+            (org_id_int, *PRIMARY_STATS_KEYS)
+        ).fetchone()
+    oldest = row["oldest"] if row else None
+    count = row["n"] if row else 0
+
+    data_synced_at = (read_org_refresh_state(org_id_int) or {}).get("last_refresh_at")
+    synced_dt = _parse_iso_ts(data_synced_at)
+    oldest_dt = _parse_iso_ts(oldest)
+
+    stale = False
+    if synced_dt is not None:
+        stale = count == 0 or oldest_dt is None or oldest_dt < synced_dt
+
+    variant_stale = False
+    if synced_dt is not None and variant_calculated_at is not None:
+        variant_dt = _parse_iso_ts(variant_calculated_at)
+        variant_stale = variant_dt is None or variant_dt < synced_dt
+
+    return {
+        "stats_calculated_at": oldest,
+        "data_synced_at": data_synced_at,
+        "stats_view_count": count,
+        "stale": stale,
+        "variant_stale": variant_stale,
+        "recalc_running": _get_running_recalc_stats_task_for_org(org_id_int) is not None,
+    }
+
+
+def _consistency_rank_rows(clustered):
+    """The consistency-ranked population as (name, cv) sorted ascending,
+    using the same anomaly filter everywhere (cv above noise floor, 10+
+    laps) so the "of N drivers" totals can never drift between the Drivers
+    table and the driver report's rank tile."""
+    rows = [
+        (name, stats.get("cv"))
+        for name, stats in clustered.items()
+        if stats.get("cv") is not None and stats.get("cv") > 0.0002 and stats.get("lap_count", 0) >= 10
+    ]
+    rows.sort(key=lambda x: x[1])
+    return rows
 
 
 def generate_org_stats(org_id):
@@ -277,6 +443,9 @@ def generate_org_stats(org_id):
 
     try:
         _recalc_consistency_stats(org_id_int, session_types_list, ignore_outliers)
+        # The Drivers page joins the directory with this consistency payload,
+        # so refresh both halves together
+        _recalc_driver_directory(org_id_int)
     except Exception as exc:
         redirect_args = {"org_id": org_id_int, "session_types": session_types_list, "error": f"Analysis failed: {exc}"}
         redirect_args["ignore_outliers"] = "1" if ignore_outliers else "0"
@@ -358,14 +527,7 @@ def driver_stats_breakdown(org_id, driver_name):
             # Compute consistency ranking
             from speedhive.utils.lap_analysis import normalize_name
             normalized_aliases = {normalize_name(a) for a in aliases}
-            driver_cvs = []
-            for name, stats in clustered.items():
-                cv = stats.get("cv")
-                lap_count = stats.get("lap_count", 0)
-                if cv is not None and cv > 0.0002 and lap_count >= 10:
-                    driver_cvs.append((name, cv))
-            
-            driver_cvs.sort(key=lambda x: x[1])
+            driver_cvs = _consistency_rank_rows(clustered)
             total_drivers_consistency = len(driver_cvs)
             
             # Find the rank of our driver
@@ -692,72 +854,26 @@ def driver_stats_breakdown(org_id, driver_name):
         for cls, driver_laps in driver_class_best_laps.items():
             class_rankings[cls] = sorted(driver_laps.items(), key=lambda x: x[1])
 
-        # Compute starts/wins/podiums for all drivers at this track (to rank starts & wins)
-        driver_stats_all = defaultdict(lambda: {"starts": 0, "wins": 0, "podiums": 0})
-        for sid, results in results_payloads.items():
-            s_raw = session_map.get(sid, {})
-            if matches_session_type(s_raw, "race"):
-                for r in results:
-                    r_name = r.get("name") or (r.get("competitor") or {}).get("name")
-                    if not r_name:
-                        continue
-                    status = r.get("status")
-                    if status != "DNS":
-                        norm_name = normalize_name(r_name)
-                        driver_stats_all[norm_name]["starts"] += 1
-                        
-                        class_pos = None
-                        try:
-                            class_pos = int(r.get("positionInClass"))
-                        except (TypeError, ValueError):
-                            pass
-                            
-                        if status == "Normal" and class_pos is not None:
-                            if class_pos == 1:
-                                driver_stats_all[norm_name]["wins"] += 1
-                            if class_pos <= 3:
-                                driver_stats_all[norm_name]["podiums"] += 1
-
-        # Calculate starts rank
-        sorted_starts = sorted(
-            [{"name_key": k, "starts": v["starts"]} for k, v in driver_stats_all.items()],
-            key=lambda x: x["starts"],
-            reverse=True
-        )
-        total_drivers_starts = len(sorted_starts)
+        # Starts/wins/podiums ranks across all drivers at this track, from the
+        # cached directory (backfilled inline for orgs that predate the key)
+        directory, _directory_calculated_at = _load_driver_directory(org_id_int)
         starts_rank = None
-        for idx, item in enumerate(sorted_starts):
-            norm_k = item["name_key"]
-            if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
-                starts_rank = idx + 1
-                break
-
-        # Calculate wins rank
-        sorted_wins = sorted(
-            [{"name_key": k, "wins": v["wins"]} for k, v in driver_stats_all.items()],
-            key=lambda x: x["wins"],
-            reverse=True
-        )
-        total_drivers_wins = len(sorted_wins)
         wins_rank = None
-        for idx, item in enumerate(sorted_wins):
-            norm_k = item["name_key"]
-            if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
-                wins_rank = idx + 1
-                break
-
-        # Calculate podiums rank
-        sorted_podiums = sorted(
-            [{"name_key": k, "podiums": v["podiums"]} for k, v in driver_stats_all.items()],
-            key=lambda x: x["podiums"],
-            reverse=True
-        )
         podiums_rank = None
-        for idx, item in enumerate(sorted_podiums):
-            norm_k = item["name_key"]
-            if norm_k == normalize_name(driver_name) or norm_k in normalized_aliases:
-                podiums_rank = idx + 1
-                break
+        total_drivers_starts = 0
+        total_drivers_wins = 0
+        if directory:
+            dir_rows = directory.get("drivers", [])
+            total_drivers_starts = directory.get("total_drivers", len(dir_rows))
+            total_drivers_wins = total_drivers_starts
+            norm_self = normalize_name(driver_name)
+            matches = [r for r in dir_rows if r["key"] == norm_self or r["key"] in normalized_aliases]
+            if matches:
+                # min == the first match in rank order, same as the old
+                # first-match-in-sorted-list behavior
+                starts_rank = min(r["starts_rank"] for r in matches)
+                wins_rank = min(r["wins_rank"] for r in matches)
+                podiums_rank = min(r["podiums_rank"] for r in matches)
 
         # Enrich class_stats with best lap rank and rates
         for cls, cstats in class_stats.items():
@@ -897,6 +1013,7 @@ def org_class_pace(org_id):
         if row:
             chart_data = json.loads(row["payload"])
             calculated_at = row["calculated_at"]
+            _touch_org_stats_access(org_id_int, session_types_key)
     except Exception as e:
         current_app.logger.warning(f"Error loading class-pace stats from DB for org {org_id_int}: {e}")
 
@@ -1002,6 +1119,7 @@ def org_participation(org_id):
             participation_data = payload.get("participation")
             participation_by_class = payload.get("participation_by_class")
             calculated_at = row["calculated_at"]
+            _touch_org_stats_access(org_id_int, session_types_key)
     except Exception as e:
         current_app.logger.warning(f"Error loading participation stats from DB for org {org_id_int}: {e}")
 
@@ -1191,6 +1309,7 @@ def org_most_improved(org_id):
             most_improved = payload.get("most_improved")
             most_declined = payload.get("most_declined")
             calculated_at = row["calculated_at"]
+            _touch_org_stats_access(org_id_int, session_types_key)
 
             # If the database payload was generated with the old limit=15 cap,
             # automatically recalculate inline to cache the full list of drivers.
@@ -1207,15 +1326,11 @@ def org_most_improved(org_id):
                         enriched, s_map, session_types=session_types_list, min_laps=min_laps, limit=None
                     )
                     
-                    calculated_at = iso_utc(utc_now())
-                    payload_str = json.dumps({"most_improved": full_improved, "most_declined": full_declined}, default=str)
-                    with storage.connect() as conn:
-                        conn.execute(
-                            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                            (org_id_int, session_types_key, payload_str, calculated_at)
-                        )
-                        conn.commit()
-                    
+                    _store_org_stats_payload(
+                        org_id_int, session_types_key,
+                        {"most_improved": full_improved, "most_declined": full_declined},
+                    )
+
                     most_improved = full_improved
                     most_declined = full_declined
                 except Exception as e:
@@ -1238,6 +1353,8 @@ def org_most_improved(org_id):
         session_types=session_types_list,
         session_types_str=session_types_str,
         ignore_outliers=ignore_outliers,
+        freshness=stats_freshness(org_id_int, variant_calculated_at=calculated_at),
+        error=request.args.get("error"),
     )
 
 
@@ -1342,6 +1459,7 @@ def org_wins_podiums(org_id):
             most_wins = payload.get("most_wins")
             most_podiums = payload.get("most_podiums")
             calculated_at = row["calculated_at"]
+            _touch_org_stats_access(org_id_int, WINS_PODIUMS_CACHE_KEY)
 
             # If the database payload was generated with the old limit=15 cap,
             # automatically recalculate inline to cache the full list of drivers.
@@ -1357,15 +1475,11 @@ def org_wins_podiums(org_id):
 
                     full_wins, full_podiums = get_wins_podiums_rankings(results_payloads, s_map, limit=None)
                     
-                    calculated_at = iso_utc(utc_now())
-                    payload_str = json.dumps({"most_wins": full_wins, "most_podiums": full_podiums}, default=str)
-                    with storage.connect() as conn:
-                        conn.execute(
-                            "INSERT OR REPLACE INTO org_stats (org_id, session_type, payload, calculated_at) VALUES (?, ?, ?, ?)",
-                            (org_id_int, WINS_PODIUMS_CACHE_KEY, payload_str, calculated_at)
-                        )
-                        conn.commit()
-                        
+                    _store_org_stats_payload(
+                        org_id_int, WINS_PODIUMS_CACHE_KEY,
+                        {"most_wins": full_wins, "most_podiums": full_podiums},
+                    )
+
                     most_wins = full_wins
                     most_podiums = full_podiums
                 except Exception as e:
@@ -1384,6 +1498,8 @@ def org_wins_podiums(org_id):
         most_podiums=most_podiums or [],
         active_tab="stats",
         active_stats_tab="wins_podiums",
+        freshness=stats_freshness(org_id_int, variant_calculated_at=calculated_at),
+        error=request.args.get("error"),
     )
 
 
@@ -1423,31 +1539,54 @@ def generate_org_wins_podiums(org_id):
 VALID_SESSION_TYPES = ("race", "qualifying", "practice")
 
 
-def generate_org_all_stats(org_id):
-    """Recalculate every cached stat view this org has (consistency, class
-    pace, most improved, wins/podiums -- all session-type/outlier variants
-    present in org_stats), plus the defaults for a fresh org. One button on
-    the Operations page instead of visiting each stats tab's Recalculate.
-    Also leaves the org-analysis cache warm, so driver reports load fast."""
-    try:
-        org_id_int = int(org_id)
-    except (TypeError, ValueError):
-        return redirect(url_for("index", error="Invalid organization ID."))
+def _recalc_all_stats_for_org(org_id_int, scope="all", progress_cb=None, logger=None):
+    """Recalculate cached stat views. scope="primary" covers exactly the
+    PRIMARY_STATS_KEYS defaults (what automatic post-sync recalculation
+    uses); scope="all" additionally refreshes every other cached variant and
+    prunes variants nobody has opened in STALE_VARIANT_PRUNE_DAYS days.
+    Also leaves the org-analysis cache warm, so driver reports load fast.
+    Returns (recalculated_count, failed_keys, pruned_count).
 
-    if not storage.org_has_sessions(org_id_int):
-        return redirect(url_for("org_operations", org_id=org_id_int, error="No synced session data available to analyze."))
+    Shared by the Settings > Data recalculate button and the automatic
+    post-sync/post-import recalc task (app/tasks.py)."""
+    keys = set(PRIMARY_STATS_KEYS)
+    pruned = 0
+    if scope == "all":
+        from datetime import datetime, timedelta, timezone
 
-    with storage.connect() as conn:
-        rows = conn.execute("SELECT session_type FROM org_stats WHERE org_id = ?", (org_id_int,)).fetchall()
-    keys = {row["session_type"] for row in rows}
-    # Defaults so a freshly synced org gets its primary views without having
-    # to visit each stats tab once first
-    keys.add("race:ignore_outliers")
-    keys.add(WINS_PODIUMS_CACHE_KEY)
+        cutoff = iso_utc(datetime.now(timezone.utc) - timedelta(days=STALE_VARIANT_PRUNE_DAYS))
+        with storage.connect() as conn:
+            primary_placeholders = ", ".join(["?"] * len(PRIMARY_STATS_KEYS))
+            cur = conn.execute(
+                f"DELETE FROM org_stats WHERE org_id = ? AND session_type NOT IN ({primary_placeholders}) "
+                "AND COALESCE(accessed_at, calculated_at, '') < ?",
+                (org_id_int, *PRIMARY_STATS_KEYS, cutoff),
+            )
+            pruned = cur.rowcount or 0
+            conn.commit()
+            rows = conn.execute("SELECT session_type FROM org_stats WHERE org_id = ?", (org_id_int,)).fetchall()
+        keys.update(row["session_type"] for row in rows)
 
+    key_labels = {
+        WINS_PODIUMS_CACHE_KEY: "wins & podiums",
+        DRIVER_DIRECTORY_CACHE_KEY: "driver directory",
+    }
+
+    def describe(key):
+        if key in key_labels:
+            return key_labels[key]
+        if key.startswith("classpace_"):
+            return "class pace"
+        if key.startswith("most_improved_"):
+            return "most improved"
+        return "driver consistency"
+
+    ordered_keys = sorted(keys)
     recalculated = 0
     failures = []
-    for key in sorted(keys):
+    for i, key in enumerate(ordered_keys):
+        if progress_cb:
+            progress_cb(f"Recalculating {describe(key)}... ({i + 1} of {len(ordered_keys)})", i, len(ordered_keys))
         base = key
         ignore_outliers = base.endswith(":ignore_outliers")
         if ignore_outliers:
@@ -1455,6 +1594,8 @@ def generate_org_all_stats(org_id):
         try:
             if key == WINS_PODIUMS_CACHE_KEY:
                 _recalc_wins_podiums(org_id_int)
+            elif key == DRIVER_DIRECTORY_CACHE_KEY:
+                _recalc_driver_directory(org_id_int)
             elif base.startswith("classpace_"):
                 types = [t for t in base[len("classpace_"):].split(",") if t in VALID_SESSION_TYPES]
                 if not types:
@@ -1472,15 +1613,30 @@ def generate_org_all_stats(org_id):
                 _recalc_consistency_stats(org_id_int, types, ignore_outliers)
             recalculated += 1
         except Exception as exc:
-            current_app.logger.warning(f"Recalculate-all failed for org {org_id_int} view '{key}': {exc}")
+            if logger:
+                logger.warning(f"Recalculate-all failed for org {org_id_int} view '{key}': {exc}")
             failures.append(key)
 
-    if failures:
-        return redirect(url_for(
-            "org_operations", org_id=org_id_int,
-            error=f"Recalculated {recalculated} stat views; {len(failures)} failed: {', '.join(failures)}",
-        ))
-    return redirect(url_for("org_operations", org_id=org_id_int, notice=f"Recalculated {recalculated} stat views."))
+    return recalculated, failures, pruned
+
+
+def generate_org_all_stats(org_id):
+    """Start the recalculate-all background task from the Settings > Data
+    button. Falls back to redirect-with-notice responses for non-JS forms."""
+    try:
+        org_id_int = int(org_id)
+    except (TypeError, ValueError):
+        return redirect(url_for("index", error="Invalid organization ID."))
+
+    if not storage.org_has_sessions(org_id_int):
+        return redirect(url_for("org_operations", org_id=org_id_int, error="No synced session data available to analyze."))
+
+    from app.tasks import trigger_stats_recalc
+
+    task_id = trigger_stats_recalc(org_id_int, scope="all")
+    if task_id is None:
+        return redirect(url_for("org_operations", org_id=org_id_int, notice="Stats recalculation is already running - it will run once more when finished to pick up your request."))
+    return redirect(url_for("org_operations", org_id=org_id_int, notice="Recalculating stats in the background. Progress is shown in the Statistics row."))
 
 
 def register_routes(app):

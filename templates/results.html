@@ -93,16 +93,16 @@
                                         {% for r in results %}
                                             <tr class="result-row" data-driver="{{ (r.driver_name or '')|lower }}">
                                                 <td class="fw-bold text-info">P{{ r.position }}</td>
-                                                <td class="fw-semibold">{{ r.driver_name }}</td>
+                                                <td class="fw-semibold">{% if r.driver_name and global_org_id %}<a href="/org/{{ global_org_id }}/stats/driver/{{ r.driver_name }}" class="driver-link">{{ r.driver_name }}</a>{% else %}{{ r.driver_name }}{% endif %}</td>
                                                 <td class="text-secondary">{{ r.car_class or '—' }}</td>
                                                 <td>{{ r.total_time_display or '—' }}</td>
                                                 <td class="text-info">{{ r.best_lap_display or '—' }}</td>
                                                 <td>{{ r.laps_display or '0' }}</td>
                                                 <td class="text-end">
                                                     {% if r.lap_driver_id %}
-                                                        <a href="/session/{{ session_id }}/driver/{{ r.lap_driver_id }}/laps" class="btn-custom py-1 px-3 fs-7"><i class="fa-solid fa-list-ol"></i> {{ r.action_label or 'View Laps' }}</a>
+                                                        <a href="/session/{{ session_id }}/driver/{{ r.lap_driver_id }}/laps" class="btn-custom py-1 px-3 fs-7"><i class="fa-solid fa-list-ol"></i> {{ r.action_label or 'Lap times' }}</a>
                                                     {% else %}
-                                                        <span class="text-muted small">No trace available</span>
+                                                        <span class="text-muted small">No lap data</span>
                                                     {% endif %}
                                                 </td>
                                             </tr>
@@ -140,7 +140,7 @@
                     <!-- Lap Chart Tab -->
                     <div class="tab-pane fade" id="lapchart">
                         {% if lap_chart %}
-                            <p class="text-muted small mb-3"><i class="fa-solid fa-info-circle text-info me-1"></i>Position sequence per lap (Top 5 + overflow trace).</p>
+                            <p class="text-muted small mb-3"><i class="fa-solid fa-info-circle text-info me-1"></i>Running order at the end of each lap (top 5 shown, rest grouped).</p>
                             <div class="table-custom-container">
                                 <table class="table table-custom">
                                     <thead>
@@ -151,7 +151,7 @@
                                             <th>Pos 3</th>
                                             <th>Pos 4</th>
                                             <th>Pos 5</th>
-                                            <th>Pack Traces</th>
+                                            <th>Rest of Field</th>
                                         </tr>
                                     </thead>
                                     <tbody>

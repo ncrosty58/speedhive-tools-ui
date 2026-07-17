@@ -161,9 +161,9 @@ def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
 
     ops = client.get("/org/777/operations")
     assert ops.status_code == 200
-    assert ops.data.count(b"Download ZIP") == 2
-    assert ops.data.count(b"Delete Dump") == 2
-    assert b"Current" in ops.data
+    assert ops.data.count(b"</i>Download") == 2
+    assert ops.data.count(b'onsubmit="return confirm(\'Delete this backup') == 2
+    assert b"Latest" in ops.data
 
     latest_zip = client.get("/org/777/dumps/latest.zip")
     assert latest_zip.status_code == 200
@@ -179,8 +179,8 @@ def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
 
     ops_after_archive_delete = client.get("/org/777/operations")
     assert ops_after_archive_delete.status_code == 200
-    assert ops_after_archive_delete.data.count(b"Download ZIP") == 1
-    assert ops_after_archive_delete.data.count(b"Delete Dump") == 1
+    assert ops_after_archive_delete.data.count(b"</i>Download") == 1
+    assert ops_after_archive_delete.data.count(b'onsubmit="return confirm(\'Delete this backup') == 1
 
     delete_latest = client.post("/org/777/dumps/delete", follow_redirects=False)
     assert delete_latest.status_code == 302
@@ -188,7 +188,7 @@ def test_operations_lists_multiple_dump_snapshots(client, monkeypatch):
 
     ops_after_latest_delete = client.get("/org/777/operations")
     assert ops_after_latest_delete.status_code == 200
-    assert b"No offline export generated yet." in ops_after_latest_delete.data
+    assert b"No backups yet." in ops_after_latest_delete.data
 
 def test_app_home_route(client):
     """Test that the home page (dashboard) renders successfully."""
@@ -285,7 +285,7 @@ def test_upload_local_dump_success(client, monkeypatch):
     assert "notice=" in resp.headers["Location"]
     import urllib.parse
     decoded_location = urllib.parse.unquote_plus(resp.headers["Location"])
-    assert "imported offline dump" in decoded_location
+    assert "Backup restored" in decoded_location
 
 
 def test_settings_page_overrides_and_fallback(client, monkeypatch):
@@ -325,7 +325,7 @@ def test_settings_page_overrides_and_fallback(client, monkeypatch):
     }
     resp = client.post(f"/org/{org_id}/settings", data=post_data)
     assert resp.status_code == 200
-    assert b"Configuration saved successfully." in resp.data
+    assert b"Settings saved." in resp.data
 
     # Check config.json contents
     assert config_file.exists()
@@ -530,19 +530,19 @@ def test_class_pace_settings_route_persists_config(client):
 def test_org_participation_page_renders(client):
     resp = client.get("/org/999999/stats/participation")
     assert resp.status_code == 200
-    assert b"No Synced Session Data" in resp.data
+    assert b"No Synced Data Yet" in resp.data
 
 
 def test_org_most_improved_page_renders(client):
     resp = client.get("/org/999999/stats/most-improved")
     assert resp.status_code == 200
-    assert b"No Synced Session Data" in resp.data
+    assert b"No Synced Data Yet" in resp.data
 
 
 def test_org_wins_podiums_page_renders(client):
     resp = client.get("/org/999999/stats/wins-podiums")
     assert resp.status_code == 200
-    assert b"No Synced Session Data" in resp.data
+    assert b"No Synced Data Yet" in resp.data
 
 
 def test_generate_class_pace_redirect_to_participation(client):
@@ -564,3 +564,228 @@ def test_generate_class_pace_redirect_to_falls_back_for_unrecognized_value(clien
     assert resp.status_code == 302
     assert "/org/999999/stats/class-pace" in resp.headers["Location"]
     assert "participation" not in resp.headers["Location"]
+
+
+def test_org_stats_drivers_page_renders_without_data(client):
+    resp = client.get("/org/999999/stats")
+    assert resp.status_code == 200
+    assert b"No Synced Data Yet" in resp.data
+
+
+def test_stats_freshness_no_data():
+    from app.routes.stats import stats_freshness
+    freshness = stats_freshness(999999)
+    assert freshness["stale"] is False
+    assert freshness["stats_view_count"] == 0
+    assert freshness["stats_calculated_at"] is None
+
+
+def test_stats_freshness_detects_stale_and_fresh():
+    import app as app_module
+    from app.routes.stats import stats_freshness, _store_org_stats_payload
+
+    org_id = 424242
+    storage = app_module.storage
+    # Simulate a sync that finished after the stats were calculated
+    _store_org_stats_payload(org_id, "race:ignore_outliers", {"dummy": True})
+    with storage.connect() as conn:
+        conn.execute(
+            "UPDATE org_stats SET calculated_at = ? WHERE org_id = ?",
+            ("2026-01-01T00:00:00Z", org_id),
+        )
+        conn.commit()
+    storage.save_refresh_state(org_id, {"last_refresh_at": "2026-06-01T00:00:00Z"}, saved_at="2026-06-01T00:00:00Z")
+    assert stats_freshness(org_id)["stale"] is True
+
+    # Recalculating (newer calculated_at) clears the staleness
+    _store_org_stats_payload(org_id, "race:ignore_outliers", {"dummy": True})
+    assert stats_freshness(org_id)["stale"] is False
+
+
+def test_stats_freshness_ignores_incidental_variants_and_flags_them_per_variant():
+    import app as app_module
+    from app.routes.stats import stats_freshness, _store_org_stats_payload
+
+    org_id = 464646
+    storage = app_module.storage
+    # Fresh primary view, stale incidental variant
+    _store_org_stats_payload(org_id, "race:ignore_outliers", {"dummy": True})
+    _store_org_stats_payload(org_id, "qualifying", {"dummy": True})
+    with storage.connect() as conn:
+        conn.execute(
+            "UPDATE org_stats SET calculated_at = '2026-01-01T00:00:00Z' WHERE org_id = ? AND session_type = 'qualifying'",
+            (org_id,),
+        )
+        conn.commit()
+    storage.save_refresh_state(org_id, {"last_refresh_at": "2026-06-01T00:00:00Z"}, saved_at="2026-06-01T00:00:00Z")
+    # Primary is newer than the sync, so the org-level flag is fresh even
+    # though an incidental variant is stale
+    _store_org_stats_payload(org_id, "race:ignore_outliers", {"dummy": True})
+    freshness = stats_freshness(org_id, variant_calculated_at="2026-01-01T00:00:00Z")
+    assert freshness["stale"] is False
+    assert freshness["variant_stale"] is True
+
+
+def test_recalc_scope_primary_leaves_incidental_variants_alone(monkeypatch):
+    import app as app_module
+    from app.routes import stats as stats_module
+
+    org_id = 474747
+    storage = app_module.storage
+    stats_module._store_org_stats_payload(org_id, "qualifying", {"dummy": True})
+    with storage.connect() as conn:
+        conn.execute(
+            "UPDATE org_stats SET calculated_at = '2026-01-01T00:00:00Z' WHERE org_id = ? AND session_type = 'qualifying'",
+            (org_id,),
+        )
+        conn.commit()
+
+    recalced_keys = []
+    monkeypatch.setattr(stats_module, "_recalc_consistency_stats", lambda o, t, i: recalced_keys.append(("consistency", tuple(t), i)))
+    monkeypatch.setattr(stats_module, "_recalc_wins_podiums", lambda o: recalced_keys.append(("wins_podiums",)))
+    monkeypatch.setattr(stats_module, "_recalc_driver_directory", lambda o: recalced_keys.append(("driver_directory",)))
+    monkeypatch.setattr(stats_module, "_recalc_most_improved", lambda o, t, i: recalced_keys.append(("most_improved", tuple(t), i)))
+    monkeypatch.setattr(stats_module, "_recalc_class_pace", lambda o, t, i: recalced_keys.append(("class_pace", tuple(t), i)))
+
+    recalculated, failures, pruned = stats_module._recalc_all_stats_for_org(org_id, scope="primary")
+    assert recalculated == 5
+    assert failures == []
+    assert pruned == 0
+    # The incidental variant was neither recalculated nor deleted
+    assert not any(k[0] == "consistency" and k[1] == ("qualifying",) for k in recalced_keys)
+    with storage.connect() as conn:
+        row = conn.execute(
+            "SELECT calculated_at FROM org_stats WHERE org_id = ? AND session_type = 'qualifying'", (org_id,)
+        ).fetchone()
+    assert row is not None and row["calculated_at"] == "2026-01-01T00:00:00Z"
+
+
+def test_recalc_scope_all_prunes_abandoned_variants_but_never_primaries(monkeypatch):
+    import app as app_module
+    from app.routes import stats as stats_module
+
+    org_id = 484848
+    storage = app_module.storage
+    # Abandoned incidental variant (old, never accessed) and an old primary
+    stats_module._store_org_stats_payload(org_id, "qualifying", {"dummy": True})
+    stats_module._store_org_stats_payload(org_id, "race:ignore_outliers", {"dummy": True})
+    # Recently-accessed incidental variant survives
+    stats_module._store_org_stats_payload(org_id, "practice", {"dummy": True})
+    with storage.connect() as conn:
+        conn.execute(
+            "UPDATE org_stats SET calculated_at = '2020-01-01T00:00:00Z', accessed_at = NULL WHERE org_id = ?",
+            (org_id,),
+        )
+        conn.execute(
+            "UPDATE org_stats SET accessed_at = '2099-01-01T00:00:00Z' WHERE org_id = ? AND session_type = 'practice'",
+            (org_id,),
+        )
+        conn.commit()
+
+    for name in ("_recalc_consistency_stats", "_recalc_most_improved", "_recalc_class_pace"):
+        monkeypatch.setattr(stats_module, name, lambda o, t, i: None)
+    for name in ("_recalc_wins_podiums", "_recalc_driver_directory"):
+        monkeypatch.setattr(stats_module, name, lambda o: None)
+
+    recalculated, failures, pruned = stats_module._recalc_all_stats_for_org(org_id, scope="all")
+    assert pruned == 1
+    with storage.connect() as conn:
+        keys = {r["session_type"] for r in conn.execute("SELECT session_type FROM org_stats WHERE org_id = ?", (org_id,)).fetchall()}
+    assert "qualifying" not in keys
+    assert "practice" in keys
+    assert "race:ignore_outliers" in keys
+
+
+def test_trigger_while_running_sets_rerun_flag():
+    from app.tasks import _new_recalc_stats_task, trigger_stats_recalc, _get_task, _update_task
+
+    org_id = 494949
+    # Simulate an in-flight recalc (row exists with status running, no thread)
+    running_id = _new_recalc_stats_task(org_id, scope="primary")
+    try:
+        result = trigger_stats_recalc(org_id, scope="all")
+        assert result is None
+        task = _get_task(running_id)
+        assert task["rerun_requested"] is True
+        assert task["rerun_scope"] == "all"
+    finally:
+        _update_task(running_id, status="done")
+
+
+def test_accessed_at_touched_on_cached_page_view(client):
+    import app as app_module
+    from app.routes.stats import _store_org_stats_payload, WINS_PODIUMS_CACHE_KEY
+
+    org_id = 454545  # seeded with a session by the generate-all test
+    storage = app_module.storage
+    with storage.connect() as conn:
+        storage.save_session(1002, 2002, org_id, {"id": 1002, "name": "Race 2", "type": "race"}, saved_at="2026-01-01T00:00:00Z", conn=conn)
+    _store_org_stats_payload(org_id, WINS_PODIUMS_CACHE_KEY, {"most_wins": [], "most_podiums": []})
+    with storage.connect() as conn:
+        conn.execute(
+            "UPDATE org_stats SET accessed_at = NULL WHERE org_id = ? AND session_type = ?",
+            (org_id, WINS_PODIUMS_CACHE_KEY),
+        )
+        conn.commit()
+
+    resp = client.get(f"/org/{org_id}/stats/wins-podiums")
+    assert resp.status_code == 200
+    with storage.connect() as conn:
+        row = conn.execute(
+            "SELECT accessed_at FROM org_stats WHERE org_id = ? AND session_type = ?",
+            (org_id, WINS_PODIUMS_CACHE_KEY),
+        ).fetchone()
+    assert row is not None and row["accessed_at"]
+
+
+def test_recalc_stats_task_runs_and_guards_double_start():
+    import time
+    from app.tasks import trigger_stats_recalc, _get_task
+
+    org_id = 434343
+    task_id = trigger_stats_recalc(org_id)
+    assert task_id is not None
+
+    # Wait for the background thread to finish (no synced data -> quick)
+    for _ in range(50):
+        task = _get_task(task_id)
+        if task and task["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert task is not None
+    assert task["task_type"] == "recalc_stats"
+    assert task["status"] in ("done", "error")
+
+    # A second trigger while nothing is running returns a fresh task id
+    second = trigger_stats_recalc(org_id)
+    assert second is not None and second != task_id
+
+
+def test_generate_all_stats_creates_driver_directory_key(client):
+    import app as app_module
+
+    org_id = 454545
+    storage = app_module.storage
+    # Minimal synced session so org_has_sessions() is true
+    with storage.connect() as conn:
+        storage.save_session(1001, 2001, org_id, {"id": 1001, "name": "Race 1", "type": "race"}, saved_at="2026-01-01T00:00:00Z", conn=conn)
+        storage.save_results(1001, 2001, org_id, [{"name": "Test Driver", "status": "Normal", "positionInClass": 1}], saved_at="2026-01-01T00:00:00Z", conn=conn)
+        storage.save_laps(1001, 2001, org_id, [], saved_at="2026-01-01T00:00:00Z", conn=conn)
+
+    resp = client.post(f"/org/{org_id}/stats/generate-all", follow_redirects=False)
+    assert resp.status_code == 302
+
+    # The recalc runs in a background task now; wait for the row to appear
+    import time
+    found = False
+    for _ in range(50):
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT session_type FROM org_stats WHERE org_id = ? AND session_type = 'driver_directory'",
+                (org_id,),
+            ).fetchone()
+        if row:
+            found = True
+            break
+        time.sleep(0.1)
+    assert found, "generate-all should create the driver_directory stats view"

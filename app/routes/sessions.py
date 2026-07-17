@@ -243,7 +243,7 @@ def lap_times(session_id, driver_id):
 
         if driver_name.startswith("Competitor #"):
             if lookup_mode == "pos":
-                driver_name = f"Position {lookup_value} Trace"
+                driver_name = f"Position {lookup_value}"
             elif lookup_mode == "sn":
                 driver_name = f"Start Number {lookup_value}"
 

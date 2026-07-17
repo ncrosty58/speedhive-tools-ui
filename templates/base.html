@@ -136,13 +136,23 @@
         }
 
         .badge-alert {
-            background: var(--warning-soft);
-            color: var(--warning);
+            background: var(--danger-soft);
+            color: var(--danger);
         }
 
         .badge-ok {
             background: var(--success-soft);
             color: var(--success);
+        }
+
+        .badge-warn {
+            background: var(--warning-soft);
+            color: var(--warning);
+        }
+
+        .badge-brand {
+            background: var(--brand-soft);
+            color: var(--brand);
         }
 
         .nav-tabs-custom {
@@ -363,6 +373,70 @@
             color: var(--text-muted) !important;
         }
 
+        .text-main {
+            color: var(--text-main) !important;
+        }
+
+        .text-brand {
+            color: var(--brand) !important;
+        }
+
+        .bg-brand {
+            background: var(--brand) !important;
+        }
+
+        .border-brand {
+            border-color: var(--brand) !important;
+        }
+
+        .fs-7 {
+            font-size: 0.8rem !important;
+        }
+
+        .fw-mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+
+        .driver-link {
+            color: var(--text-main);
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        .driver-link:hover {
+            color: var(--brand) !important;
+            text-decoration: underline !important;
+        }
+
+        /* Scrollable full-length tables with pinned headers */
+        .table-scroll {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .table-scroll .table-custom thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        /* Click-to-sort headers (used with initTableSort) */
+        .table-custom th[data-sort-key] {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .table-custom th[data-sort-key] .sort-arrow {
+            opacity: 0.4;
+            margin-left: 0.25rem;
+        }
+
+        .table-custom th[data-sort-key].sorted .sort-arrow {
+            opacity: 1;
+            color: var(--brand);
+        }
+
         footer {
             margin-top: 4rem;
             border-top: 1px solid var(--border);
@@ -533,7 +607,7 @@
                     {% if authenticated %}
                     <li class="nav-item me-3">
                         <select class="form-select form-control-custom" style="font-size: 0.8rem; min-width: 200px; padding: 0.25rem 2rem 0.25rem 0.5rem;" onchange="navigateToOrganization(this.value)">
-                            <option value="">-- Workspace --</option>
+                            <option value="">-- Organization --</option>
                             {% for o in org_list %}
                                 <option value="{{ o.id }}" {% if o.id|string == global_org_id|string %}selected{% endif %}>{{ o.name }}</option>
                             {% endfor %}
@@ -614,7 +688,7 @@
                 window.location.href = '/organizations/add';
                 return;
             }
-            showPageLoading('Loading...', 'Switching workspace');
+            showPageLoading('Loading...', 'Switching organization');
             if (!val) {
                 window.location.href = '/';
                 return;
@@ -646,6 +720,55 @@
         });
 
         window.addEventListener('pageshow', hidePageLoading);
+
+        /* Click-to-sort for server-rendered tables.
+           Headers: <th data-sort-key="anything" data-sort-dir="asc|desc">Label<span class="sort-arrow">&#8597;</span></th>
+           Cells: sorted by data-sort-value (numeric if parseable) when present, else cell text.
+           Empty values always sort last. */
+        function initTableSort(table) {
+            const headers = Array.from(table.querySelectorAll('th[data-sort-key]'));
+            if (!headers.length) return;
+            const tbody = table.querySelector('tbody');
+
+            headers.forEach(function (th, colIndex) {
+                th.addEventListener('click', function () {
+                    const wasSorted = th.classList.contains('sorted');
+                    const defaultDir = th.dataset.sortDir || 'desc';
+                    const dir = wasSorted ? (th.dataset.currentDir === 'asc' ? 'desc' : 'asc') : defaultDir;
+                    headers.forEach(function (h) { h.classList.remove('sorted'); delete h.dataset.currentDir; });
+                    th.classList.add('sorted');
+                    th.dataset.currentDir = dir;
+
+                    const idx = Array.from(th.parentNode.children).indexOf(th);
+                    const rows = Array.from(tbody.querySelectorAll('tr')).filter(function (r) { return r.children.length > idx; });
+                    rows.sort(function (a, b) {
+                        const av = cellValue(a.children[idx]);
+                        const bv = cellValue(b.children[idx]);
+                        if (av === null) return 1;
+                        if (bv === null) return -1;
+                        let cmp;
+                        if (typeof av === 'number' && typeof bv === 'number') {
+                            cmp = av - bv;
+                        } else {
+                            cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: 'base', numeric: true });
+                        }
+                        return dir === 'asc' ? cmp : -cmp;
+                    });
+                    rows.forEach(function (r) { tbody.appendChild(r); });
+                });
+            });
+
+            function cellValue(cell) {
+                const raw = cell.dataset.sortValue !== undefined ? cell.dataset.sortValue : cell.textContent.trim();
+                if (raw === '' || raw === '—') return null;
+                const num = parseFloat(String(raw).replace(/[%,]/g, ''));
+                return Number.isNaN(num) || !/^[-+]?[\d.,]+%?$/.test(String(raw).trim()) ? String(raw) : num;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('table[data-sortable]').forEach(initTableSort);
+        });
     </script>
     {% block extra_js %}{% endblock %}
 </body>

@@ -552,7 +552,7 @@ def org_track_records_settings(org_id):
             parsing_config=parsing_data,
             stats_config=stats_data,
             env_settings=env_settings,
-            notice="Configuration saved successfully."
+            notice="Settings saved."
         )
 
     notif_data, parsing_data, stats_data, env_settings = _read_org_settings(org_id_int)

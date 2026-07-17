@@ -7,18 +7,17 @@
     {% include "_org_nav.html" %}
     {% include "_stats_subnav.html" %}
 
-    {% if error %}
-        <div class="col-12">
-            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
-        </div>
-    {% endif %}
+    <div class="col-12">
+        <h1 class="h4 fw-bold mb-0">Class Pace</h1>
+    </div>
 
     {% if not manifest_exists %}
         <div class="col-12">
             <div class="glass-card text-center py-5">
-                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
-                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
-                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+                <i class="fa-solid fa-cloud-arrow-down fs-2 mb-2 d-block opacity-40 text-muted"></i>
+                <h3 class="h5 fw-bold mb-2">No Synced Data Yet</h3>
+                <p class="text-muted small mb-4">Sync this organization's results from Speedhive first, then come back to see how class pace has evolved.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Go to Settings &gt; Data</a>
             </div>
         </div>
     {% else %}
@@ -55,34 +54,16 @@
                         </form>
                     </div>
 
-                    <div class="col-12 col-md-auto ms-md-auto">
-                        <form action="/org/{{ org.id }}/stats/class-pace/generate" method="post" class="d-inline" id="recalc-classpace-form">
-                            {% for st in session_types %}
-                                <input type="hidden" name="session_types" value="{{ st }}">
-                            {% endfor %}
-                            <input type="hidden" name="ignore_outliers" value="{{ '1' if ignore_outliers else '0' }}">
-                            <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-classpace-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
-                                <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
-                                {% if has_persisted_stats %}Recalculate{% else %}Generate Chart{% endif %}
-                            </button>
-                        </form>
-                    </div>
                 </div>
             </div>
         </div>
 
         <script>
-            document.getElementById('recalc-classpace-form')?.addEventListener('submit', function() {
-                const btn = document.getElementById('recalc-classpace-btn');
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
-            });
             function onCheckboxChange(cb) {
                 const checkboxes = cb.form.querySelectorAll('input[name="session_types"]');
                 const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
                 if (checkedCount === 0) {
                     cb.checked = true;
-                    alert("At least one session type must be selected.");
                     return;
                 }
                 cb.form.submit();
@@ -93,10 +74,26 @@
             <div class="col-12">
                 <div class="glass-card text-center py-5">
                     <i class="fa-solid fa-chart-line fs-2 mb-3 d-block opacity-40"></i>
-                    <h3 class="h5 fw-bold mb-2">No Class Pace Data Yet</h3>
-                    <p class="text-muted small mb-0">Click "Generate Chart" above to compute average lap time per class, by year.</p>
+                    <h3 class="h5 fw-bold mb-2">Stats Not Calculated Yet</h3>
+                    <p class="text-muted small mb-4">Chart average lap time per class, by year, for the selected filters. This runs once and is saved for next time.</p>
+                    <form action="/org/{{ org.id }}/stats/class-pace/generate" method="post" class="d-inline" id="recalc-classpace-form">
+                        {% for st in session_types %}
+                            <input type="hidden" name="session_types" value="{{ st }}">
+                        {% endfor %}
+                        <input type="hidden" name="ignore_outliers" value="{{ '1' if ignore_outliers else '0' }}">
+                        <button type="submit" class="btn-custom" id="recalc-classpace-btn">
+                            <i class="fa-solid fa-play me-1"></i>Calculate stats
+                        </button>
+                    </form>
                 </div>
             </div>
+            <script>
+                document.getElementById('recalc-classpace-form')?.addEventListener('submit', function() {
+                    const btn = document.getElementById('recalc-classpace-btn');
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Calculating...';
+                });
+            </script>
         {% else %}
             <!-- Chart Settings -->
             <div class="col-12">
@@ -150,7 +147,7 @@
                 <div class="glass-card">
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                         <h3 class="h5 fw-bold mb-0"><i class="fa-solid fa-chart-line text-info"></i> Average Lap Time by Class, by Year</h3>
-                        <span class="text-muted small">Last calculated: {{ calculated_at or 'Never' }}</span>
+                        <span class="text-muted small">Calculated {{ format_saved_at_display(calculated_at) }}</span>
                     </div>
                     {% if chart_data.classes %}
                         <div class="position-relative" style="height: 420px;">

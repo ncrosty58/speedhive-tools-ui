@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Rejected Track Records — Org {{ org_id }}{% endblock %}
+{% block title %}Rejected Records | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -37,7 +37,7 @@
                         <tr>
                             <td>{{ r.classAbbreviation }}</td>
                             <td>{{ r.lapTime }}</td>
-                            <td>{{ r.driverName }}</td>
+                            <td>{% if r.driverName %}<a href="/org/{{ org.id }}/stats/driver/{{ r.driverName }}" class="driver-link">{{ r.driverName }}</a>{% endif %}</td>
                             <td>{{ r.date }}</td>
                             <td>{{ r.rejected_at }}</td>
                             <td>{{ r.reason or 'User Rejected' }}</td>

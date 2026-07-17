@@ -93,7 +93,8 @@ def _update_task(task_id: str, **kwargs) -> None:
         # Merge existing payload data keys
         keys_to_merge = (
             "mode", "phase", "current_item", "sessions_done", "sessions_total",
-            "error", "result", "summary", "events_done", "events_total"
+            "error", "result", "summary", "events_done", "events_total",
+            "scope", "rerun_requested", "rerun_scope",
         )
         for k in keys_to_merge:
             if k in task:
@@ -226,6 +227,16 @@ def _run_track_records_sync_task(task_id: str, org_id: int, full: bool, force: b
         if scan_result.get("candidates_found", 0) > 0:
             _auto_notify_for_org(org_id)
 
+        # This path (the public CI sync endpoint) can pull new race data just
+        # like the Data-page sync, so it must keep the primary stats views
+        # fresh too -- but only when it actually refreshed something.
+        refresh_state = outcome.get("refresh") or {}
+        if outcome.get("refresh_ran") and (
+            refresh_state.get("refreshed_events") or refresh_state.get("refreshed_sessions")
+            or refresh_state.get("removed_event_dirs") or refresh_state.get("removed_session_dirs")
+        ):
+            trigger_stats_recalc(org_id, scope="primary")
+
     except Exception as exc:
         _update_track_records_task(org_id, task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
 
@@ -266,6 +277,117 @@ def _run_track_records_scan_only_task(task_id: str, org_id: int) -> None:
 
     except Exception as exc:
         _update_track_records_task(org_id, task_id, status="error", finished_at=iso_utc(utc_now()), error=str(exc))
+
+
+def _new_recalc_stats_task(org_id: int, scope: str = "primary") -> str:
+    from app import storage
+    task_id = str(uuid.uuid4())
+    task = {
+        "phase": "Starting",
+        "scope": scope,
+        "error": None,
+        "result": None,
+    }
+    started_at = iso_utc(utc_now())
+    with _tasks_lock:
+        with storage.connect() as conn:
+            conn.execute(
+                "INSERT INTO background_tasks (task_id, org_id, task_type, status, payload, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, org_id, "recalc_stats", "running", json.dumps(task), started_at, None)
+            )
+            conn.commit()
+    return task_id
+
+
+def _get_running_recalc_stats_task_for_org(org_id: int) -> Optional[Dict[str, Any]]:
+    from app import storage
+    with _tasks_lock:
+        with storage.connect() as conn:
+            row = conn.execute(
+                "SELECT task_id, status, payload, started_at, finished_at FROM background_tasks "
+                "WHERE org_id = ? AND task_type = 'recalc_stats' AND status = 'running' "
+                "LIMIT 1",
+                (org_id,)
+            ).fetchone()
+            if not row:
+                return None
+            task = {
+                "task_id": row["task_id"],
+                "org_id": org_id,
+                "task_type": "recalc_stats",
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+            }
+            if row["payload"]:
+                try:
+                    task.update(json.loads(row["payload"]))
+                except Exception:
+                    pass
+            return task
+
+
+def _run_recalc_stats_task(task_id: str, org_id: int, scope: str = "primary") -> None:
+    """Recompute cached stats views for the org in a background thread
+    (scope: "primary" = just the default views, "all" = every cached
+    variant, with pruning). Purely local -- never contacts Speedhive."""
+    import logging
+    from app.routes.stats import _recalc_all_stats_for_org
+
+    logger = logging.getLogger(__name__)
+
+    def report(phase, done, total):
+        _update_task(task_id, phase=phase, sessions_done=done, sessions_total=total)
+
+    try:
+        recalculated, failures, pruned = _recalc_all_stats_for_org(org_id, scope=scope, progress_cb=report, logger=logger)
+        result = {"recalculated": recalculated, "failures": failures, "pruned": pruned, "scope": scope}
+        if failures:
+            _update_task(
+                task_id,
+                status="error",
+                phase="Finished with errors",
+                finished_at=iso_utc(utc_now()),
+                result=result,
+                error=f"Recalculated {recalculated} stats views; {len(failures)} failed: {', '.join(failures)}",
+            )
+        else:
+            _update_task(
+                task_id,
+                status="done",
+                phase="Complete",
+                finished_at=iso_utc(utc_now()),
+                result=result,
+            )
+    except Exception as exc:
+        _update_task(task_id, status="error", phase="Error", finished_at=iso_utc(utc_now()), error=str(exc))
+
+    # If new data landed while this recalc was running, a follow-up was
+    # requested instead of being dropped -- run it now so the finished stats
+    # can't silently miss the newer sync.
+    task = _get_task(task_id)
+    if task and task.get("rerun_requested"):
+        follow_up_scope = task.get("rerun_scope") or "primary"
+        trigger_stats_recalc(org_id, scope=follow_up_scope)
+
+
+def trigger_stats_recalc(org_id: int, scope: str = "primary") -> Optional[str]:
+    """Fire-and-forget stats recalculation, used after anything that changes
+    the synced data (sync completing, backup restore, the public CI sync)
+    and by the Settings > Data button (scope="all"). Recalc is expensive, so
+    it never runs on page views and never doubles up: if one is already
+    running for this org, a follow-up is flagged on the running task (the
+    widest requested scope wins) and started when it finishes; returns None
+    in that case."""
+    running = _get_running_recalc_stats_task_for_org(org_id)
+    if running:
+        widest = "all" if scope == "all" or running.get("rerun_scope") == "all" else "primary"
+        _update_task(running["task_id"], rerun_requested=True, rerun_scope=widest)
+        return None
+    task_id = _new_recalc_stats_task(org_id, scope=scope)
+    t = threading.Thread(target=_run_recalc_stats_task, args=(task_id, org_id, scope), daemon=True)
+    t.start()
+    return task_id
 
 
 def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int) -> None:
@@ -460,6 +582,11 @@ def _run_refresh_task(task_id: str, org_id: int, mode: str, backfill_events: int
             summary=refresh_state,
         )
         _trigger_track_records_rescan(org_id)
+        # Stats recalc is expensive, so only re-run it when this sync actually
+        # touched data; a no-op sync leaves the caches (and their freshness)
+        # alone.
+        if refreshed_events or refreshed_sessions or removed_event_dirs or removed_session_dirs:
+            trigger_stats_recalc(org_id, scope="primary")
     except Exception as exc:
         _update_task(
             task_id,

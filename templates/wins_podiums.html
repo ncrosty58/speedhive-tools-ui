@@ -7,142 +7,118 @@
     {% include "_org_nav.html" %}
     {% include "_stats_subnav.html" %}
 
-    {% if error %}
-        <div class="col-12">
-            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
-        </div>
-    {% endif %}
+    <div class="col-12">
+        <h1 class="h4 fw-bold mb-0">Wins &amp; Podiums</h1>
+    </div>
 
     {% if not manifest_exists %}
         <div class="col-12">
             <div class="glass-card text-center py-5">
-                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
-                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
-                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+                <i class="fa-solid fa-cloud-arrow-down fs-2 mb-2 d-block opacity-40 text-muted"></i>
+                <h3 class="h5 fw-bold mb-2">No Synced Data Yet</h3>
+                <p class="text-muted small mb-4">Sync this organization's results from Speedhive first, then come back to see who wins the most.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Go to Settings &gt; Data</a>
             </div>
         </div>
-    {% else %}
-        <!-- Recalculate/Generate button -->
+    {% elif not has_persisted_stats %}
         <div class="col-12">
-            <div class="glass-card">
-                <div class="d-flex justify-content-end">
-                    <form action="/org/{{ org.id }}/stats/wins-podiums/generate" method="post" class="d-inline" id="recalc-wins-podiums-form">
-                        <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-wins-podiums-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
-                            <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
-                            {% if has_persisted_stats %}Recalculate{% else %}Generate{% endif %}
-                        </button>
-                    </form>
-                </div>
+            <div class="glass-card text-center py-5">
+                <i class="fa-solid fa-trophy fs-2 mb-3 d-block opacity-40"></i>
+                <h3 class="h5 fw-bold mb-2">Stats Not Calculated Yet</h3>
+                <p class="text-muted small mb-4">Tally class-position wins and podiums across every synced race. This runs once and is saved for next time.</p>
+                <form action="/org/{{ org.id }}/stats/wins-podiums/generate" method="post" class="d-inline" id="recalc-wins-podiums-form">
+                    <button type="submit" class="btn-custom" id="recalc-wins-podiums-btn">
+                        <i class="fa-solid fa-play me-1"></i>Calculate stats
+                    </button>
+                </form>
             </div>
         </div>
-
         <script>
             document.getElementById('recalc-wins-podiums-form')?.addEventListener('submit', function() {
                 const btn = document.getElementById('recalc-wins-podiums-btn');
                 btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Calculating...';
             });
         </script>
-
-        {% if not has_persisted_stats %}
-            <div class="col-12">
-                <div class="glass-card text-center py-5">
-                    <i class="fa-solid fa-trophy fs-2 mb-3 d-block opacity-40"></i>
-                    <h3 class="h5 fw-bold mb-2">No Wins/Podiums Data Yet</h3>
-                    <p class="text-muted small mb-0">Click "Generate" above to tally class-position wins and podiums across every synced race.</p>
-                </div>
+    {% else %}
+        <!-- Explanation card -->
+        <div class="col-12">
+            <div class="glass-card">
+                <h3 class="h5 fw-bold mb-2">How This Is Measured</h3>
+                <p class="text-muted small mb-0">
+                    Counted from each driver's finishing position <strong>within their own class</strong> across every synced race session &mdash; not overall field position, since mixed run-groups share track time with other classes. A win is 1st in class, a podium is top 3. Only classified finishes (not DNF/DQ) count toward wins or podiums, and a driver must have at least 3 race starts to appear on either board.
+                </p>
             </div>
-        {% else %}
-            <!-- Explanation card -->
-            <div class="col-12">
-                <div class="glass-card">
-                    <h3 class="h5 fw-bold mb-2">How This Is Measured</h3>
-                    <p class="text-muted small mb-0">
-                        Counted from each driver's finishing position <strong>within their own class</strong> across every synced race session &mdash; not overall field position, since mixed run-groups share track time with other classes. A win is 1st in class, a podium is top 3. Only classified finishes (not DNF/DQ) count toward wins or podiums, and a driver must have at least 3 race starts (anything but DNS) to appear on either board.
-                    </p>
-                </div>
-            </div>
+        </div>
 
-            <!-- Driver Search Bar -->
-            <div class="col-12">
-                <div class="glass-card py-2 px-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <i class="fa-solid fa-magnifying-glass text-brand"></i>
-                        <input type="text" id="driver-search-input" class="form-control form-control-sm bg-transparent border-0 text-white shadow-none" placeholder="Search driver by name to see where they fall on the list..." style="font-size: 0.95rem;">
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                    <div>
+                        <h3 class="h5 fw-bold mb-0">Wins &amp; Podiums</h3>
+                        <span class="text-muted small">Click a column to sort — sorted by wins to start.</span>
                     </div>
+                    <input type="text" id="driver-search-input" class="form-control form-control-custom py-1 px-2" style="max-width: 260px;" placeholder="Search drivers...">
                 </div>
-            </div>
-
-            <div class="col-lg-6">
-                <div class="glass-card">
-                    <h3 class="h5 fw-bold mb-3">Most Wins</h3>
-                    {% if most_wins %}
-                        <div class="table-custom-container">
-                            <table class="table table-custom mb-0 small">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Driver Name</th>
-                                        <th>Wins</th>
-                                        <th>Podiums</th>
-                                        <th>Starts</th>
-                                        <th>Win %</th>
+                {% if most_wins %}
+                    <div class="table-custom-container table-scroll">
+                        <table class="table table-custom mb-0 small" data-sortable>
+                            <thead>
+                                <tr>
+                                    <th data-sort-key="name" data-sort-dir="asc">Driver<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="starts">Starts<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="wins" class="sorted">Wins<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="win_pct">Win %<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="podiums">Podiums<span class="sort-arrow">&#8597;</span></th>
+                                    <th data-sort-key="podium_pct">Podium %<span class="sort-arrow">&#8597;</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="wins-table-body">
+                                {% for r in most_wins %}
+                                    <tr data-driver-name="{{ r.name|lower }}">
+                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
+                                        <td>{{ r.starts }}</td>
+                                        <td>{{ r.wins }}</td>
+                                        <td>{{ r.win_rate_display }}</td>
+                                        <td>{{ r.podiums }}</td>
+                                        <td>{{ r.podium_rate_display }}</td>
                                     </tr>
-                                </thead>
-                                <tbody id="wins-table-body">
-                                    {% for r in most_wins[:15] %}
-                                        <tr>
-                                            <td>{{ loop.index }}</td>
-                                            <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
-                                            <td>{{ r.wins }}</td>
-                                            <td>{{ r.podiums }}</td>
-                                            <td>{{ r.starts }}</td>
-                                            <td>{{ r.win_rate_display }}</td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="text-center py-4 text-muted small">No drivers with at least 3 race starts found.</div>
-                    {% endif %}
-                </div>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="fa-solid fa-trophy fs-2 mb-2 d-block opacity-40"></i>
+                        No drivers with at least 3 race starts yet.
+                    </div>
+                {% endif %}
             </div>
+        </div>
 
-            <div class="col-lg-6">
-                <div class="glass-card">
-                    <h3 class="h5 fw-bold mb-3">Most Podiums</h3>
-                    {% if most_podiums %}
-                        <div class="table-custom-container">
-                            <table class="table table-custom mb-0 small">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Driver Name</th>
-                                        <th>Wins</th>
-                                        <th>Podiums</th>
-                                        <th>Starts</th>
-                                        <th>Podium %</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="podiums-table-body">
-                                    {% for r in most_podiums[:15] %}
-                                        <tr>
-                                            <td>{{ loop.index }}</td>
-                                            <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?session_types=race" class="driver-link">{{ r.name }}</a></td>
-                                            <td>{{ r.wins }}</td>
-                                            <td>{{ r.podiums }}</td>
-                                            <td>{{ r.starts }}</td>
-                                            <td>{{ r.podium_rate_display }}</td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="text-center py-4 text-muted small">No drivers with at least 3 race starts found.</div>
-                    {% endif %}
+        {% if freshness and freshness.recalc_running %}
+            <div class="col-12">
+                <div class="text-muted small"><i class="fa-solid fa-circle-notch fa-spin me-1 text-info"></i>Stats are updating in the background &mdash; this page may briefly show older numbers.</div>
+            </div>
+        {% elif freshness and freshness.variant_stale %}
+            <div class="col-12">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <span class="small text-warning"><i class="fa-solid fa-triangle-exclamation me-1"></i>Data has been synced since this view was calculated.</span>
+                    <form action="/org/{{ org.id }}/stats/wins-podiums/generate" method="post" class="d-inline" id="update-view-form">
+                        <button type="submit" class="btn-custom-outline py-1 px-2 fs-7" id="update-view-btn"><i class="fa-solid fa-arrows-rotate me-1"></i>Update this view</button>
+                    </form>
                 </div>
+                <script>
+                    document.getElementById('update-view-form')?.addEventListener('submit', function() {
+                        const btn = document.getElementById('update-view-btn');
+                        btn.disabled = true;
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Updating...';
+                    });
+                </script>
+            </div>
+        {% elif calculated_at %}
+            <div class="col-12">
+                <div class="text-muted small">Calculated {{ format_saved_at_display(calculated_at) }}</div>
             </div>
         {% endif %}
     {% endif %}
@@ -154,62 +130,15 @@
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const searchInput = document.getElementById("driver-search-input");
-        const winsTbody = document.getElementById("wins-table-body");
-        const podiumsTbody = document.getElementById("podiums-table-body");
+        if (!searchInput) return;
 
-        const allWins = {{ most_wins | tojson if most_wins else '[]' }};
-        const allPodiums = {{ most_podiums | tojson if most_podiums else '[]' }};
-
-        allWins.forEach((item, index) => { item.rank = index + 1; });
-        allPodiums.forEach((item, index) => { item.rank = index + 1; });
-
-        function renderTable(tbody, list, showWinRate, query) {
-            if (!tbody) return;
-            tbody.innerHTML = "";
-
-            let filtered = list;
-            if (query) {
-                const q = query.toLowerCase();
-                filtered = list.filter(item => item.name.toLowerCase().includes(q));
-            } else {
-                // Show top 15 by default
-                filtered = list.slice(0, 15);
-            }
-
-            if (filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No matching drivers found.</td></tr>';
-                return;
-            }
-
-            filtered.forEach(r => {
-                const tr = document.createElement("tr");
-
-                const driverUrl = `/org/{{ org.id }}/stats/driver/${encodeURIComponent(r.name)}?session_types=race`;
-                const rateDisplay = showWinRate ? r.win_rate_display : r.podium_rate_display;
-
-                tr.innerHTML = `
-                    <td>${r.rank}</td>
-                    <td class="fw-semibold"><a href="${driverUrl}" class="driver-link">${r.name}</a></td>
-                    <td>${r.wins}</td>
-                    <td>${r.podiums}</td>
-                    <td>${r.starts}</td>
-                    <td>${rateDisplay}</td>
-                `;
-                tbody.appendChild(tr);
+        searchInput.addEventListener("input", function () {
+            const q = this.value.trim().toLowerCase();
+            document.querySelectorAll("#wins-table-body tr").forEach(tr => {
+                const name = tr.dataset.driverName || "";
+                tr.style.display = !q || name.includes(q) ? "" : "none";
             });
-        }
-
-        if (searchInput) {
-            // Initial render of first 15 in case the lists are longer
-            renderTable(winsTbody, allWins, true, "");
-            renderTable(podiumsTbody, allPodiums, false, "");
-
-            searchInput.addEventListener("input", function () {
-                const query = this.value.trim();
-                renderTable(winsTbody, allWins, true, query);
-                renderTable(podiumsTbody, allPodiums, false, query);
-            });
-        }
+        });
     });
 </script>
 {% endif %}

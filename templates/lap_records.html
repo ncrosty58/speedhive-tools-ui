@@ -10,7 +10,7 @@
     <div class="col-12">
         <div class="notice-banner">
             <i class="fa-solid fa-circle-info"></i>
-            <span>Live query over your synced session data -- shows the fastest lap per class/driver right now, straight from the cache. This is <strong>not</strong> the same as the <a href="{{ url_for('org_track_records_curated', org_id=org.id) }}" class="text-info">Curated</a> list: nothing here has gone through announcer-based review/approval, so it can include times that shouldn't count as official records.</span>
+            <span>The fastest lap per class and driver in your synced data, as it stands right now. This is <strong>not</strong> the same as the <a href="{{ url_for('org_track_records_curated', org_id=org.id) }}" class="text-info">Curated</a> list: nothing here has been reviewed or approved, so it can include times that shouldn't count as official records.</span>
         </div>
     </div>
 
@@ -81,7 +81,7 @@
                             {% for r in records %}
                                 <tr>
                                     <td class="text-secondary small">{{ r.timestamp or 'N/A' }}</td>
-                                    <td class="fw-semibold">{{ r.driver }}</td>
+                                    <td class="fw-semibold">{% if r.driver %}<a href="/org/{{ org.id }}/stats/driver/{{ r.driver }}" class="driver-link">{{ r.driver }}</a>{% endif %}</td>
                                     <td class="text-secondary small">{{ r.classification }}</td>
                                     <td class="text-info fw-bold">{{ r.lap_time }}</td>
                                     <td>
@@ -93,9 +93,15 @@
                     </table>
                 </div>
             {% elif records_ready %}
-                <div class="text-center py-4 text-muted small">No lap records found.</div>
+                <div class="text-center py-4 text-muted">
+                    <i class="fa-solid fa-stopwatch fs-2 mb-2 d-block opacity-40"></i>
+                    No lap records match these filters.
+                </div>
             {% else %}
-                <div class="text-center py-4 text-muted small">Run an Iterative Sync or Full Rebuild under Data to generate lap records.</div>
+                <div class="text-center py-4 text-muted">
+                    <i class="fa-solid fa-stopwatch fs-2 mb-2 d-block opacity-40"></i>
+                    No lap records yet. <a href="/org/{{ org.id }}/operations" class="text-info">Sync this organization's data</a> first (Settings &gt; Data).
+                </div>
             {% endif %}
         </div>
     </div>

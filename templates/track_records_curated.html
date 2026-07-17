@@ -7,17 +7,6 @@
     {% include "_org_nav.html" %}
     {% include "_track_records_subnav.html" %}
 
-    {% if notice %}
-    <div class="col-12">
-        <div class="notice-banner success">{{ notice }}</div>
-    </div>
-    {% endif %}
-    {% if error %}
-    <div class="col-12">
-        <div class="notice-banner error">{{ error }}</div>
-    </div>
-    {% endif %}
-
     <!-- Add Record Manually -->
     <div class="col-12">
         <div class="glass-card">
@@ -38,7 +27,7 @@
                     <input class="form-control form-control-custom form-control-sm" name="driverName">
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small text-muted mb-1">Marque</label>
+                    <label class="form-label small text-muted mb-1">Car</label>
                     <input class="form-control form-control-custom form-control-sm" name="marque">
                 </div>
                 <div class="col-6 col-md-2">
@@ -75,7 +64,7 @@
                             <th class="text-nowrap">Class</th>
                             <th class="text-nowrap">Lap Time</th>
                             <th>Driver</th>
-                            <th>Marque</th>
+                            <th>Car</th>
                             <th class="text-nowrap">Date</th>
                             <th class="text-nowrap">Source</th>
                             <th></th>
@@ -86,19 +75,19 @@
                         <tr>
                             <td class="text-nowrap">{{ r.classAbbreviation }}</td>
                             <td class="text-nowrap">{{ r.lapTime }}</td>
-                            <td>{{ r.driverName }}</td>
+                            <td>{% if r.driverName %}<a href="/org/{{ org.id }}/stats/driver/{{ r.driverName }}" class="driver-link">{{ r.driverName }}</a>{% endif %}</td>
                             <td>{{ r.marque or '—' }}</td>
                             <td class="text-nowrap">{{ r.date }}</td>
                             <td class="text-nowrap">
                                 {% if r.source == 'manual' %}
-                                    <span class="badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">Manual</span>
+                                    <span class="badge-custom badge-neutral">Manual</span>
                                 {% else %}
-                                    <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Speedhive</span>
+                                    <span class="badge-custom badge-brand">Speedhive</span>
                                     {% if r.modified %}
                                         {% if r.edit_history %}
-                                            <button type="button" class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" style="cursor: pointer;" title="Click to see what changed" data-bs-toggle="collapse" data-bs-target="#modified-history-{{ loop.index }}">Modified</button>
+                                            <button type="button" class="badge-custom badge-warn border-0" style="cursor: pointer;" title="Click to see what changed" data-bs-toggle="collapse" data-bs-target="#modified-history-{{ loop.index }}">Modified</button>
                                         {% else %}
-                                            <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" title="Edited by a human since the scan">Modified</span>
+                                            <span class="badge-custom badge-warn" title="Edited by a human since the scan">Modified</span>
                                         {% endif %}
                                     {% endif %}
                                 {% endif %}
@@ -141,7 +130,7 @@
                                                 <input class="form-control form-control-custom form-control-sm" name="driverName" value="{{ r.driverName or '' }}">
                                             </div>
                                             <div class="col-6 col-md-2">
-                                                <label class="form-label small text-muted mb-1">Marque</label>
+                                                <label class="form-label small text-muted mb-1">Car</label>
                                                 <input class="form-control form-control-custom form-control-sm" name="marque" value="{{ r.marque or '' }}">
                                             </div>
                                             <div class="col-6 col-md-2">
@@ -163,7 +152,7 @@
                             <td colspan="7" class="p-0 border-0">
                                 <div class="collapse" id="modified-history-{{ loop.index }}">
                                     <div class="p-3 bg-surface-2 border-top border-bottom border-secondary border-opacity-10">
-                                        {% set field_labels = {'classAbbreviation': 'Class', 'lapTime': 'Lap Time', 'driverName': 'Driver', 'marque': 'Marque', 'date': 'Date'} %}
+                                        {% set field_labels = {'classAbbreviation': 'Class', 'lapTime': 'Lap Time', 'driverName': 'Driver', 'marque': 'Car', 'date': 'Date'} %}
                                         <div class="small text-muted mb-2">Edit history (newest first)</div>
                                         {% for entry in r.edit_history|reverse %}
                                         <div class="small {% if not loop.last %}mb-2 pb-2 border-bottom border-secondary border-opacity-10{% endif %}">

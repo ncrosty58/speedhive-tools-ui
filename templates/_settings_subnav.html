@@ -1,6 +1,10 @@
 <div class="col-12">
     <div class="d-flex flex-wrap gap-2">
-        <a class="btn-custom {% if active_settings_tab == 'general' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_settings', org_id=org.id) }}">General Settings & Aliases</a>
-        <a class="btn-custom {% if active_settings_tab == 'data' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_operations', org_id=org.id) }}">Data Sync & Backups</a>
+        <a class="btn-custom {% if active_settings_tab == 'general' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_track_records_settings', org_id=org.id) }}">
+            <i class="fa-solid fa-sliders me-1"></i>General
+        </a>
+        <a class="btn-custom {% if active_settings_tab == 'data' %}active{% else %}btn-custom-outline{% endif %} py-1 px-3" href="{{ url_for('org_operations', org_id=org.id) }}">
+            <i class="fa-solid fa-database me-1"></i>Data &amp; Backups
+        </a>
     </div>
 </div>

@@ -109,6 +109,12 @@ def refresh_org(org_id):
         )
         refreshed = format_saved_at_display(summary.get("last_refresh_at"))
         mode_label = "Full" if mode == "full" else "Incremental"
+
+        # Keep the primary stats views fresh, same as the async sync path
+        if summary.get("refreshed_events") or summary.get("refreshed_sessions"):
+            from app.tasks import trigger_stats_recalc
+            trigger_stats_recalc(org_id_int, scope="primary")
+
         notice = (
             f"{mode_label} refresh complete for org {org_id_int}: "
             f"{summary.get('refreshed_events', 0)} events updated, "
@@ -203,10 +209,12 @@ def clear_org_cache_files(org_id: int):
         except Exception:
             pass
 
-    # Wipe task state records from database
+    # Wipe task state and cached stats from database (org_stats is app-owned;
+    # storage.delete_org doesn't know about it)
     try:
         with storage.connect() as conn:
             conn.execute("DELETE FROM background_tasks WHERE org_id = ?", (org_id,))
+            conn.execute("DELETE FROM org_stats WHERE org_id = ?", (org_id,))
             conn.commit()
     except Exception:
         pass
@@ -263,12 +271,12 @@ def save_local(org_id):
         max_events = max(1, min(safe_int(max_events_val, 25), MAX_ORG_EVENTS)) if max_events_val else 25
         summary = save_org_dump(org_id_int, force_refresh=False, max_events=max_events)
         notice = (
-            f"Exported offline dump to {summary['path']} with {summary['events_count']} events, "
+            f"Backup created: {summary['events_count']} events, "
             f"{summary['sessions_count']} sessions, {summary['laps_records_count']} lap-record blocks."
         )
         return redirect(url_for("org_details", org_id=org_id_int, notice=notice))
     except Exception as exc:
-        return redirect(url_for("org_details", org_id=org_id_int, error=f"Dump generation failed: {exc}"))
+        return redirect(url_for("org_details", org_id=org_id_int, error=f"Backup failed: {exc}"))
 
 
 def download_local_dump(org_id, dump_key: str = "latest"):
@@ -280,11 +288,11 @@ def download_local_dump(org_id, dump_key: str = "latest"):
     dump_root = _dump_root_for_org(org_id_int)
     dump_dir = _resolve_dump_dir_for_org(org_id_int, dump_key)
     if dump_dir is None:
-        return redirect(url_for("org_details", org_id=org_id_int, error="Invalid dump selection."))
+        return redirect(url_for("org_details", org_id=org_id_int, error="That backup no longer exists."))
     download_name = f"speedhive_org_{org_id_int}_dump.zip" if dump_key in (None, "", "latest") else f"speedhive_org_{org_id_int}_{dump_key}.zip"
 
     if not dump_dir.exists():
-        return redirect(url_for("org_details", org_id=org_id_int, error="No local dump found. Generate an offline dump first."))
+        return redirect(url_for("org_details", org_id=org_id_int, error="No backup found. Create one under Settings > Data first."))
 
     tmp = tempfile.NamedTemporaryFile(prefix=f"speedhive_org_{org_id_int}_", suffix=".zip", delete=False)
     tmp_path = Path(tmp.name)
@@ -318,9 +326,9 @@ def delete_local_dump(org_id, dump_key: str = "latest"):
 
     dump_dir = _resolve_dump_dir_for_org(org_id_int, dump_key)
     if dump_dir is None:
-        return redirect(url_for("org_details", org_id=org_id_int, error="Invalid dump selection."))
+        return redirect(url_for("org_details", org_id=org_id_int, error="That backup no longer exists."))
     if not dump_dir.exists():
-        return redirect(url_for("org_details", org_id=org_id_int, error="No dump found to delete."))
+        return redirect(url_for("org_details", org_id=org_id_int, error="No backup found to delete."))
 
     if dump_key in (None, "", "latest"):
         _delete_latest_dump_contents(org_id_int)
@@ -328,7 +336,7 @@ def delete_local_dump(org_id, dump_key: str = "latest"):
         shutil.rmtree(dump_dir, ignore_errors=True)
 
     _prune_empty_dump_roots(org_id_int)
-    return redirect(url_for("org_operations", org_id=org_id_int, notice="Deleted dump snapshot from disk."))
+    return redirect(url_for("org_operations", org_id=org_id_int, notice="Backup deleted."))
 
 
 def upload_local_dump(org_id):
@@ -368,7 +376,7 @@ def upload_local_dump(org_id):
                 break
 
         if not events_file:
-            return redirect(url_for("org_operations", org_id=org_id_int, error="Invalid dump archive: events.ndjson not found in ZIP file."))
+            return redirect(url_for("org_operations", org_id=org_id_int, error="This doesn't look like a backup file — use a ZIP created by the Create backup button."))
 
         source_dir = events_file.parent
         target_org_dir = staging_dir / str(org_id_int)
@@ -380,13 +388,19 @@ def upload_local_dump(org_id):
 
         # Perform the import
         summary = import_dump_to_storage(org=org_id_int, dump_dir=staging_dir, storage=storage)
+
+        # Imported data changes the stats; refresh the primary views in the
+        # background (other variants update on their next visit)
+        from app.tasks import trigger_stats_recalc
+        trigger_stats_recalc(org_id_int, scope="primary")
+
         notice = (
-            f"Successfully imported offline dump: "
+            f"Backup restored: "
             f"{summary.get('events', 0)} events, "
             f"{summary.get('sessions', 0)} sessions, "
             f"{summary.get('results', 0)} results, "
             f"{summary.get('laps', 0)} laps, "
-            f"{summary.get('announcements', 0)} announcements."
+            f"{summary.get('announcements', 0)} announcements. Stats are recalculating in the background."
         )
         return redirect(url_for("org_operations", org_id=org_id_int, notice=notice))
     except Exception as exc:
@@ -423,11 +437,14 @@ def org_operations(org_id):
     cache_status = events_meta
     dumps_list = _list_org_dumps(org_id_int)
 
-    from app.tasks import _get_running_track_records_task_for_org
+    from app.tasks import _get_running_track_records_task_for_org, _get_running_recalc_stats_task_for_org
+    from app.routes.stats import stats_freshness
     running_task = _get_running_task_for_org(org_id_int)
     running_task_id = running_task["task_id"] if running_task else None
     running_track_records_task = _get_running_track_records_task_for_org(org_id_int)
     running_track_records_task_id = running_track_records_task["task_id"] if running_track_records_task else None
+    running_recalc_stats_task = _get_running_recalc_stats_task_for_org(org_id_int)
+    running_recalc_stats_task_id = running_recalc_stats_task["task_id"] if running_recalc_stats_task else None
 
     return render_template(
         "org_operations.html",
@@ -443,6 +460,8 @@ def org_operations(org_id):
         cache_status=cache_status,
         running_task_id=running_task_id,
         running_track_records_task_id=running_track_records_task_id,
+        running_recalc_stats_task_id=running_recalc_stats_task_id,
+        stats_freshness=stats_freshness(org_id_int),
         notice=request.args.get("notice"),
         error=request.args.get("error"),
     )

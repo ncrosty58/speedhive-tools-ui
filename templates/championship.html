@@ -8,7 +8,8 @@
         <a href="/" class="text-info text-decoration-none">Dashboard</a>
         <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
         {% if championship and championship.organizationId %}
-            <a href="/org/{{ championship.organizationId }}" class="text-info text-decoration-none">Organization #{{ championship.organizationId }}</a>
+            {% set org_names = org_list | selectattr('id', 'equalto', championship.organizationId | int) | map(attribute='name') | list %}
+            <a href="/org/{{ championship.organizationId }}" class="text-info text-decoration-none">{{ org_names[0] if org_names else 'Organization #' ~ championship.organizationId }}</a>
         {% else %}
             <span>Organization</span>
         {% endif %}
@@ -53,7 +54,7 @@
                                 {% for comp in competitors %}
                                     <tr>
                                         <td class="fw-bold text-info">#{{ comp.position or loop.index }}</td>
-                                        <td class="fw-semibold">{{ comp.name or comp.competitorName or 'Unknown Competitor' }}</td>
+                                        <td class="fw-semibold">{% set comp_name = comp.name or comp.competitorName %}{% if comp_name and global_org_id %}<a href="/org/{{ global_org_id }}/stats/driver/{{ comp_name }}" class="driver-link">{{ comp_name }}</a>{% else %}{{ comp_name or 'Unknown Competitor' }}{% endif %}</td>
                                         <td class="text-secondary">{{ comp.class or comp.className or 'N/A' }}</td>
                                         <td class="text-end text-info fw-bold fs-5">{{ comp.points or 0 }}</td>
                                     </tr>

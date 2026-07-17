@@ -1,17 +1,26 @@
 {% extends 'base.html' %}
 
-{% block title %}Stats | {{ org.name }}{% endblock %}
+{% block title %}Drivers | {{ org.name }}{% endblock %}
 
 {% block content %}
 <style>
-    .driver-link {
-        color: #fff;
-        text-decoration: none;
-        transition: color 0.15s ease;
+    .drivers-table th[data-sort-key] {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
     }
-    .driver-link:hover {
-        color: var(--brand, #00f0ff) !important;
-        text-decoration: underline !important;
+    .drivers-table th[data-sort-key] .sort-arrow {
+        opacity: 0.4;
+        margin-left: 0.25rem;
+    }
+    .drivers-table th[data-sort-key].sorted .sort-arrow {
+        opacity: 1;
+        color: var(--brand);
+    }
+    .drivers-table td .rank-sub {
+        display: block;
+        font-size: 0.7rem;
+        color: var(--text-muted);
     }
 
     @media (max-width: 768px) {
@@ -26,50 +35,69 @@
     {% include "_org_nav.html" %}
     {% include "_stats_subnav.html" %}
 
-    {% if error %}
-        <div class="col-12">
-            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
-        </div>
-    {% endif %}
+    <div class="col-12">
+        <h1 class="h4 fw-bold mb-0">Drivers</h1>
+    </div>
 
     {% if not manifest_exists %}
-        <!-- Missing Offline Dump -->
+        <!-- No synced data yet -->
         <div class="col-12">
             <div class="glass-card text-center py-5">
-                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
-                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
-                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+                <i class="fa-solid fa-cloud-arrow-down fs-2 mb-2 d-block opacity-40 text-muted"></i>
+                <h3 class="h5 fw-bold mb-2">No Synced Data Yet</h3>
+                <p class="text-muted small mb-4">Sync this organization's results from Speedhive first, then come back to see driver stats.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Go to Settings &gt; Data</a>
             </div>
         </div>
-    {% elif manifest_exists %}
-        <!-- Stats summary & Filter bar (always shown once data is refreshed) -->
+    {% elif not has_persisted_stats %}
+        <!-- Data synced, stats not calculated for this filter combination -->
+        <div class="col-12">
+            <div class="glass-card text-center py-5">
+                <i class="fa-solid fa-calculator fs-2 mb-2 d-block opacity-40 text-muted"></i>
+                <h3 class="h5 fw-bold mb-2">Stats Not Calculated Yet</h3>
+                <p class="text-muted small mb-4">Calculate stats for the selected filters ({{ session_types|join(', ') }}{% if ignore_outliers %}, ignoring outlier laps{% endif %}). This runs once and is saved for next time.</p>
+                <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="recalc-stats-form">
+                    {% for st in session_types %}
+                        <input type="hidden" name="session_types" value="{{ st }}">
+                    {% endfor %}
+                    <input type="hidden" name="ignore_outliers" value="{{ '1' if ignore_outliers else '0' }}">
+                    <button type="submit" class="btn-custom" id="recalc-stats-btn">
+                        <i class="fa-solid fa-play me-1"></i>Calculate stats
+                    </button>
+                </form>
+            </div>
+        </div>
+        <script>
+            document.getElementById('recalc-stats-form')?.addEventListener('submit', function() {
+                const btn = document.getElementById('recalc-stats-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Calculating...';
+            });
+        </script>
+    {% else %}
+        <!-- Summary & filter bar -->
         <div class="col-12">
             <div class="glass-card">
                 <div class="row g-3 align-items-center">
-                    <!-- Stats summary (Laps Analyzed / Drivers) -->
                     <div class="col-12 col-md-auto d-flex align-items-center gap-3 border-md-end pe-md-4 mobile-separator justify-content-center justify-content-md-start">
-                        {% if has_persisted_stats %}
-                            <div>
-                                <span class="text-muted small d-block">Laps Analyzed</span>
-                                <span class="fs-5 fw-bold text-white">{{ total_laps_analyzed }}</span>
-                            </div>
-                            <div style="width: 1px; height: 30px; background: var(--border);"></div>
-                            <div>
-                                <span class="text-muted small d-block">Drivers</span>
-                                <span class="fs-5 fw-bold text-white">{{ total_drivers }}</span>
-                            </div>
-                        {% else %}
-                            <div class="d-flex align-items-center gap-2 text-muted small">
-                                <i class="fa-solid fa-circle-info text-brand"></i>
-                                No stats calculated yet
-                            </div>
-                        {% endif %}
+                        <div>
+                            <span class="text-muted small d-block">Drivers</span>
+                            <span class="fs-5 fw-bold text-main">{{ "{:,}".format(directory_total) }}</span>
+                        </div>
+                        <div style="width: 1px; height: 30px; background: var(--border);"></div>
+                        <div>
+                            <span class="text-muted small d-block">Laps Analyzed</span>
+                            <span class="fs-5 fw-bold text-main">{{ "{:,}".format(total_laps_analyzed) }}</span>
+                        </div>
+                        <div style="width: 1px; height: 30px; background: var(--border);"></div>
+                        <div>
+                            <span class="text-muted small d-block" title="Drivers with enough laps for a consistency score">Ranked for Consistency</span>
+                            <span class="fs-5 fw-bold text-main">{{ "{:,}".format(consistency_total) }}</span>
+                        </div>
                     </div>
 
-                    <!-- Consolidated Filter Form -->
                     <div class="col-12 col-md">
                         <form method="get" action="/org/{{ org.id }}/stats" class="row g-3 align-items-center" id="filter-form">
-                            <!-- Session Types Checkboxes -->
                             <div class="col-12 col-lg-auto d-flex align-items-center flex-wrap gap-2">
                                 <span class="text-muted small fw-semibold text-nowrap">Session Types:</span>
                                 <div class="form-check form-check-inline mb-0">
@@ -86,201 +114,183 @@
                                 </div>
                             </div>
 
-                            <!-- Ignore Outliers Checkbox -->
                             <div class="col-12 col-sm-auto">
                                 <div class="form-check mb-0">
                                     <input class="form-check-input" type="checkbox" name="ignore_outliers" id="ignore_outliers" value="1" {% if ignore_outliers %}checked{% endif %} onchange="this.form.submit()">
                                     <input type="hidden" name="ignore_outliers" value="0">
-                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Filter out extreme slow laps (pitstops/yellows) (slower than 130% of the session median)">
+                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="ignore_outliers" title="Leave out extreme slow laps (pit stops, caution periods) when scoring consistency">
                                         <i class="fa-solid fa-filter text-brand me-1"></i>Ignore Outliers
                                     </label>
                                 </div>
                             </div>
                         </form>
                     </div>
+                </div>
+            </div>
+        </div>
 
-                    <!-- Recalculate/Generate button -->
-                    <div class="col-12 col-md-auto ms-md-auto">
-                        <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="recalc-stats-form">
+        <!-- All-drivers table -->
+        <div class="col-12">
+            <div class="glass-card">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                    <div>
+                        <h3 class="h5 fw-bold mb-0">All Drivers</h3>
+                        <span class="text-muted small">Click a column to sort, or a driver's name for their full report. Consistency applies to the session filters above; starts, wins, and podiums count races only.</span>
+                    </div>
+                    <input type="text" id="driver-table-search" class="form-control form-control-custom py-1 px-2" style="max-width: 260px;" placeholder="Search drivers...">
+                </div>
+
+                <div class="table-custom-container table-scroll">
+                    <table class="table table-custom mb-0 small drivers-table" id="drivers-table">
+                        <thead>
+                            <tr>
+                                <th data-sort-key="name" data-sort-dir="asc">Driver<span class="sort-arrow">&#8597;</span></th>
+                                <th data-sort-key="starts">Starts<span class="sort-arrow">&#8597;</span></th>
+                                <th data-sort-key="wins">Wins<span class="sort-arrow">&#8597;</span></th>
+                                <th data-sort-key="win_pct">Win %<span class="sort-arrow">&#8597;</span></th>
+                                <th data-sort-key="podiums">Podiums<span class="sort-arrow">&#8597;</span></th>
+                                <th data-sort-key="podium_pct">Podium %<span class="sort-arrow">&#8597;</span></th>
+                                <th data-sort-key="cv_pct" title="Coefficient of variation of lap times &mdash; lower is steadier">Consistency (CV %)<span class="sort-arrow">&#8597;</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="drivers-table-body"></tbody>
+                    </table>
+                </div>
+                <div class="text-muted small mt-2" id="drivers-table-count"></div>
+                {% if freshness and freshness.recalc_running %}
+                    <div class="text-muted small mt-1"><i class="fa-solid fa-circle-notch fa-spin me-1 text-info"></i>Stats are updating in the background &mdash; this page may briefly show older numbers.</div>
+                {% elif freshness and freshness.variant_stale %}
+                    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                        <span class="small text-warning"><i class="fa-solid fa-triangle-exclamation me-1"></i>Data has been synced since this view was calculated.</span>
+                        <form action="/org/{{ org.id }}/stats/generate" method="post" class="d-inline" id="update-view-form">
                             {% for st in session_types %}
                                 <input type="hidden" name="session_types" value="{{ st }}">
                             {% endfor %}
                             <input type="hidden" name="ignore_outliers" value="{{ '1' if ignore_outliers else '0' }}">
-                            <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-stats-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
-                                <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
-                                {% if has_persisted_stats %}Recalculate{% else %}Generate Stats{% endif %}
-                            </button>
+                            <button type="submit" class="btn-custom-outline py-1 px-2 fs-7" id="update-view-btn"><i class="fa-solid fa-arrows-rotate me-1"></i>Update this view</button>
                         </form>
+                    </div>
+                    <script>
+                        document.getElementById('update-view-form')?.addEventListener('submit', function() {
+                            const btn = document.getElementById('update-view-btn');
+                            btn.disabled = true;
+                            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Updating...';
+                        });
+                    </script>
+                {% elif calculated_at %}
+                    <div class="text-muted small mt-1">Calculated {{ format_saved_at_display(calculated_at) }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Metrics explanation -->
+        <div class="col-12">
+            <div class="glass-card">
+                <h3 class="h5 fw-bold mb-2">How Consistency Is Measured</h3>
+                <p class="text-muted small mb-3">To keep rankings fair, the consistency score ignores pace differences between sessions and vehicle classes:</p>
+                <div class="row g-3 small">
+                    <div class="col-md-4">
+                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-stopwatch me-1"></i> Average Lap</h4>
+                        <p class="text-muted mb-0">The overall mean of the driver's lap times across all analyzed sessions.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-arrows-left-right me-1"></i> Within-Session Variation</h4>
+                        <p class="text-muted mb-0">Lap-time spread is measured <em>within each session</em>, so differences in base speed between classes or track layouts don't affect the score.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-percent me-1"></i> Consistency (CV %)</h4>
+                        <p class="text-muted mb-0">The main consistency score: lap-time variation as a percentage of the driver's own pace. Lower is steadier. Drivers need at least 10 analyzed laps to be ranked.</p>
                     </div>
                 </div>
             </div>
         </div>
 
         <script>
-            document.getElementById('recalc-stats-form')?.addEventListener('submit', function() {
-                const btn = document.getElementById('recalc-stats-btn');
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
+            const DRIVER_ROWS = {{ directory_rows | tojson }};
+            const DRIVER_LINK_QS = '?{% for st in session_types %}session_types={{ st }}&{% endfor %}ignore_outliers={{ '1' if ignore_outliers else '0' }}';
+
+            let sortKey = 'starts';
+            let sortDir = 'desc';
+            let searchTerm = '';
+
+            function compareRows(a, b) {
+                let av = a[sortKey], bv = b[sortKey];
+                // Nulls (no consistency score) always sort last
+                if (av === null || av === undefined) return 1;
+                if (bv === null || bv === undefined) return -1;
+                let cmp;
+                if (typeof av === 'string') {
+                    cmp = av.localeCompare(bv, undefined, { sensitivity: 'base' });
+                } else {
+                    cmp = av - bv;
+                }
+                return sortDir === 'asc' ? cmp : -cmp;
+            }
+
+            function rankSub(rank, total) {
+                if (!rank) return '';
+                return '<span class="rank-sub">P' + rank.toLocaleString() + (total ? ' of ' + total.toLocaleString() : '') + '</span>';
+            }
+
+            function renderTable() {
+                const body = document.getElementById('drivers-table-body');
+                const countNode = document.getElementById('drivers-table-count');
+                let rows = DRIVER_ROWS;
+                if (searchTerm) {
+                    const t = searchTerm.toLowerCase();
+                    rows = rows.filter(r => r.name.toLowerCase().includes(t) || r.key.includes(t));
+                }
+                rows = rows.slice().sort(compareRows);
+
+                const html = rows.map(r => {
+                    const link = '/org/{{ org.id }}/stats/driver/' + encodeURIComponent(r.name) + DRIVER_LINK_QS;
+                    const cv = r.cv_pct !== null && r.cv_pct !== undefined
+                        ? r.cv_pct.toFixed(2) + '%' + rankSub(r.cv_rank, {{ consistency_total }})
+                        : '<span class="text-muted">&mdash;</span>';
+                    return '<tr>'
+                        + '<td class="fw-semibold"><a href="' + link + '" class="driver-link">' + escapeHtml(r.name) + '</a></td>'
+                        + '<td>' + r.starts.toLocaleString() + rankSub(r.starts_rank) + '</td>'
+                        + '<td>' + r.wins.toLocaleString() + rankSub(r.wins_rank) + '</td>'
+                        + '<td>' + r.win_pct.toFixed(1) + '%</td>'
+                        + '<td>' + r.podiums.toLocaleString() + rankSub(r.podiums_rank) + '</td>'
+                        + '<td>' + r.podium_pct.toFixed(1) + '%</td>'
+                        + '<td>' + cv + '</td>'
+                        + '</tr>';
+                }).join('');
+                body.innerHTML = html || '<tr><td colspan="7" class="text-center py-4 text-muted">No drivers match your search.</td></tr>';
+                countNode.textContent = 'Showing ' + rows.length.toLocaleString() + ' of ' + DRIVER_ROWS.length.toLocaleString() + ' drivers';
+            }
+
+            function escapeHtml(s) {
+                const div = document.createElement('div');
+                div.textContent = s;
+                return div.innerHTML;
+            }
+
+            document.querySelectorAll('#drivers-table th[data-sort-key]').forEach(th => {
+                th.addEventListener('click', () => {
+                    const key = th.dataset.sortKey;
+                    if (sortKey === key) {
+                        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortKey = key;
+                        // Names read naturally ascending; stats start with the biggest numbers
+                        sortDir = key === 'name' || key === 'cv_pct' ? 'asc' : 'desc';
+                    }
+                    document.querySelectorAll('#drivers-table th[data-sort-key]').forEach(h => h.classList.remove('sorted'));
+                    th.classList.add('sorted');
+                    renderTable();
+                });
             });
+
+            document.getElementById('driver-table-search').addEventListener('input', function () {
+                searchTerm = this.value.trim();
+                renderTable();
+            });
+
+            document.querySelector('#drivers-table th[data-sort-key="starts"]').classList.add('sorted');
+            renderTable();
         </script>
-
-        <!-- Metrics Explanation Card -->
-        <div class="col-12">
-            <div class="glass-card">
-                <h3 class="h5 fw-bold mb-2">Understanding the Consistency Metrics</h3>
-                <p class="text-muted small mb-3">To ensure fair rankings, these metrics filter out pace differences between sessions and vehicle classes:</p>
-                <div class="row g-3 small">
-                    <div class="col-md-4">
-                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-stopwatch me-1"></i> Average Lap</h4>
-                        <p class="text-muted mb-0">The overall mean of the driver's lap times across all analyzed race sessions.</p>
-                    </div>
-                    <div class="col-md-4">
-                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-arrows-left-right me-1"></i> Within-Session Std Dev</h4>
-                        <p class="text-muted mb-0">Calculated by pooling variance <em>within each session</em>. This ignores differences in base speeds between different classes (e.g. shifter vs cadet) or track layouts to measure true lap-to-lap variation.</p>
-                    </div>
-                    <div class="col-md-4">
-                        <h4 class="h6 fw-semibold mb-1 text-info"><i class="fa-solid fa-percent me-1"></i> Coefficient of Variation (CV %)</h4>
-                        <p class="text-muted mb-0">The primary metric for driving consistency, computed as the weighted average of session CVs (<code>Std Dev / Mean</code>). A lower percentage represents more repeatable lap times relative to the driver's pace.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Driver Rank Lookup -->
-        <div class="col-12">
-            <div class="glass-card">
-                <h3 class="h5 fw-bold mb-3">Driver Rank Lookup</h3>
-                <form method="get" action="/org/{{ org.id }}/stats" class="d-flex gap-2 mb-3">
-                    {% for st in session_types %}
-                        <input type="hidden" name="session_types" value="{{ st }}">
-                    {% endfor %}
-                    <input type="hidden" name="ignore_outliers" value="{{ '1' if ignore_outliers else '0' }}">
-                    <input type="text" id="driver_search" name="driver_search" class="form-control form-control-custom py-1 px-2" placeholder="Driver name..." value="{{ driver_search or '' }}" required>
-                    <button type="submit" class="btn-custom py-1 px-3">Look Up</button>
-                </form>
-
-                {% if driver_search %}
-                    {% if search_result %}
-                        <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-3">
-                            <div class="row g-3 text-center">
-                                <div class="col-4 border-end border-secondary border-opacity-10">
-                                    <span class="text-muted small d-block" style="font-size: 0.75rem;">Driver</span>
-                                    <span class="fw-bold fs-6 fs-sm-5 text-white text-truncate d-block">{{ search_result.matched }}</span>
-                                </div>
-                                <div class="col-4 border-end border-secondary border-opacity-10">
-                                    <span class="text-muted small d-block" style="font-size: 0.75rem;">Rank</span>
-                                    <span class="fw-bold fs-6 fs-sm-5 text-info">{{ search_result.rank }} <span class="fs-7 text-muted" style="font-size: 0.7rem;">/ {{ search_result.total }}</span></span>
-                                </div>
-                                <div class="col-4">
-                                    <span class="text-muted small d-block" style="font-size: 0.75rem;">Percentile</span>
-                                    <span class="fw-bold fs-6 fs-sm-5 text-success">{{ search_result.percentile }}%</span>
-                                </div>
-                            </div>
-
-                            <div class="mt-4">
-                                <span class="text-muted small d-block mb-2">Nearby Drivers (±5 ranks):</span>
-                                <div class="table-custom-container">
-                                    <table class="table table-custom mb-0 small">
-                                        <thead>
-                                            <tr>
-                                                <th>Rank</th>
-                                                <th>Driver Name</th>
-                                                <th>Laps</th>
-                                                <th>Avg Lap</th>
-                                                <th>Std Dev</th>
-                                                <th>CV (%)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for row in search_result.nearby %}
-                                                <tr {% if row.name == search_result.matched %}class="bg-brand bg-opacity-10 fw-bold border-brand" style="border-left: 2px solid var(--brand);"{% endif %}>
-                                                    <td>{{ loop.index0 + search_result.rank - 5 if search_result.rank > 5 else loop.index }}</td>
-                                                    <td><a href="/org/{{ org.id }}/stats/driver/{{ row.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}&ignore_outliers={{ '1' if ignore_outliers else '0' }}" class="driver-link fw-semibold">{{ row.name }}</a></td>
-                                                    <td>{{ row.lap_count }}</td>
-                                                    <td>{{ row.mean_display }}</td>
-                                                    <td>{{ row.stdev_display }}</td>
-                                                    <td {% if row.name == search_result.matched %}class="text-brand"{% else %}class="text-info"{% endif %}>{{ row.cv_display }}</td>
-                                                </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-warning py-2 mb-0 small">No matching drivers found.</div>
-                    {% endif %}
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Leaderboards Section -->
-        <div class="col-lg-6">
-            <div class="glass-card">
-                <h3 class="h5 fw-bold mb-3">Top Most Consistent</h3>
-                {% if top_consistent %}
-                    <div class="table-custom-container">
-                        <table class="table table-custom mb-0 small">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Driver Name</th>
-                                    <th>Laps</th>
-                                    <th>Avg Lap</th>
-                                    <th>CV (%)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for r in top_consistent %}
-                                    <tr>
-                                        <td>{{ loop.index }}</td>
-                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}&ignore_outliers={{ '1' if ignore_outliers else '0' }}" class="driver-link">{{ r.name }}</a></td>
-                                        <td>{{ r.lap_count }}</td>
-                                        <td>{{ r.mean_display }}</td>
-                                        <td class="text-success fw-bold">{{ r.cv_display }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="text-center py-4 text-muted small">No drivers found.</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="col-lg-6">
-            <div class="glass-card">
-                <h3 class="h5 fw-bold mb-3">Least Consistent</h3>
-                {% if least_consistent %}
-                    <div class="table-custom-container">
-                        <table class="table table-custom mb-0 small">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Driver Name</th>
-                                    <th>Laps</th>
-                                    <th>Avg Lap</th>
-                                    <th>CV (%)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for r in least_consistent %}
-                                    <tr>
-                                        <td>{{ loop.index }}</td>
-                                        <td class="fw-semibold"><a href="/org/{{ org.id }}/stats/driver/{{ r.name }}?{% for st in session_types %}session_types={{ st }}{% if not loop.last %}&{% endif %}{% endfor %}&ignore_outliers={{ '1' if ignore_outliers else '0' }}" class="driver-link">{{ r.name }}</a></td>
-                                        <td>{{ r.lap_count }}</td>
-                                        <td>{{ r.mean_display }}</td>
-                                        <td class="text-warning fw-bold">{{ r.cv_display }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="text-center py-4 text-muted small">No drivers found.</div>
-                {% endif %}
-        </div>
     {% endif %}
 </div>
 
@@ -290,7 +300,6 @@
         const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
         if (checkedCount === 0) {
             cb.checked = true;
-            alert("At least one session type must be selected.");
             return;
         }
         cb.form.submit();

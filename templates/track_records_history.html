@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Track Records Scan History — Org {{ org_id }}{% endblock %}
+{% block title %}Scan History | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -44,11 +44,11 @@
                             </td>
                             <td>
                                 {% if t.status == 'done' %}
-                                    <span class="badge bg-success text-success bg-opacity-10 border border-success border-opacity-20 px-2 py-1">Success</span>
+                                    <span class="badge-custom badge-ok">Success</span>
                                 {% elif t.status == 'error' %}
-                                    <span class="badge bg-danger text-danger bg-opacity-10 border border-danger border-opacity-20 px-2 py-1">Failed</span>
+                                    <span class="badge-custom badge-alert">Failed</span>
                                 {% else %}
-                                    <span class="badge bg-warning text-warning bg-opacity-10 border border-warning border-opacity-20 px-2 py-1">
+                                    <span class="badge-custom badge-warn">
                                         <i class="fa-solid fa-spinner fa-spin me-1"></i> Running
                                     </span>
                                 {% endif %}
@@ -57,11 +57,11 @@
                                 {% if t.status == 'done' and t.result %}
                                     <span class="text-success small">
                                         Found {{ t.result.candidates_found | default(0) }} candidate(s)
-                                        ({{ t.result.new_record_candidates | default(0) }} new records, {{ t.result.unmapped_candidates | default(0) }} unmapped)
+                                        ({{ t.result.new_record_candidates | default(0) }} new records, {{ t.result.unmapped_candidates | default(0) }} couldn't be matched to a class)
                                     </span>
                                 {% elif t.status == 'error' %}
                                     <span class="text-danger small" style="max-width: 400px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ t.error }}">
-                                        {{ t.error }}
+                                        The scan didn't finish &mdash; open Details for the full error.
                                     </span>
                                 {% else %}
                                     <span class="text-muted small">{{ t.phase }}</span>
@@ -70,7 +70,7 @@
                             <td>
                                 <button class="btn-custom-outline py-1 px-2 text-info border-info border-opacity-25" style="font-size: 0.75rem;" 
                                         data-bs-toggle="collapse" data-bs-target="#task-details-{{ loop.index }}">
-                                    <i class="fa-solid fa-code"></i> Inspect
+                                    <i class="fa-solid fa-circle-info"></i> Details
                                 </button>
                             </td>
                         </tr>
@@ -90,8 +90,8 @@
             {% else %}
             <div class="text-center py-5 text-muted">
                 <i class="fa-solid fa-history fa-3x mb-3 opacity-25"></i>
-                <p>No scan history found for this organization.</p>
-                <p class="small">Run a manual scan to generate logs.</p>
+                <p>No scans have run for this organization yet.</p>
+                <p class="small">Scans run automatically after each sync; this page keeps a log of each one.</p>
             </div>
             {% endif %}
         </div>

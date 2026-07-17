@@ -1,16 +1,21 @@
 {% extends 'base.html' %}
 
-{% block title %}Settings & Data | {{ org.name }}{% endblock %}
+{% block title %}Data &amp; Backups | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
     {% include "_org_nav.html" %}
     {% include "_settings_subnav.html" %}
 
-    <!-- Live Sync Card -->
+    <div class="col-12">
+        <h1 class="h4 fw-bold mb-0">Data &amp; Backups</h1>
+    </div>
+
+    <!-- Sync & Data Health Card -->
     <div class="col-lg-6">
         <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-3">Refresh Data</h3>
+            <h3 class="h5 fw-bold mb-1">Sync &amp; Data Health</h3>
+            <div class="text-muted small mb-3">Pull this organization's events, sessions, and results from Speedhive into the local database. Stats and the record scan update automatically after every sync.</div>
 
             <div class="d-flex flex-wrap gap-4 mb-3">
                 <div class="d-flex flex-column gap-1">
@@ -20,10 +25,10 @@
                             data-backfill="{{ incremental_backfill_events or 3 }}"
                             id="btn-incremental-refresh"
                             type="button">
-                        <span class="js-btn-label">Iterative Sync</span>
+                        <span class="js-btn-label">Sync New Data</span>
                         <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
                     </button>
-                    <span class="text-muted small" style="max-width: 240px;">Contacts Speedhive: pulls every new event since your last sync -- however far back that is -- plus refreshes the last {{ incremental_backfill_events or 3 }} for late corrections. Appends to what's already stored; nothing is deleted.</span>
+                    <span class="text-muted small" style="max-width: 240px;">Pulls every event added since your last sync, plus re-checks the {{ incremental_backfill_events or 3 }} most recent for late corrections. Nothing is deleted.</span>
                 </div>
                 <div class="d-flex flex-column gap-1">
                     <button class="btn-custom-outline js-refresh-btn"
@@ -32,19 +37,10 @@
                             data-backfill="0"
                             id="btn-full-refresh"
                             type="button">
-                        <span class="js-btn-label">Full Rebuild</span>
+                        <span class="js-btn-label">Full Resync</span>
                         <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Syncing...</span>
                     </button>
-                    <span class="text-muted small" style="max-width: 220px;">Contacts Speedhive: re-pulls every event/session and prunes anything removed on Speedhive. Slower.</span>
-                </div>
-                <div class="d-flex flex-column gap-1">
-                    <form action="/org/{{ org.id }}/stats/generate-all" method="post" id="recalc-all-stats-form" class="d-inline">
-                        <button class="btn-custom-outline" type="submit" id="recalc-all-stats-btn">
-                            <span class="js-btn-label"><i class="fa-solid fa-calculator me-1"></i>Recalculate All Stats</span>
-                            <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Recalculating...</span>
-                        </button>
-                    </form>
-                    <span class="text-muted small" style="max-width: 240px;">No network: recomputes every cached stats view (consistency, class pace, most improved, wins/podiums) from stored data. Run after a sync so all pages show current numbers.</span>
+                    <span class="text-muted small" style="max-width: 220px;">Re-pulls every event and session, and removes anything deleted on Speedhive. Slower.</span>
                 </div>
             </div>
 
@@ -58,7 +54,7 @@
                             <div class="refresh-status-item small text-muted" id="refresh-status-item" style="font-size: 0.75rem;"></div>
                         </div>
                     </div>
-                    <button class="btn btn-outline-danger btn-sm" id="refresh-stop-btn" type="button" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">
+                    <button class="btn-custom-outline border-danger text-danger" id="refresh-stop-btn" type="button" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">
                         Stop
                     </button>
                 </div>
@@ -74,42 +70,88 @@
 
             <div class="mt-3 p-2 rounded bg-surface border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center small">
                 {% if org_refresh_state and org_refresh_state.last_refresh_at %}
-                    <span class="text-success small">Last Refresh: {{ format_saved_at_display(org_refresh_state.last_refresh_at) }} ({{ (org_refresh_state.last_refresh_mode or 'unknown')|upper }})</span>
+                    <span class="text-success small">Last synced {{ format_saved_at_display(org_refresh_state.last_refresh_at) }}{% if org_refresh_state.last_refresh_mode %} ({{ 'full resync' if org_refresh_state.last_refresh_mode == 'full' else 'new data' }}){% endif %}</span>
                 {% else %}
-                    <span class="text-warning small">Not Synced</span>
+                    <span class="text-warning small">Never synced</span>
                 {% endif %}
                 {% if org_refresh_state %}
                     <span class="text-muted small ms-auto">{{ org_refresh_state.events_cached }} events &bull; {{ org_refresh_state.sessions_cached }} sessions</span>
                 {% endif %}
             </div>
-        </div>
-    </div>
 
-    <!-- Offline Export Card -->
-    <div class="col-lg-6">
-        <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-3">Offline Backup (Export & Import)</h3>
+            <hr class="border-secondary border-opacity-25 my-3">
 
-            <div class="d-flex flex-wrap gap-2 mb-3">
-                <form method="post" action="{{ url_for('save_local', org_id=org.id) }}" class="js-org-action-form d-inline" data-action-label="Generating dump...">
-                    <input type="hidden" name="max_events" value="25">
-                    <button class="btn-custom-outline" type="submit">
-                        <span class="js-btn-label">Generate Offline Dump</span>
-                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Generating...</span>
+            <!-- Statistics row -->
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div style="max-width: 320px;">
+                    <h4 class="h6 fw-bold mb-1">Statistics</h4>
+                    <span class="text-muted small">Every stats page updates automatically after each sync &mdash; use this only if a stats page shows an "out of date" warning.</span>
+                </div>
+                <form action="/org/{{ org.id }}/stats/generate-all" method="post" id="recalc-all-stats-form" class="d-inline">
+                    <button class="btn-custom-outline" type="submit" id="recalc-all-stats-btn">
+                        <span class="js-btn-label"><i class="fa-solid fa-calculator me-1"></i>Recalculate all stats</span>
+                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> <span id="recalc-stats-phase">Recalculating...</span></span>
                     </button>
                 </form>
+            </div>
+            <div class="mt-2 p-2 rounded bg-surface border border-secondary border-opacity-10 d-flex flex-wrap gap-2 align-items-center small" id="recalc-stats-status">
+                {% if running_recalc_stats_task_id %}
+                    <span class="text-info small"><i class="fa-solid fa-circle-notch fa-spin me-1"></i>Recalculating stats…</span>
+                {% elif stats_freshness and stats_freshness.stale %}
+                    <span class="badge-custom badge-warn">Out of date</span>
+                    <span class="text-warning small">Stats predate the latest data change &mdash; recalculate to bring the stats pages current.</span>
+                {% elif stats_freshness and stats_freshness.stats_view_count %}
+                    <span class="badge-custom badge-ok">Up to date</span>
+                    <span class="text-muted small">Stats calculated {{ format_saved_at_display(stats_freshness.stats_calculated_at) }}</span>
+                {% else %}
+                    <span class="text-muted small">No stats yet &mdash; they'll be calculated automatically after your first sync.</span>
+                {% endif %}
             </div>
 
             <hr class="border-secondary border-opacity-25 my-3">
 
-            <h4 class="h6 fw-bold mb-2">Import Offline Dump</h4>
-            <form method="post" action="{{ url_for('upload_local_dump', org_id=org.id) }}" enctype="multipart/form-data" class="js-org-action-form" data-action-label="Importing dump...">
-                <div class="mb-3">
-                    <label for="dumpFile" class="form-label small text-secondary">Select Offline Dump ZIP file</label>
-                    <input class="form-control form-control-sm bg-dark text-white border-secondary" type="file" id="dumpFile" name="file" required accept=".zip">
+            <!-- Maintenance row -->
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div style="max-width: 320px;">
+                    <h4 class="h6 fw-bold mb-1">Record scan</h4>
+                    <span class="text-muted small">Re-checks announcer data for lap-record candidates. Runs automatically after every sync and curated-list change &mdash; use this only if the Review Queue looks out of step.</span>
+                </div>
+                <button class="btn-custom-outline" id="btn-pull-track-records" type="button" data-org-id="{{ org.id }}">
+                    <span class="js-btn-label">Rescan for record candidates</span>
+                    <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> <span id="track-records-phase">Updating...</span></span>
+                </button>
+            </div>
+            <div class="mt-2 p-2 rounded bg-surface border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center small" id="track-records-status">
+                <span class="text-muted small">Loading scan status…</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backups Card -->
+    <div class="col-lg-6">
+        <div class="glass-card h-100">
+            <h3 class="h5 fw-bold mb-1">Backups</h3>
+            <div class="text-muted small mb-3">Save this organization's data to a file, or restore it on another install.</div>
+
+            <h4 class="h6 fw-bold mb-2">Full backup</h4>
+            <div class="text-muted small mb-2">Everything that's been synced: events, sessions, results, laps, and announcements.</div>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <form method="post" action="{{ url_for('save_local', org_id=org.id) }}" class="js-org-action-form d-inline" data-action-label="Creating backup...">
+                    <input type="hidden" name="max_events" value="25">
+                    <button class="btn-custom-outline" type="submit">
+                        <span class="js-btn-label"><i class="fa-solid fa-file-zipper me-1"></i>Create backup</span>
+                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> Creating...</span>
+                    </button>
+                </form>
+            </div>
+
+            <form method="post" action="{{ url_for('upload_local_dump', org_id=org.id) }}" enctype="multipart/form-data" class="js-org-action-form" data-action-label="Restoring backup...">
+                <div class="mb-2">
+                    <label for="dumpFile" class="form-label small text-muted">Restore from a backup ZIP</label>
+                    <input class="form-control form-control-custom form-control-sm" type="file" id="dumpFile" name="file" required accept=".zip">
                 </div>
                 <button class="btn-custom" type="submit">
-                    <i class="fa-solid fa-upload me-1"></i>Import Offline Dump
+                    <i class="fa-solid fa-upload me-1"></i>Restore backup
                 </button>
             </form>
 
@@ -121,19 +163,19 @@
                         <div class="fw-semibold">
                             {{ dump.label }}
                             {% if dump.is_latest %}
-                            <span class="badge bg-info text-dark ms-2">Current</span>
+                            <span class="badge-custom badge-brand ms-2">Latest</span>
                             {% endif %}
                         </div>
-                        <div class="text-secondary">{{ format_saved_at_display(dump.manifest.saved_at) }}</div>
-                        <div class="text-secondary" style="font-size: 0.75rem;">Counts: {{ dump.manifest.events_count }} events, {{ dump.manifest.sessions_count }} sessions, {{ dump.manifest.laps_records_count }} lap blocks.</div>
+                        <div class="text-muted">{{ format_saved_at_display(dump.manifest.saved_at) }}</div>
+                        <div class="text-muted" style="font-size: 0.75rem;">{{ dump.manifest.events_count }} events, {{ dump.manifest.sessions_count }} sessions, {{ dump.manifest.laps_records_count }} lap blocks</div>
                     </div>
                     <div class="d-flex flex-column gap-2 align-items-stretch">
                         <a class="btn-custom text-white btn-sm text-nowrap" href="{{ dump.download_url }}">
-                            Download ZIP
+                            <i class="fa-solid fa-download me-1"></i>Download
                         </a>
-                        <form method="post" action="{{ url_for('delete_local_dump', org_id=org.id, dump_key=dump.key) }}" onsubmit="return confirm('Delete this dump snapshot from disk?');">
+                        <form method="post" action="{{ url_for('delete_local_dump', org_id=org.id, dump_key=dump.key) }}" onsubmit="return confirm('Delete this backup from disk? Downloaded copies are not affected.');">
                             <button class="btn-custom-outline border-danger text-danger btn-sm w-100" type="submit">
-                                Delete Dump
+                                Delete
                             </button>
                         </form>
                     </div>
@@ -142,9 +184,38 @@
             </div>
             {% else %}
             <div class="mt-3 p-3 rounded bg-surface border border-secondary border-opacity-10 text-muted small text-center">
-                No offline export generated yet.
+                No backups yet. Create one above to get a portable copy of this organization's data.
             </div>
             {% endif %}
+
+            <hr class="border-secondary border-opacity-25 my-3">
+
+            <h4 class="h6 fw-bold mb-2">Curated records</h4>
+            <div class="text-muted small mb-2">Back up or restore just the curated track-records list &mdash; useful for moving it between installs.</div>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                <a class="btn-custom-outline" href="{{ url_for('org_track_records_export_ndjson', org_id=org.id) }}">
+                    <i class="fa-solid fa-download me-1"></i>Export curated records
+                </a>
+                <a class="btn-custom-outline" href="{{ url_for('export_org_lap_records', org_id=org.id, max_events=25) }}">
+                    <i class="fa-solid fa-download me-1"></i>Export fastest laps
+                </a>
+            </div>
+            <form method="POST" action="{{ url_for('org_track_records_import', org_id=org.id) }}"
+                  enctype="multipart/form-data" class="d-flex flex-wrap align-items-center gap-2 mb-0"
+                  onsubmit="return this.mode.value !== 'replace' || confirm('Replace ALL curated records with the file contents?');">
+                <input type="file" name="file" accept=".ndjson,.jsonl,application/x-ndjson" required
+                       class="form-control form-control-custom form-control-sm" style="max-width: 280px;">
+                <select name="mode" class="form-select form-control-custom form-select-sm" style="max-width: 180px;">
+                    <option value="merge" selected>Merge (skip duplicates)</option>
+                    <option value="replace">Replace all</option>
+                </select>
+                <button type="submit" class="btn-custom-outline">
+                    <i class="fa-solid fa-upload me-1"></i>Import curated records
+                </button>
+            </form>
+            <div class="text-muted mt-2" style="font-size: 0.75rem;">
+                Use a file previously exported from this page. Merge skips records that already exist; replace overwrites the whole list.
+            </div>
 
             <!-- Action progress banner -->
             <div id="org-action-progress" class="notice-banner d-none mt-3 mb-0 py-2 small">
@@ -154,71 +225,14 @@
         </div>
     </div>
 
-    <!-- Curated Record Data Card -->
-    <div class="col-lg-6">
-        <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-1">Curated Record Data</h3>
-            <div class="text-muted small mb-3">Import or export the curated list itself (backup/restore, or migrate between orgs).</div>
-
-            <div class="d-flex flex-wrap gap-2 mb-3">
-                <a class="btn-custom-outline" href="{{ url_for('org_track_records_export_ndjson', org_id=org.id) }}">
-                    <i class="fa-solid fa-download me-1"></i>Export Curated Records
-                </a>
-                <a class="btn-custom-outline" href="{{ url_for('export_org_lap_records', org_id=org.id, max_events=25) }}">
-                    <i class="fa-solid fa-download me-1"></i>Export Lap Records
-                </a>
-            </div>
-
-            <form method="POST" action="{{ url_for('org_track_records_import', org_id=org.id) }}"
-                  enctype="multipart/form-data" class="d-flex flex-wrap align-items-center gap-2 mb-0"
-                  onsubmit="return this.mode.value !== 'replace' || confirm('Replace ALL curated records with the file contents?');">
-                <input type="file" name="file" accept=".ndjson,.jsonl,application/x-ndjson" required
-                       class="form-control form-control-custom form-control-sm" style="max-width: 280px;">
-                <select name="mode" class="form-select form-control-custom form-select-sm" style="max-width: 160px;">
-                    <option value="merge" selected>Merge (skip dupes)</option>
-                    <option value="replace">Replace all</option>
-                </select>
-                <button type="submit" class="btn-custom-outline">
-                    <i class="fa-solid fa-upload me-1"></i>Import Curated Records
-                </button>
-            </form>
-
-            <div class="text-muted mt-2" style="font-size: 0.75rem;">
-                Import expects one JSON object per line. Required fields: class, lap time, driver, and date.
-                Merge skips duplicates; replace overwrites the curated list.
-            </div>
-        </div>
-    </div>
-
-    <!-- Track Records Local Scan Card -->
-    <div class="col-lg-6">
-        <div class="glass-card h-100">
-            <h3 class="h5 fw-bold mb-1">Track Records Scan</h3>
-            <div class="text-muted small mb-3">Runs automatically after a sync above, and after any curated-list change (add, delete, import, approve, restore) -- you shouldn't usually need this button.</div>
-
-            <div class="d-flex flex-wrap gap-4 mb-3 align-items-start">
-                <div class="d-flex flex-column gap-1">
-                    <button class="btn-custom-outline" id="btn-pull-track-records" type="button" data-org-id="{{ org.id }}">
-                        <span class="js-btn-label">Rescan Cached Data</span>
-                        <span class="js-btn-loading d-none"><i class="fa-solid fa-circle-notch fa-spin"></i> <span id="track-records-phase">Updating...</span></span>
-                    </button>
-                    <span class="text-muted small" style="max-width: 320px;">Local only -- does <strong>not</strong> contact Speedhive. Diffs the synced cache against the curated list and adds new candidates to the Review Queue.</span>
-                </div>
-            </div>
-
-            <div class="mt-3 p-2 rounded bg-surface border border-secondary border-opacity-10 d-flex flex-wrap gap-3 align-items-center small" id="track-records-status">
-                <span class="text-muted small">Loading scan status…</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Data Reset Card -->
+    <!-- Danger Zone Card -->
     <div class="col-lg-6">
         <div class="glass-card">
-            <h3 class="h5 fw-bold mb-3 text-danger">Local Data Reset</h3>
-            <form method="post" action="/org/{{ org.id }}/clear-cache" onsubmit="return confirm('Permanently delete local data for this organization?');">
+            <h3 class="h5 fw-bold mb-1 text-danger">Danger zone</h3>
+            <div class="text-muted small mb-3">Removes this organization and all of its synced data from this install. Curated track records and settings files are kept. This cannot be undone &mdash; create a backup first if in doubt.</div>
+            <form method="post" action="/org/{{ org.id }}/clear-cache" onsubmit="return confirm('Permanently delete all local data for this organization? This cannot be undone.');">
                 <button class="btn-custom-outline border-danger text-danger" type="submit">
-                    Delete Local Data
+                    Delete local data
                 </button>
             </form>
         </div>
@@ -317,8 +331,7 @@
                 ? (sessionsDone + " / " + sessionsTotal)
                 : String(sessionsDone);
 
-            const mode = (task.mode || "").charAt(0).toUpperCase() + (task.mode || "").slice(1);
-            modeLabel.textContent = mode + " refresh";
+            modeLabel.textContent = task.mode === "full" ? "Full resync" : "Syncing new data";
 
             if (task.status === "done") {
                 progressBar.style.width = "100%";
@@ -411,7 +424,7 @@
                     pollTaskStatus();
                 })
                 .catch(function (err) {
-                    phaseEl.textContent = "Failed to start refresh.";
+                    phaseEl.textContent = "Failed to start sync.";
                     itemEl.textContent = String(err);
                     setRefreshButtonsDisabled(false);
                 });
@@ -442,6 +455,48 @@
             pollTaskStatus();
         }
 
+        // Stats recalculation task (background, polled via the shared task
+        // status endpoint)
+        const recalcBtn = document.getElementById("recalc-all-stats-btn");
+        const recalcStatus = document.getElementById("recalc-stats-status");
+        const recalcPhase = document.getElementById("recalc-stats-phase");
+
+        function setRecalcBusy(busy) {
+            if (!recalcBtn) return;
+            recalcBtn.disabled = busy;
+            recalcBtn.querySelector(".js-btn-label").classList.toggle("d-none", busy);
+            recalcBtn.querySelector(".js-btn-loading").classList.toggle("d-none", !busy);
+        }
+
+        function pollRecalcTask(taskId) {
+            const poll = setInterval(function () {
+                fetch("/refresh/status/" + taskId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (task) {
+                        if (recalcPhase) recalcPhase.textContent = task.phase || "Recalculating...";
+                        if (recalcStatus && task.status === "running") {
+                            recalcStatus.innerHTML = '<span class="text-info small"><i class="fa-solid fa-circle-notch fa-spin me-1"></i>' + (task.phase || "Recalculating stats…") + '</span>';
+                        }
+                        if (task.status !== "running") {
+                            clearInterval(poll);
+                            setRecalcBusy(false);
+                            // Reload so the freshness line reflects the new state
+                            window.location.reload();
+                        }
+                    })
+                    .catch(function (err) { console.warn("Recalc poll error:", err); });
+            }, 2000);
+        }
+
+        {% if running_recalc_stats_task_id %}
+        setRecalcBusy(true);
+        pollRecalcTask("{{ running_recalc_stats_task_id }}");
+        {% endif %}
+
+        document.getElementById("recalc-all-stats-form")?.addEventListener("submit", function () {
+            setRecalcBusy(true);
+        });
+
         // Track Records local scan (no Speedhive contact)
         const trackRecordsBtn = document.getElementById("btn-pull-track-records");
         const trackRecordsStatus = document.getElementById("track-records-status");
@@ -456,9 +511,9 @@
 
         function renderTrackRecordsStatus(status) {
             if (!trackRecordsStatus) return;
-            const ageText = status.age_hours != null ? status.age_hours.toFixed(1) + "h old" : "never scanned";
+            const ageText = status.age_hours != null ? "last synced " + status.age_hours.toFixed(1) + "h ago" : "never scanned";
             trackRecordsStatus.innerHTML =
-                '<span class="text-muted">Speedhive cache: ' + ageText + '</span>' +
+                '<span class="text-muted">Synced data: ' + ageText + '</span>' +
                 '<span class="text-muted">Review queue: <strong class="text-main">' + status.pending_candidates + '</strong></span>';
         }
 
@@ -518,13 +573,6 @@
                     });
             });
         }
-    });
-
-    document.getElementById("recalc-all-stats-form")?.addEventListener("submit", function () {
-        const btn = document.getElementById("recalc-all-stats-btn");
-        btn.disabled = true;
-        btn.querySelector(".js-btn-label").classList.add("d-none");
-        btn.querySelector(".js-btn-loading").classList.remove("d-none");
     });
 </script>
 {% endblock %}

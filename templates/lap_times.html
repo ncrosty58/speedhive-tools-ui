@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Lap Trace | Speedhive-tools Center{% endblock %}
+{% block title %}Lap Times | Speedhive-tools{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -13,7 +13,7 @@
             <span>Session</span>
         {% endif %}
         <i class="fa-solid fa-chevron-right" style="font-size: 0.7rem;"></i>
-        <span>Lap Trace</span>
+        <span>Lap Times</span>
     </div>
 
     {% if error %}
@@ -24,9 +24,12 @@
         <!-- Header Card -->
         <div class="col-12">
             <div class="glass-card">
-                <div class="text-muted small">Session #{{ session_id }} Trace</div>
-                <h1 class="h2 fw-bold mb-1"><i class="fa-solid fa-user-astronaut text-info me-2"></i>{{ driver_name }}</h1>
-                <p class="text-muted mb-0">Lap-by-lap timing trace analysis, sector breakdowns, and consistency metrics.</p>
+                <div class="text-muted small">Lap Times</div>
+                <h1 class="h2 fw-bold mb-1">{{ driver_name }}</h1>
+                <p class="text-muted mb-2">Lap-by-lap timing for this session, with consistency metrics.</p>
+                {% if global_org_id %}
+                    <a href="/org/{{ global_org_id }}/stats/driver/{{ driver_name }}" class="btn-custom-outline py-1 px-3 fs-7"><i class="fa-solid fa-id-card me-1"></i>View driver stats</a>
+                {% endif %}
             </div>
         </div>
 
@@ -39,8 +42,8 @@
                     <li><span>Best Lap</span><span class="val text-info fw-bold">{{ stats.best_lap }}</span></li>
                     <li><span>Mean Lap</span><span class="val">{{ stats.mean }}</span></li>
                     <li><span>Median Lap</span><span class="val">{{ stats.median }}</span></li>
-                    <li><span>Std Dev</span><span class="val">{{ stats.stdev }}s</span></li>
-                    <li><span>CV (Consistency)</span><span class="val text-info fw-bold">{{ stats.cv }}</span></li>
+                    <li><span title="Standard deviation of lap times">Lap Variation</span><span class="val">{{ stats.stdev }}s</span></li>
+                    <li><span title="Coefficient of variation of lap times &mdash; lower is steadier">Consistency (CV %)</span><span class="val text-info fw-bold">{{ stats.cv }}</span></li>
                 </ul>
             </div>
         </div>
@@ -48,7 +51,7 @@
         <!-- Chart Panel -->
         <div class="col-lg-8">
             <div class="glass-card h-100">
-                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-chart-line text-info"></i> Lap Timeline Trace</h3>
+                <h3 class="h5 fw-bold mb-3"><i class="fa-solid fa-chart-line text-info"></i> Lap Time Chart</h3>
                 <div class="position-relative" style="height: 300px;">
                     <canvas id="lapChartCanvas"></canvas>
                 </div>
@@ -65,7 +68,7 @@
                             <tr>
                                 <th>Lap #</th>
                                 <th>Lap Time</th>
-                                <th>Speed (mph/kph)</th>
+                                <th>Speed</th>
                                 <th>Sectors</th>
                                 <th class="text-end">Status</th>
                             </tr>

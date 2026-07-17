@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Track Records Review — Org {{ org_id }}{% endblock %}
+{% block title %}Review Queue | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -40,7 +40,7 @@
         <div class="glass-card">
             <div class="d-flex justify-content-between align-items-start mb-3">
                 <div>
-                    <span class="badge text-bg-success mb-2">New Record</span>
+                    <span class="badge-custom badge-ok mb-2">New Record</span>
                     <div class="small text-muted">
                         {{ c.raw.event_name or '' }} &bull; {{ c.raw.session_name or '' }}
                     </div>
@@ -51,7 +51,7 @@
             {% if c.current %}
             <div class="p-2 rounded bg-surface border border-secondary border-opacity-10 small mb-3">
                 <div class="text-muted mb-1">For reference — current fastest curated record for this class</div>
-                <div><strong>{{ c.current.classAbbreviation }}</strong> — {{ c.current.lapTime }} — {{ c.current.driverName }} — {{ c.current.marque or '—' }} — {{ c.current.date }}</div>
+                <div><strong>{{ c.current.classAbbreviation }}</strong> — {{ c.current.lapTime }} — {% if c.current.driverName %}<a href="/org/{{ org.id }}/stats/driver/{{ c.current.driverName }}" class="driver-link">{{ c.current.driverName }}</a>{% else %}—{% endif %} — {{ c.current.marque or '—' }} — {{ c.current.date }}</div>
             </div>
             {% endif %}
 
@@ -73,7 +73,7 @@
                     <input class="form-control form-control-custom form-control-sm" name="driverName" value="{{ c.proposed.driverName or '' }}">
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small text-muted mb-1">Marque</label>
+                    <label class="form-label small text-muted mb-1">Car</label>
                     <input class="form-control form-control-custom form-control-sm" name="marque" value="{{ c.proposed.marque or '' }}">
                 </div>
                 <div class="col-6 col-md-2">

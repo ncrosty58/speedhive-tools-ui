@@ -33,8 +33,7 @@
                                             {% for row in driver_matches %}
                                                 <tr>
                                                     <td class="fw-semibold small">
-                                                        {{ row.driver_name }}
-                                                        <span class="text-muted d-block" style="font-size: 0.7rem;">Score: {{ row.score }}</span>
+                                                        <a href="/org/{{ org.id }}/stats/driver/{{ row.driver_name }}" class="driver-link">{{ row.driver_name }}</a>
                                                     </td>
                                                     <td class="small text-secondary">
                                                         <a href="/session/{{ row.session_id }}" class="text-secondary text-decoration-none">{{ row.session_name }}</a>
@@ -43,7 +42,7 @@
                                                     <td class="small fw-bold">P{{ row.position }}</td>
                                                     <td class="text-end">
                                                         {% if row.lap_driver_id %}
-                                                            <a class="text-info text-decoration-none small" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">Trace</a>
+                                                            <a class="text-info text-decoration-none small" href="/session/{{ row.session_id }}/driver/{{ row.lap_driver_id }}/laps">Lap times</a>
                                                         {% endif %}
                                                     </td>
                                                 </tr>
@@ -52,7 +51,10 @@
                                     </table>
                                 </div>
                             {% else %}
-                                <div class="text-center py-4 text-muted small">No matches found for "{{ driver_query }}".</div>
+                                <div class="text-center py-4 text-muted">
+                                    <i class="fa-solid fa-user-slash fs-2 mb-2 d-block opacity-40"></i>
+                                    No drivers matching "{{ driver_query }}". Try a shorter part of the name.
+                                </div>
                             {% endif %}
                         {% endif %}
                     </div>
@@ -76,29 +78,28 @@
                         </div>
                         {% if events %}
                             <div class="table-custom-container" style="max-height: 500px; overflow-y: auto;">
-                                <table class="table table-custom mb-0">
+                                <table class="table table-custom mb-0" data-sortable>
                                     <thead>
                                         <tr>
-                                            <th>Date</th>
-                                            <th>Event Name</th>
-                                            <th class="text-end"></th>
+                                            <th data-sort-key="date" style="width: 9rem;">Date<span class="sort-arrow">&#8597;</span></th>
+                                            <th data-sort-key="name" data-sort-dir="asc">Event Name<span class="sort-arrow">&#8597;</span></th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {% for event in events %}
                                             <tr>
-                                                <td class="text-secondary small">{{ event._display_date or event.startDate or 'N/A' }}</td>
-                                                <td class="fw-semibold">{{ event.name }}</td>
-                                                <td class="text-end">
-                                                    <a href="/event/{{ event.id }}" class="text-info text-decoration-none small">Open</a>
-                                                </td>
+                                                <td class="text-secondary small" data-sort-value="{{ event.startDate or event._display_date or '' }}">{{ event._display_date or event.startDate or 'N/A' }}</td>
+                                                <td class="fw-semibold"><a href="/event/{{ event.id }}" class="driver-link">{{ event.name }}</a></td>
                                             </tr>
                                         {% endfor %}
                                     </tbody>
                                 </table>
                             </div>
                         {% else %}
-                            <div class="text-center py-4 text-muted small">No events found.</div>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-calendar-xmark fs-2 mb-2 d-block opacity-40"></i>
+                                {% if start_date or end_date %}No events in this date range.{% else %}No events yet. Sync this organization's data under Settings &gt; Data.{% endif %}
+                            </div>
                         {% endif %}
                     </div>
 
@@ -117,16 +118,16 @@
                                                         <span class="text-secondary small ms-2">({{ champ.year }})</span>
                                                     {% endif %}
                                                 </td>
-                                                <td class="text-end">
-                                                    <a href="/championship/{{ champ.id }}" class="text-info text-decoration-none small">Open</a>
-                                                </td>
                                             </tr>
                                         {% endfor %}
                                     </tbody>
                                 </table>
                             </div>
                         {% else %}
-                            <div class="text-center py-4 text-muted small">No championships.</div>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-trophy fs-2 mb-2 d-block opacity-40"></i>
+                                No championships found for this organization.
+                            </div>
                         {% endif %}
                     </div>
         </div>
@@ -137,7 +138,8 @@
                 <h1 class="h3 fw-bold mb-4">Speedhive-tools Center</h1>
                 <form action="/org-search" method="get" class="d-flex flex-column gap-3">
                     <input type="number" id="manual-org-id" name="org_id" class="form-control form-control-custom text-center py-3 fs-5" placeholder="Organization ID" required>
-                    <button class="btn-custom py-3" type="submit">Load Workspace</button>
+                    <div class="text-muted small">Find the ID in an organization's Speedhive URL: speedhive.mylaps.com/organizations/<strong>12345</strong></div>
+                    <button class="btn-custom py-3" type="submit">Open organization</button>
                 </form>
             </div>
         </div>

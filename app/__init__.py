@@ -72,9 +72,19 @@ def create_app() -> Flask:
             "session_type TEXT, "
             "payload TEXT, "
             "calculated_at TEXT, "
+            "accessed_at TEXT, "
             "PRIMARY KEY (org_id, session_type)"
             ")"
         )
+        # Additive migration for installs that predate accessed_at (used to
+        # prune stat-view variants nobody looks at anymore)
+        try:
+            cursor = conn.execute("PRAGMA table_info(org_stats)")
+            cols = [row[1] for row in cursor.fetchall()]
+            if "accessed_at" not in cols:
+                conn.execute("ALTER TABLE org_stats ADD COLUMN accessed_at TEXT")
+        except Exception:
+            pass
         conn.execute(
             "CREATE TABLE IF NOT EXISTS background_tasks ("
             "task_id TEXT PRIMARY KEY, "

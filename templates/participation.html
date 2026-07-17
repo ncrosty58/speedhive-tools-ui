@@ -7,74 +7,49 @@
     {% include "_org_nav.html" %}
     {% include "_stats_subnav.html" %}
 
-    {% if error %}
-        <div class="col-12">
-            <div class="alert alert-danger py-2 mb-0 small">{{ error }}</div>
-        </div>
-    {% endif %}
+    <div class="col-12">
+        <h1 class="h4 fw-bold mb-0">Participation</h1>
+    </div>
 
     {% if not manifest_exists %}
         <div class="col-12">
             <div class="glass-card text-center py-5">
-                <h3 class="h5 fw-bold mb-2">No Synced Session Data</h3>
-                <p class="text-muted small mb-4">Run a data refresh under Operations to generate stats.</p>
-                <a class="btn-custom" href="/org/{{ org.id }}/operations">Open Operations</a>
+                <i class="fa-solid fa-cloud-arrow-down fs-2 mb-2 d-block opacity-40 text-muted"></i>
+                <h3 class="h5 fw-bold mb-2">No Synced Data Yet</h3>
+                <p class="text-muted small mb-4">Sync this organization's results from Speedhive first, then come back to see participation trends.</p>
+                <a class="btn-custom" href="/org/{{ org.id }}/operations">Go to Settings &gt; Data</a>
             </div>
         </div>
     {% else %}
         <!-- Filter bar -->
         <div class="col-12">
             <div class="glass-card">
-                <div class="row g-3 align-items-center">
-                    <div class="col-12 col-md">
-                        <form method="get" action="/org/{{ org.id }}/stats/participation" class="row g-3 align-items-center" id="filter-form">
-                            <div class="col-12 col-lg-auto d-flex align-items-center flex-wrap gap-2">
-                                <span class="text-muted small fw-semibold text-nowrap">Session Types:</span>
-                                <div class="form-check form-check-inline mb-0">
-                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_race" value="race" {% if 'race' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_race">Race</label>
-                                </div>
-                                <div class="form-check form-check-inline mb-0">
-                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_qualifying" value="qualifying" {% if 'qualifying' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_qualifying">Qualifying</label>
-                                </div>
-                                <div class="form-check form-check-inline mb-0">
-                                    <input class="form-check-input" type="checkbox" name="session_types" id="st_practice" value="practice" {% if 'practice' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
-                                    <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice">Practice</label>
-                                </div>
-                            </div>
-                        </form>
+                <form method="get" action="/org/{{ org.id }}/stats/participation" class="row g-3 align-items-center" id="filter-form">
+                    <div class="col-12 col-lg-auto d-flex align-items-center flex-wrap gap-2">
+                        <span class="text-muted small fw-semibold text-nowrap">Session Types:</span>
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" name="session_types" id="st_race" value="race" {% if 'race' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                            <label class="form-check-label text-muted small fw-semibold mb-0" for="st_race">Race</label>
+                        </div>
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" name="session_types" id="st_qualifying" value="qualifying" {% if 'qualifying' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                            <label class="form-check-label text-muted small fw-semibold mb-0" for="st_qualifying">Qualifying</label>
+                        </div>
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" name="session_types" id="st_practice" value="practice" {% if 'practice' in session_types %}checked{% endif %} onchange="onCheckboxChange(this)">
+                            <label class="form-check-label text-muted small fw-semibold mb-0" for="st_practice">Practice</label>
+                        </div>
                     </div>
-
-                    <div class="col-12 col-md-auto ms-md-auto">
-                        <form action="/org/{{ org.id }}/stats/class-pace/generate" method="post" class="d-inline" id="recalc-participation-form">
-                            <input type="hidden" name="redirect_to" value="org_participation">
-                            {% for st in session_types %}
-                                <input type="hidden" name="session_types" value="{{ st }}">
-                            {% endfor %}
-                            <input type="hidden" name="ignore_outliers" value="1">
-                            <button type="submit" class="btn-custom py-1 px-3 w-100 w-md-auto {% if not has_persisted_stats %}{% else %}btn-custom-outline{% endif %}" id="recalc-participation-btn" title="Last calculated: {{ calculated_at or 'Never' }}">
-                                <i class="fa-solid fa-{% if has_persisted_stats %}arrows-rotate{% else %}play{% endif %} me-1"></i>
-                                {% if has_persisted_stats %}Recalculate{% else %}Generate Chart{% endif %}
-                            </button>
-                        </form>
-                    </div>
-                </div>
+                </form>
             </div>
         </div>
 
         <script>
-            document.getElementById('recalc-participation-form')?.addEventListener('submit', function() {
-                const btn = document.getElementById('recalc-participation-btn');
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Analyzing...';
-            });
             function onCheckboxChange(cb) {
                 const checkboxes = cb.form.querySelectorAll('input[name="session_types"]');
                 const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
                 if (checkedCount === 0) {
                     cb.checked = true;
-                    alert("At least one session type must be selected.");
                     return;
                 }
                 cb.form.submit();
@@ -85,17 +60,34 @@
             <div class="col-12">
                 <div class="glass-card text-center py-5">
                     <i class="fa-solid fa-users fs-2 mb-3 d-block opacity-40"></i>
-                    <h3 class="h5 fw-bold mb-2">No Participation Data Yet</h3>
-                    <p class="text-muted small mb-0">Click "Generate Chart" above to compute distinct racers per year, across all classes.</p>
+                    <h3 class="h5 fw-bold mb-2">Stats Not Calculated Yet</h3>
+                    <p class="text-muted small mb-4">Count distinct racers per year across all classes for the selected filters. This runs once and is saved for next time.</p>
+                    <form action="/org/{{ org.id }}/stats/class-pace/generate" method="post" class="d-inline" id="recalc-participation-form">
+                        <input type="hidden" name="redirect_to" value="org_participation">
+                        {% for st in session_types %}
+                            <input type="hidden" name="session_types" value="{{ st }}">
+                        {% endfor %}
+                        <input type="hidden" name="ignore_outliers" value="1">
+                        <button type="submit" class="btn-custom" id="recalc-participation-btn">
+                            <i class="fa-solid fa-play me-1"></i>Calculate stats
+                        </button>
+                    </form>
                 </div>
             </div>
+            <script>
+                document.getElementById('recalc-participation-form')?.addEventListener('submit', function() {
+                    const btn = document.getElementById('recalc-participation-btn');
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Calculating...';
+                });
+            </script>
         {% else %}
             <!-- Total Participation -->
             <div class="col-12">
                 <div class="glass-card">
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                         <h3 class="h5 fw-bold mb-0"><i class="fa-solid fa-users text-info"></i> Total Participation by Year</h3>
-                        <span class="text-muted small">Last calculated: {{ calculated_at or 'Never' }}</span>
+                        <span class="text-muted small">Calculated {{ format_saved_at_display(calculated_at) }}</span>
                     </div>
                     {% if participation_data.years %}
                         <div class="position-relative" style="height: 420px;">
@@ -157,7 +149,7 @@
                             </div>
                         </div>
                         <p class="text-muted small mb-3" id="class-participation-caption">Top {% if participation_by_class.classes|length > 10 %}10{% else %}{{ participation_by_class.classes|length }}{% endif %} classes by average racers per year they ran (classes must have run in at least 3 years to qualify). Click a bar or use the selector to see that class's participation by year.</p>
-                        <p class="text-muted small mb-3">Seeing the same class split across two names (e.g. "SM" and "Spec Miata")? Merge them in <a href="{{ url_for('org_track_records_settings', org_id=org.id) }}">Settings &rarr; Class Alias Mapping</a> &mdash; the same alias list used for track-record curation.</p>
+                        <p class="text-muted small mb-3">Seeing the same class split across two names (e.g. "SM" and "Spec Miata")? Merge them in <a href="{{ url_for('org_track_records_settings', org_id=org.id) }}">Settings &rarr; Class Names &amp; Review Rules</a> &mdash; the same list used for track-record curation.</p>
                         <div class="position-relative" style="height: 420px;">
                             <canvas id="classParticipationChart"></canvas>
                         </div>

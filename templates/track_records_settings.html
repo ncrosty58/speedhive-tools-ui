@@ -1,142 +1,131 @@
 {% extends 'base.html' %}
 
-{% block title %}General Settings & Aliases | {{ org.name }}{% endblock %}
+{% block title %}General Settings | {{ org.name }}{% endblock %}
 
 {% block content %}
 <div class="row g-4">
     {% include "_org_nav.html" %}
     {% include "_settings_subnav.html" %}
 
-    <div class="col-12 d-flex justify-content-between align-items-center">
-        <div>
-            <h1 class="h4 fw-bold mb-1">General Settings</h1>
-            <span class="text-muted small">
-                Notification thresholds, API credentials, and class alias mapping.
-            </span>
-        </div>
-    </div>
-
-    {% if notice %}
     <div class="col-12">
-        <div class="alert alert-success border-success bg-success bg-opacity-10 text-success alert-dismissible fade show mb-0" role="alert">
-            <i class="fa-solid fa-check-circle me-2"></i> {{ notice }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
+        <h1 class="h4 fw-bold mb-1">General Settings</h1>
+        <span class="text-muted small">
+            Stats thresholds, record-announcement parsing, class names, and email notifications for {{ org.name }}. Changes apply after you save.
+        </span>
     </div>
-    {% endif %}
-
-    {% if error %}
-    <div class="col-12">
-        <div class="alert alert-danger border-danger bg-danger bg-opacity-10 text-danger alert-dismissible fade show mb-0" role="alert">
-            <i class="fa-solid fa-circle-exclamation me-2"></i> {{ error }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    </div>
-    {% endif %}
 
     <div class="col-12">
         <form method="POST" action="{{ url_for('org_track_records_settings', org_id=org_id) }}">
             <div class="row g-4">
-                <!-- Notifications Configuration Card -->
+                <!-- Stats Card -->
                 <div class="col-lg-6">
                     <div class="glass-card h-100 d-flex flex-column">
-                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-envelope"></i> Review Notifications</h3>
-                        
+                        <h3 class="h5 fw-bold mb-3 text-info"><i class="fa-solid fa-chart-line"></i> Stats</h3>
+                        <span class="text-muted small mb-3">
+                            Controls which drivers appear in the stats rankings.
+                        </span>
+
+                        <div class="mb-3">
+                            <label for="stats_min_laps" class="form-label fw-semibold">Minimum laps per session</label>
+                            <input type="number" class="form-control form-control-custom" id="stats_min_laps" name="stats_min_laps" value="{{ stats_config.min_laps or 20 }}" min="1">
+                            <span class="text-muted small mt-2 d-block">
+                                Only count a driver's session toward consistency rankings when they completed at least this many laps. Short stints aren't a fair measure of consistency.
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Record Announcements Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-3 text-info"><i class="fa-solid fa-bullhorn"></i> Record Announcements</h3>
+                        <span class="text-muted small mb-3">
+                            How lap-record callouts in the announcer feed are read and turned into review candidates.
+                        </span>
+
+                        <div class="mb-3">
+                            <label for="parser_engine" class="form-label fw-semibold">Reading method</label>
+                            <select class="form-select form-control-custom" id="parser_engine" name="parser_engine">
+                                <option value="regex" {% if parsing_config.engine != 'llm' %}selected{% endif %}>Standard (built-in)</option>
+                                <option value="llm" {% if parsing_config.engine == 'llm' %}selected{% endif %}>AI-assisted (Google Gemini)</option>
+                            </select>
+                            <span class="text-muted small">Announcements the reader is unsure about (an ambiguous class name, a low-confidence extraction) are filed to the Rejected tab instead of the review queue &mdash; restore them from there if that's wrong.</span>
+                        </div>
+
+                        <hr class="border-secondary opacity-25">
+
+                        <div class="mb-3">
+                            <label for="gemini_api_key" class="form-label fw-semibold">Gemini API key</label>
+                            <input type="text" class="form-control form-control-custom" id="gemini_api_key" name="gemini_api_key" value="{{ env_settings.GEMINI_API_KEY.display_override or '' }}" placeholder="AIza...">
+                            <span class="text-muted small">Only needed for AI-assisted reading. Get a key at aistudio.google.com.</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="gemini_model" class="form-label fw-semibold">Gemini model</label>
+                            <input type="text" class="form-control form-control-custom" id="gemini_model" name="gemini_model" value="{{ env_settings.GEMINI_MODEL.override or '' }}" placeholder="gemini-2.5-flash">
+                            <span class="text-muted small">Leave blank to use the default model.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Class Names Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-3 text-info"><i class="fa-solid fa-tags"></i> Class Names &amp; Review Rules</h3>
+                        <span class="text-muted small mb-3">
+                            Map the class names Speedhive uses (e.g. "Spec Miata") to the short names you want shown (e.g. "SM"), and list classes that should always go to review. Also merges split classes in the Participation charts.
+                        </span>
+
+                        <div class="flex-grow-1 d-flex flex-column">
+                            <label for="alias_map_json" class="form-label fw-semibold">Rules (JSON format)</label>
+                            <textarea class="form-control form-control-custom font-monospace flex-grow-1" id="alias_map_json" name="alias_map_json" rows="12" style="font-size: 0.85rem;">{{ alias_map_json }}</textarea>
+                            <span class="text-muted small mt-2">
+                                Example: <code>{"aliases": {"Spec Miata": "SM"}, "always_review": ["F5"]}</code> &mdash; "aliases" renames classes, "always_review" lists names too ambiguous to file automatically.
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Email Notifications Card -->
+                <div class="col-lg-6">
+                    <div class="glass-card h-100 d-flex flex-column">
+                        <h3 class="h5 fw-bold mb-3 text-info"><i class="fa-solid fa-envelope"></i> Email Notifications</h3>
+                        <span class="text-muted small mb-3">
+                            Get an email when a scan finds new record candidates to review.
+                        </span>
+
                         <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" role="switch" id="enabled" name="enabled" {% if notif_config.enabled %}checked{% endif %}>
-                                <label class="form-check-label fw-semibold" for="enabled">Enable Notification Emails</label>
+                                <label class="form-check-label fw-semibold" for="enabled">Send notification emails</label>
                             </div>
-                            <span class="text-muted small">Send review email notifications when a scan finds new record candidates.</span>
                         </div>
 
                         <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" role="switch" id="de_duplicate" name="de_duplicate" {% if notif_config.de_duplicate %}checked{% endif %}>
-                                <label class="form-check-label fw-semibold" for="de_duplicate">De-duplicate Notifications</label>
+                                <label class="form-check-label fw-semibold" for="de_duplicate">Skip repeat emails</label>
                             </div>
-                            <span class="text-muted small">Do not send email if the pending candidates queue is unchanged.</span>
+                            <span class="text-muted small">Don't send another email if the review queue hasn't changed since the last one.</span>
                         </div>
 
                         <hr class="border-secondary opacity-25">
 
                         <div class="mb-3">
-                            <label for="resend_api_key" class="form-label fw-semibold">Resend API Key</label>
-                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="resend_api_key" name="resend_api_key" value="{{ env_settings.RESEND_API_KEY.display_override or '' }}" placeholder="re_...">
+                            <label for="resend_api_key" class="form-label fw-semibold">Resend API key</label>
+                            <input type="text" class="form-control form-control-custom" id="resend_api_key" name="resend_api_key" value="{{ env_settings.RESEND_API_KEY.display_override or '' }}" placeholder="re_...">
+                            <span class="text-muted small">Emails are sent through Resend &mdash; paste your API key from resend.com.</span>
                         </div>
 
                         <div class="mb-3">
-                            <label for="from_email" class="form-label fw-semibold">From Email Address</label>
-                            <input type="email" class="form-control bg-dark text-light border-secondary border-opacity-50" id="from_email" name="from_email" value="{{ env_settings.NOTIFICATION_FROM_EMAIL.override or '' }}" placeholder="noreply@cosmoslab.dev">
+                            <label for="from_email" class="form-label fw-semibold">From address</label>
+                            <input type="email" class="form-control form-control-custom" id="from_email" name="from_email" value="{{ env_settings.NOTIFICATION_FROM_EMAIL.override or '' }}" placeholder="noreply@example.com">
                         </div>
 
                         <div class="mb-3 flex-grow-1">
-                            <label for="to_emails" class="form-label fw-semibold">Recipient Email(s)</label>
-                            <textarea class="form-control bg-dark text-light border-secondary border-opacity-50" id="to_emails" name="to_emails" rows="3" placeholder="email1@domain.com, email2@domain.com">{{ env_settings.NOTIFICATION_TO_EMAILS.override or '' }}</textarea>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Classification Alias Mapping Card -->
-                <div class="col-lg-6">
-                    <div class="glass-card h-100 d-flex flex-column">
-                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-tags"></i> Class Alias Mapping & Curation</h3>
-
-                        <div class="flex-grow-1 d-flex flex-column">
-                            <label for="alias_map_json" class="form-label fw-semibold">Aliases & Rules (JSON)</label>
-                            <textarea class="form-control bg-dark text-light border-secondary border-opacity-50 font-monospace flex-grow-1" id="alias_map_json" name="alias_map_json" rows="12" style="font-size: 0.85rem;">{{ alias_map_json }}</textarea>
-                            <span class="text-muted small mt-2">
-                                Define mapping of Speedhive raw session/class names to internal abbreviations, and classes that should always be flagged for review.
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Announcer Parser Card -->
-                <div class="col-lg-6">
-                    <div class="glass-card h-100 d-flex flex-column">
-                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-robot"></i> Announcer Parser</h3>
-                        <span class="text-muted small mb-3">
-                            Parser engine choice and Gemini credentials for {{ org.name }}.
-                        </span>
-
-                        <div class="mb-3">
-                            <label for="gemini_api_key" class="form-label fw-semibold">Gemini API Key</label>
-                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_api_key" name="gemini_api_key" value="{{ env_settings.GEMINI_API_KEY.display_override or '' }}" placeholder="AIza...">
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="gemini_model" class="form-label fw-semibold">Gemini Model</label>
-                            <input type="text" class="form-control bg-dark text-light border-secondary border-opacity-50" id="gemini_model" name="gemini_model" value="{{ env_settings.GEMINI_MODEL.override or '' }}" placeholder="gemini-2.5-flash">
-                        </div>
-
-                        <hr class="border-secondary opacity-25">
-
-                        <div class="mb-3">
-                            <label for="parser_engine" class="form-label fw-semibold">Announcement Parser</label>
-                            <select class="form-select" id="parser_engine" name="parser_engine">
-                                <option value="regex" {% if parsing_config.engine != 'llm' %}selected{% endif %}>Regex — default</option>
-                                <option value="llm" {% if parsing_config.engine == 'llm' %}selected{% endif %}>LLM (Gemini)</option>
-                            </select>
-                            <span class="text-muted small">Records the parser is unsure about (ambiguous classification, low-confidence LLM extraction) are auto-filed to Rejected instead of the review queue — restore them from the Rejected tab if that's wrong.</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Stats Settings Card -->
-                <div class="col-lg-6">
-                    <div class="glass-card h-100 d-flex flex-column">
-                        <h3 class="h5 fw-bold mb-4 text-info"><i class="fa-solid fa-chart-line"></i> Stats Settings</h3>
-                        <span class="text-muted small mb-3">
-                            Configure how statistical calculations and rankings are generated for {{ org.name }}.
-                        </span>
-
-                        <div class="mb-3">
-                            <label for="stats_min_laps" class="form-label fw-semibold">Minimum Laps</label>
-                            <input type="number" class="form-control bg-dark text-light border-secondary border-opacity-50" id="stats_min_laps" name="stats_min_laps" value="{{ stats_config.min_laps or 20 }}" min="1">
-                            <span class="text-muted small mt-2 d-block">
-                                Minimum number of laps required in a session to include a driver in the consistency rankings and driver stats.
-                            </span>
+                            <label for="to_emails" class="form-label fw-semibold">Send to</label>
+                            <textarea class="form-control form-control-custom" id="to_emails" name="to_emails" rows="3" placeholder="email1@domain.com, email2@domain.com">{{ env_settings.NOTIFICATION_TO_EMAILS.override or '' }}</textarea>
+                            <span class="text-muted small">Separate multiple addresses with commas.</span>
                         </div>
                     </div>
                 </div>
@@ -145,7 +134,7 @@
                     <div class="glass-card d-flex justify-content-end gap-2">
                         <a class="btn-custom-outline py-2" href="{{ url_for('org_track_records_curated', org_id=org_id) }}">Cancel</a>
                         <button type="submit" class="btn-custom py-2 px-4">
-                            <i class="fa-solid fa-save me-1"></i> Save Config
+                            <i class="fa-solid fa-save me-1"></i> Save settings
                         </button>
                     </div>
                 </div>
