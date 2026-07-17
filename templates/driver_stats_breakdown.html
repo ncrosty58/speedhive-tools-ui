@@ -40,50 +40,61 @@
             <div class="row g-4 align-items-center">
                 <div class="col-lg-6">
                     <span class="text-brand small fw-bold text-uppercase tracking-wider">Driver Profile</span>
-                    <h2 class="h2 fw-bold mb-3 text-white">{{ driver_name }}</h2>
+                    <h2 class="h3 fw-bold mb-1 text-white">{{ driver_name }}</h2>
                     
                     {% if aliases|length > 1 %}
-                        <p class="small text-muted mb-4">
+                        <p class="small text-muted mb-2">
                             <span class="fw-semibold text-secondary me-1">Matched aliases:</span>
                             <span class="text-light">{{ aliases | join(', ') }}</span>
                         </p>
+                    {% else %}
+                        <div class="mb-2"></div>
                     {% endif %}
 
-                    <div class="d-flex flex-column gap-3">
-                        <div class="p-3 rounded bg-surface border border-secondary border-opacity-10">
-                            <span class="text-muted small d-block mb-1" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Career Best Lap (All Time)</span>
-                            <span class="h4 fw-bold text-brand fw-mono mb-0">{{ all_time_best_display }}</span>
-                        </div>
-                        
-                        <div class="p-3 rounded bg-surface border border-secondary border-opacity-10">
-                            <span class="text-muted small d-block mb-1" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Peak Session Consistency</span>
-                            <span class="h5 fw-bold text-white mb-0">{{ peak_consistency_display }}</span>
-                        </div>
+                    <div class="p-3 rounded bg-surface border border-secondary border-opacity-10 mt-2">
+                        <div class="row g-3 text-center">
+                            <!-- Career Best Lap -->
+                            <div class="col-4 border-end border-secondary border-opacity-10">
+                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Best Lap (All-Time)</span>
+                                <span class="h5 fw-bold text-brand fw-mono mb-0">{{ all_time_best_display }}</span>
+                            </div>
+                            
+                            <!-- Peak Session Consistency -->
+                            <div class="col-4 border-end border-secondary border-opacity-10">
+                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Peak Consistency</span>
+                                <span class="h5 fw-bold text-white mb-0">{{ peak_consistency_val }}</span>
+                                <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ peak_consistency_sess }}</small>
+                            </div>
 
-                        <div class="p-3 rounded bg-surface border border-secondary border-opacity-10">
-                            <span class="text-muted small d-block mb-1" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Consistency Trend</span>
-                            {% if trend_direction == 'improving' %}
-                                <span class="h5 fw-bold text-success mb-0 d-flex align-items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-right-circle-fill" viewBox="0 0 16 16">
-                                      <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
-                                    </svg>
-                                    {{ trend_text }}
-                                </span>
-                            {% elif trend_direction == 'declining' %}
-                                <span class="h5 fw-bold text-danger mb-0 d-flex align-items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-down-right-circle-fill" viewBox="0 0 16 16">
-                                      <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
-                                    </svg>
-                                    {{ trend_text }}
-                                </span>
-                            {% else %}
-                                <span class="h5 fw-bold text-secondary mb-0 d-flex align-items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-dash-circle-fill" viewBox="0 0 16 16">
-                                      <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0M4.5 7.5a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1z"/>
-                                    </svg>
-                                    {{ trend_text }}
-                                </span>
-                            {% endif %}
+                            <!-- Consistency Trend -->
+                            <div class="col-4">
+                                <span class="text-muted small d-block mb-1" style="font-size: 0.65rem; text-transform: uppercase;">Trend {{ trend_timeframe }}</span>
+                                {% if trend_direction == 'improving' %}
+                                    <span class="h5 fw-bold text-success mb-0 d-flex align-items-center justify-content-center gap-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-arrow-up-right-circle-fill" viewBox="0 0 16 16">
+                                          <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
+                                        </svg>
+                                        {{ trend_text.split('by ')[1].split(' ')[0] if 'by ' in trend_text else '' }}
+                                    </span>
+                                    <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('pp ')[1] if 'pp ' in trend_text else '' }}</small>
+                                {% elif trend_direction == 'declining' %}
+                                    <span class="h5 fw-bold text-danger mb-0 d-flex align-items-center justify-content-center gap-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-arrow-down-right-circle-fill" viewBox="0 0 16 16">
+                                          <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-4.5-4.5a.5.5 0 0 0-1 0v4.793L5.354 4.146a.5.5 0 1 0-.708.708l4.147 4.147H4a.5.5 0 0 0 0 1h5.793l-4.147 4.146a.5.5 0 0 0 .708.708L10.5 6.207V11a.5.5 0 0 0 1 0z"/>
+                                        </svg>
+                                        {{ trend_text.split('by ')[1].split(' ')[0] if 'by ' in trend_text else '' }}
+                                    </span>
+                                    <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('pp ')[1] if 'pp ' in trend_text else '' }}</small>
+                                {% else %}
+                                    <span class="h5 fw-bold text-secondary mb-0 d-flex align-items-center justify-content-center gap-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-dash-circle-fill" viewBox="0 0 16 16">
+                                          <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0M4.5 7.5a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1z"/>
+                                        </svg>
+                                        Stable
+                                    </span>
+                                    <small class="text-muted d-block mt-0.5" style="font-size: 0.6rem;">{{ trend_text.split('Stable ')[1] if 'Stable ' in trend_text else '' }}</small>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                 </div>

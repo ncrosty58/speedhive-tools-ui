@@ -523,9 +523,11 @@ def driver_stats_breakdown(org_id, driver_name):
                 pass
         if valid_cvs:
             best_cv, best_cv_sess = min(valid_cvs, key=lambda x: x[0])
-            peak_consistency_display = f"{best_cv:.2f}% ({best_cv_sess})"
+            peak_consistency_val = f"{best_cv:.2f}%"
+            peak_consistency_sess = best_cv_sess
         else:
-            peak_consistency_display = "N/A"
+            peak_consistency_val = "N/A"
+            peak_consistency_sess = ""
 
         # Consistency Trend (Earliest vs. Recent session averages)
         chrono_sessions = sorted(
@@ -534,7 +536,28 @@ def driver_stats_breakdown(org_id, driver_name):
         )
         trend_text = "N/A"
         trend_direction = "stable"
+        trend_timeframe = ""
+        
         if len(chrono_sessions) >= 2:
+            # Extract timeframe years
+            def get_session_year(s_id):
+                s_raw = session_map.get(s_id, {})
+                for field in ["startTime", "scheduledStart", "start_date", "date"]:
+                    val = s_raw.get(field)
+                    if val:
+                        match = re.search(r'\b(19|20)\d{2}\b', str(val))
+                        if match:
+                            return match.group(0)
+                return None
+                
+            first_year = get_session_year(chrono_sessions[0]["session_id"])
+            last_year = get_session_year(chrono_sessions[-1]["session_id"])
+            if first_year and last_year:
+                if first_year == last_year:
+                    trend_timeframe = f"({first_year})"
+                else:
+                    trend_timeframe = f"({first_year}–{last_year})"
+
             def parse_cv(s):
                 try:
                     return float(s["cv_display"].replace("%", ""))
@@ -578,9 +601,11 @@ def driver_stats_breakdown(org_id, driver_name):
             podium_rate_display=f"{podium_rate:.1f}%" if total_starts > 0 else "0.0%",
             class_stats=sorted_class_stats,
             all_time_best_display=all_time_best_display,
-            peak_consistency_display=peak_consistency_display,
+            peak_consistency_val=peak_consistency_val,
+            peak_consistency_sess=peak_consistency_sess,
             trend_text=trend_text,
             trend_direction=trend_direction,
+            trend_timeframe=trend_timeframe,
         )
     except Exception as exc:
         return render_template(
