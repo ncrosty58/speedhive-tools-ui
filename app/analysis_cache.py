@@ -20,7 +20,7 @@ from speedhive.utils.lap_analysis import (
     dedupe_session_ids,
 )
 
-_MAX_BUNDLES = 2
+_MAX_BUNDLES = 6
 _lock = threading.Lock()
 _cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 

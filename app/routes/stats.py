@@ -814,45 +814,56 @@ def driver_stats_breakdown(org_id, driver_name):
 
         # Compute best lap for all drivers, grouped by resolved class
         # driver_class_best_laps[class_name][driver_name_norm] = best_lap_seconds
-        driver_class_best_laps = defaultdict(dict)
-        
-        for key, val in enriched.items():
-            name = val.get("name")
-            if not name:
-                continue
+        # We cache class_rankings directly on the bundle dict in memory to avoid
+        # recalculating this across different driver pages (huge performance win).
+        # We key it by the serialized alias_map so it refreshes if aliases change.
+        alias_map_key = json.dumps(alias_map, sort_keys=True)
+        if "class_rankings_cache" not in bundle:
+            bundle["class_rankings_cache"] = {}
+
+        if alias_map_key in bundle["class_rankings_cache"]:
+            class_rankings = bundle["class_rankings_cache"][alias_map_key]
+        else:
+            driver_class_best_laps = defaultdict(dict)
+            for key, val in enriched.items():
+                name = val.get("name")
+                if not name:
+                    continue
+                
+                # Resolve session class name using alias_map
+                raw_cls = val.get("class_name") or val.get("resultClass") or val.get("class")
+                if not raw_cls:
+                    s_id = key.split("_")[0].replace("session", "")
+                    s_raw = session_map.get(s_id, {})
+                    raw_cls = first_non_empty(
+                        s_raw.get("classification"),
+                        s_raw.get("class"),
+                        s_raw.get("classificationName"),
+                        s_raw.get("className")
+                    )
+                
+                resolved_cls = "Unknown Class"
+                if raw_cls:
+                    status_c, resolved_c = normalize_classification(raw_cls, alias_map)
+                    if status_c == "ok":
+                        resolved_cls = resolved_c
+                
+                laps = laps_by_driver.get(key, [])
+                filtered_laps = val.get("filtered_laps", laps)
+                non_outliers = [lap for lap in filtered_laps if lap > 0.1]
+                if non_outliers:
+                    best = min(non_outliers)
+                    norm_name = normalize_name(name)
+                    current_best = driver_class_best_laps[resolved_cls].get(norm_name)
+                    if current_best is None or best < current_best:
+                        driver_class_best_laps[resolved_cls][norm_name] = best
+                        
+            # Sort each class's best laps
+            class_rankings = {}
+            for cls, driver_laps in driver_class_best_laps.items():
+                class_rankings[cls] = sorted(driver_laps.items(), key=lambda x: x[1])
             
-            # Resolve session class name using alias_map
-            raw_cls = val.get("class_name") or val.get("resultClass") or val.get("class")
-            if not raw_cls:
-                s_id = key.split("_")[0]
-                s_raw = session_map.get(s_id, {})
-                raw_cls = first_non_empty(
-                    s_raw.get("classification"),
-                    s_raw.get("class"),
-                    s_raw.get("classificationName"),
-                    s_raw.get("className")
-                )
-            
-            resolved_cls = "Unknown Class"
-            if raw_cls:
-                status_c, resolved_c = normalize_classification(raw_cls, alias_map)
-                if status_c == "ok":
-                    resolved_cls = resolved_c
-            
-            laps = laps_by_driver.get(key, [])
-            filtered_laps = val.get("filtered_laps", laps)
-            non_outliers = [lap for lap in filtered_laps if lap > 0.1]
-            if non_outliers:
-                best = min(non_outliers)
-                norm_name = normalize_name(name)
-                current_best = driver_class_best_laps[resolved_cls].get(norm_name)
-                if current_best is None or best < current_best:
-                    driver_class_best_laps[resolved_cls][norm_name] = best
-                    
-        # Sort each class's best laps
-        class_rankings = {}
-        for cls, driver_laps in driver_class_best_laps.items():
-            class_rankings[cls] = sorted(driver_laps.items(), key=lambda x: x[1])
+            bundle["class_rankings_cache"][alias_map_key] = class_rankings
 
         # Starts/wins/podiums ranks across all drivers at this track, from the
         # cached directory (backfilled inline for orgs that predate the key)
