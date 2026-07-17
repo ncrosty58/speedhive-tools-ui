@@ -144,6 +144,7 @@
                     <table class="table table-custom mb-0 small drivers-table" id="drivers-table">
                         <thead>
                             <tr>
+                                <th style="width: 50px;">#</th>
                                 <th data-sort-key="name" data-sort-dir="asc">Driver<span class="sort-arrow">&#8597;</span></th>
                                 <th data-sort-key="starts">Starts<span class="sort-arrow">&#8597;</span></th>
                                 <th data-sort-key="wins">Wins<span class="sort-arrow">&#8597;</span></th>
@@ -242,12 +243,36 @@
                 }
                 rows = rows.slice().sort(compareRows);
 
-                const html = rows.map(r => {
+                // Compute display ranks based on sorted values (handling ties)
+                let currentRank = 1;
+                const displayRanks = [];
+                for (let i = 0; i < rows.length; i++) {
+                    const curr = rows[i];
+                    const currVal = curr[sortKey];
+                    if (currVal === null || currVal === undefined) {
+                        displayRanks.push('&mdash;');
+                        continue;
+                    }
+                    if (i > 0) {
+                        const prev = rows[i - 1];
+                        const prevVal = prev[sortKey];
+                        if (prevVal === null || prevVal === undefined) {
+                            currentRank = i + 1;
+                        } else if (currVal !== prevVal) {
+                            currentRank = i + 1;
+                        }
+                    }
+                    displayRanks.push(currentRank);
+                }
+
+                const html = rows.map((r, i) => {
                     const link = '/org/{{ org.id }}/stats/driver/' + encodeURIComponent(r.name) + DRIVER_LINK_QS;
                     const cv = r.cv_pct !== null && r.cv_pct !== undefined
                         ? r.cv_pct.toFixed(2) + '%' + rankSub(r.cv_rank, {{ consistency_total }})
                         : '<span class="text-muted">&mdash;</span>';
+                    const rankNum = displayRanks[i];
                     return '<tr>'
+                        + '<td class="text-muted fw-semibold">' + (typeof rankNum === 'number' ? rankNum.toLocaleString() : rankNum) + '</td>'
                         + '<td class="fw-semibold"><a href="' + link + '" class="driver-link">' + escapeHtml(r.name) + '</a></td>'
                         + '<td>' + r.starts.toLocaleString() + rankSub(r.starts_rank) + '</td>'
                         + '<td>' + r.wins.toLocaleString() + rankSub(r.wins_rank) + '</td>'
@@ -257,7 +282,7 @@
                         + '<td>' + cv + '</td>'
                         + '</tr>';
                 }).join('');
-                body.innerHTML = html || '<tr><td colspan="7" class="text-center py-4 text-muted">No drivers match your search.</td></tr>';
+                body.innerHTML = html || '<tr><td colspan="8" class="text-center py-4 text-muted">No drivers match your search.</td></tr>';
                 countNode.textContent = 'Showing ' + rows.length.toLocaleString() + ' of ' + DRIVER_ROWS.length.toLocaleString() + ' drivers';
             }
 
