@@ -5,3 +5,4 @@ __pycache__
 .gitignore
 README.md
 .venv
+venv
