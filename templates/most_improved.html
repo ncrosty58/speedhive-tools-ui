@@ -108,6 +108,16 @@
                 </div>
             </div>
 
+            <!-- Driver Search Bar -->
+            <div class="col-12">
+                <div class="glass-card py-2 px-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <i class="fa-solid fa-magnifying-glass text-brand"></i>
+                        <input type="text" id="driver-search-input" class="form-control form-control-sm bg-transparent border-0 text-white shadow-none" placeholder="Search driver by name to see where they fall on the list..." style="font-size: 0.95rem;">
+                    </div>
+                </div>
+            </div>
+
             <div class="col-lg-6">
                 <div class="glass-card">
                     <h3 class="h5 fw-bold mb-3">Most Improved</h3>
@@ -122,7 +132,7 @@
                                         <th>CV Change</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="improved-table-body">
                                     {% for r in most_improved %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
@@ -154,7 +164,7 @@
                                         <th>CV Change</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="declined-table-body">
                                     {% for r in most_declined %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
@@ -174,4 +184,71 @@
         {% endif %}
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if most_improved or most_declined %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const searchInput = document.getElementById("driver-search-input");
+        const improvedTbody = document.getElementById("improved-table-body");
+        const declinedTbody = document.getElementById("declined-table-body");
+
+        const allImproved = {{ most_improved | tojson if most_improved else '[]' }};
+        const allDeclined = {{ most_declined | tojson if most_declined else '[]' }};
+
+        allImproved.forEach((item, index) => { item.rank = index + 1; });
+        allDeclined.forEach((item, index) => { item.rank = index + 1; });
+
+        function renderTable(tbody, list, isImproved, query) {
+            if (!tbody) return;
+            tbody.innerHTML = "";
+
+            let filtered = list;
+            if (query) {
+                const q = query.toLowerCase();
+                filtered = list.filter(item => item.name.toLowerCase().includes(q));
+            } else {
+                // Show top 15 by default
+                filtered = list.slice(0, 15);
+            }
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No matching drivers found.</td></tr>';
+                return;
+            }
+
+            filtered.forEach(r => {
+                const tr = document.createElement("tr");
+
+                // Construct link params
+                const sessionTypesParams = [{% for st in session_types %}"session_types={{ st }}"{% if not loop.last %}, {% endif %}{% endfor %}].join("&");
+                const ignoreOutliersParam = "ignore_outliers={{ '1' if ignore_outliers else '0' }}";
+                const driverUrl = `/org/{{ org.id }}/stats/driver/${encodeURIComponent(r.name)}?${sessionTypesParams}&${ignoreOutliersParam}`;
+                const badgeClass = isImproved ? "text-success" : "text-warning";
+
+                tr.innerHTML = `
+                    <td>${r.rank}</td>
+                    <td class="fw-semibold"><a href="${driverUrl}" class="driver-link">${r.name}</a></td>
+                    <td class="text-nowrap">${r.first_year} &rarr; ${r.last_year}</td>
+                    <td><span class="text-muted">${r.first_cv_display} &rarr; ${r.last_cv_display}</span> <span class="${badgeClass} fw-bold">(${r.cv_delta_display})</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        if (searchInput) {
+            // Initial render of first 15 in case the lists are longer
+            renderTable(improvedTbody, allImproved, true, "");
+            renderTable(declinedTbody, allDeclined, false, "");
+
+            searchInput.addEventListener("input", function () {
+                const query = this.value.trim();
+                renderTable(improvedTbody, allImproved, true, query);
+                renderTable(declinedTbody, allDeclined, false, query);
+            });
+        }
+    });
+</script>
+{% endif %}
 {% endblock %}

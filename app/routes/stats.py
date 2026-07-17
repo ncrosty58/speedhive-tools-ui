@@ -780,7 +780,7 @@ def generate_org_class_pace(org_id):
         # they all share the same Generate/Recalculate action.
         chart_data["participation"] = compute_participation_by_year(enriched, session_map, session_types=session_types_list)
         chart_data["participation_by_class"] = compute_participation_by_class_year(
-            enriched, session_map, results_map, session_types=session_types_list, max_classes=10, alias_map=alias_map
+            enriched, session_map, results_map, session_types=session_types_list, max_classes=None, alias_map=alias_map
         )
 
         calculated_at = iso_utc(utc_now())
@@ -914,7 +914,7 @@ def generate_org_most_improved(org_id):
         session_map = load_session_types_from_storage(storage, org_id_int)
         min_laps = get_stats_min_laps(org_id_int)
         most_improved, most_declined = get_most_improved_rankings(
-            enriched, session_map, session_types=session_types_list, min_laps=min_laps, limit=15
+            enriched, session_map, session_types=session_types_list, min_laps=min_laps, limit=None
         )
 
         calculated_at = iso_utc(utc_now())
@@ -1008,7 +1008,7 @@ def generate_org_wins_podiums(org_id):
 
         results_payloads = storage.load_results_payloads(org_id_int)
         session_map = load_session_types_from_storage(storage, org_id_int)
-        most_wins, most_podiums = get_wins_podiums_rankings(results_payloads, session_map, limit=15)
+        most_wins, most_podiums = get_wins_podiums_rankings(results_payloads, session_map, limit=None)
 
         calculated_at = iso_utc(utc_now())
         payload_str = json.dumps({"most_wins": most_wins, "most_podiums": most_podiums}, default=str)

@@ -63,6 +63,16 @@
                 </div>
             </div>
 
+            <!-- Driver Search Bar -->
+            <div class="col-12">
+                <div class="glass-card py-2 px-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <i class="fa-solid fa-magnifying-glass text-brand"></i>
+                        <input type="text" id="driver-search-input" class="form-control form-control-sm bg-transparent border-0 text-white shadow-none" placeholder="Search driver by name to see where they fall on the list..." style="font-size: 0.95rem;">
+                    </div>
+                </div>
+            </div>
+
             <div class="col-lg-6">
                 <div class="glass-card">
                     <h3 class="h5 fw-bold mb-3">Most Wins</h3>
@@ -79,7 +89,7 @@
                                         <th>Win %</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="wins-table-body">
                                     {% for r in most_wins %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
@@ -115,7 +125,7 @@
                                         <th>Podium %</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="podiums-table-body">
                                     {% for r in most_podiums %}
                                         <tr>
                                             <td>{{ loop.index }}</td>
@@ -137,4 +147,70 @@
         {% endif %}
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if most_wins or most_podiums %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const searchInput = document.getElementById("driver-search-input");
+        const winsTbody = document.getElementById("wins-table-body");
+        const podiumsTbody = document.getElementById("podiums-table-body");
+
+        const allWins = {{ most_wins | tojson if most_wins else '[]' }};
+        const allPodiums = {{ most_podiums | tojson if most_podiums else '[]' }};
+
+        allWins.forEach((item, index) => { item.rank = index + 1; });
+        allPodiums.forEach((item, index) => { item.rank = index + 1; });
+
+        function renderTable(tbody, list, showWinRate, query) {
+            if (!tbody) return;
+            tbody.innerHTML = "";
+
+            let filtered = list;
+            if (query) {
+                const q = query.toLowerCase();
+                filtered = list.filter(item => item.name.toLowerCase().includes(q));
+            } else {
+                // Show top 15 by default
+                filtered = list.slice(0, 15);
+            }
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No matching drivers found.</td></tr>';
+                return;
+            }
+
+            filtered.forEach(r => {
+                const tr = document.createElement("tr");
+
+                const driverUrl = `/org/{{ org.id }}/stats/driver/${encodeURIComponent(r.name)}?session_types=race`;
+                const rateDisplay = showWinRate ? r.win_rate_display : r.podium_rate_display;
+
+                tr.innerHTML = `
+                    <td>${r.rank}</td>
+                    <td class="fw-semibold"><a href="${driverUrl}" class="driver-link">${r.name}</a></td>
+                    <td>${r.wins}</td>
+                    <td>${r.podiums}</td>
+                    <td>${r.starts}</td>
+                    <td>${rateDisplay}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        if (searchInput) {
+            // Initial render of first 15 in case the lists are longer
+            renderTable(winsTbody, allWins, true, "");
+            renderTable(podiumsTbody, allPodiums, false, "");
+
+            searchInput.addEventListener("input", function () {
+                const query = this.value.trim();
+                renderTable(winsTbody, allWins, true, query);
+                renderTable(podiumsTbody, allPodiums, false, query);
+            });
+        }
+    });
+</script>
+{% endif %}
 {% endblock %}

@@ -144,11 +144,19 @@
                     <div class="glass-card">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
                             <h3 class="h5 fw-bold mb-0"><i class="fa-solid fa-layer-group text-info"></i> <span id="class-participation-title">Average Annual Participants by Class</span></h3>
-                            <button type="button" class="btn-custom btn-custom-outline py-1 px-3 d-none" id="back-to-classes-btn">
-                                <i class="fa-solid fa-arrow-left me-1"></i>Back to All Classes
-                            </button>
+                            <div class="d-flex align-items-center gap-2">
+                                <select id="class-select" class="form-select form-select-sm bg-surface border border-secondary border-opacity-20 text-white" style="width: auto; min-width: 180px; font-size: 0.85rem;">
+                                    <option value="">-- View Specific Class --</option>
+                                    {% for cls in participation_by_class.classes %}
+                                        <option value="{{ cls }}">{{ cls }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" class="btn-custom btn-custom-outline py-1 px-3 d-none" id="back-to-classes-btn">
+                                    <i class="fa-solid fa-arrow-left me-1"></i>Back to Top 10
+                                </button>
+                            </div>
                         </div>
-                        <p class="text-muted small mb-3" id="class-participation-caption">Top {{ participation_by_class.classes|length }} classes by average racers per year they ran (classes must have run in at least 3 years to qualify, so a one-off event class can't outrank one you run every year). Click a bar to see that class's participation by year.</p>
+                        <p class="text-muted small mb-3" id="class-participation-caption">Top {% if participation_by_class.classes|length > 10 %}10{% else %}{{ participation_by_class.classes|length }}{% endif %} classes by average racers per year they ran (classes must have run in at least 3 years to qualify). Click a bar or use the selector to see that class's participation by year.</p>
                         <p class="text-muted small mb-3">Seeing the same class split across two names (e.g. "SM" and "Spec Miata")? Merge them in <a href="{{ url_for('org_track_records_settings', org_id=org.id) }}">Settings &rarr; Class Alias Mapping</a> &mdash; the same alias list used for track-record curation.</p>
                         <div class="position-relative" style="height: 420px;">
                             <canvas id="classParticipationChart"></canvas>
@@ -160,7 +168,7 @@
                     <div class="glass-card">
                         <details>
                             <summary class="h6 fw-semibold mb-0" style="cursor: pointer;">
-                                <i class="fa-solid fa-table text-info me-1"></i>View as table
+                                <i class="fa-solid fa-table text-info me-1"></i>View as table (All Classes)
                             </summary>
                             <div class="table-custom-container mt-3">
                                 <table class="table table-custom mb-0 small">
@@ -258,10 +266,11 @@
         const titleEl = document.getElementById("class-participation-title");
         const captionEl = document.getElementById("class-participation-caption");
         const backBtn = document.getElementById("back-to-classes-btn");
+        const classSelect = document.getElementById("class-select");
 
         const topLevel = {
-            labels: byClassData.classes,
-            data: byClassData.avg_participants,
+            labels: byClassData.classes.slice(0, 10),
+            data: byClassData.avg_participants.slice(0, 10),
             datasetLabel: "Avg Annual Participants",
         };
 
@@ -285,11 +294,9 @@
                 onClick: (evt, elements) => {
                     if (!elements.length) return;
                     const idx = elements[0].index;
-                    // Currently drilled into a class -- ignore further clicks,
-                    // there's nothing beneath a single year to drill into.
                     if (chart.data.labels !== topLevel.labels) return;
 
-                    const cls = byClassData.classes[idx];
+                    const cls = topLevel.labels[idx];
                     const years = byClassData.years_by_class[cls] || [];
                     const participants = byClassData.participants_by_class[cls] || [];
 
@@ -301,6 +308,7 @@
                     titleEl.textContent = `${cls} — Participants by Year`;
                     captionEl.textContent = `Years ${cls} had no participants are omitted.`;
                     backBtn.classList.remove("d-none");
+                    if (classSelect) classSelect.value = cls;
                 },
                 plugins: {
                     legend: { display: false },
@@ -328,6 +336,27 @@
             }
         });
 
+        if (classSelect) {
+            classSelect.addEventListener("change", function () {
+                const cls = this.value;
+                if (!cls) {
+                    backBtn.click();
+                    return;
+                }
+                const years = byClassData.years_by_class[cls] || [];
+                const participants = byClassData.participants_by_class[cls] || [];
+
+                chart.data.labels = years;
+                chart.data.datasets[0].data = participants;
+                chart.data.datasets[0].label = `${cls} — Participants`;
+                chart.update();
+
+                titleEl.textContent = `${cls} — Participants by Year`;
+                captionEl.textContent = `Years ${cls} had no participants are omitted.`;
+                backBtn.classList.remove("d-none");
+            });
+        }
+
         backBtn.addEventListener("click", function () {
             chart.data.labels = topLevel.labels;
             chart.data.datasets[0].data = topLevel.data;
@@ -335,8 +364,9 @@
             chart.update();
 
             titleEl.textContent = "Average Annual Participants by Class";
-            captionEl.textContent = `Top ${byClassData.classes.length} classes by average racers per year they ran (classes must have run in at least 3 years to qualify). Click a bar to see that class's participation by year.`;
+            captionEl.textContent = `Top ${topLevel.labels.length} classes by average racers per year they ran (classes must have run in at least 3 years to qualify). Click a bar or use the selector to see that class's participation by year.`;
             backBtn.classList.add("d-none");
+            if (classSelect) classSelect.value = "";
         });
     });
 </script>
