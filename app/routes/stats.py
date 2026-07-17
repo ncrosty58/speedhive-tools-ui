@@ -518,7 +518,11 @@ def driver_stats_breakdown(org_id, driver_name):
         for s in driver_sessions:
             try:
                 if s.get("cv_display") != "N/A":
-                    valid_cvs.append((float(s["cv_display"].replace("%", "")), s["session_name"]))
+                    cv_val = float(s["cv_display"].replace("%", ""))
+                    # Filter out exactly 0.00% or extremely small CVs (<= 0.02%)
+                    # as these represent data/timing anomalies rather than real lap consistency.
+                    if cv_val > 0.02:
+                        valid_cvs.append((cv_val, s["session_name"]))
             except:
                 pass
         if valid_cvs:
@@ -530,8 +534,16 @@ def driver_stats_breakdown(org_id, driver_name):
             peak_consistency_sess = ""
 
         # Consistency Trend (Earliest vs. Recent session averages)
+        # Filter out anomaly CVs <= 0.02% from trend calculations too
+        def get_valid_cv_float(s):
+            try:
+                val = float(s.get("cv_display", "").replace("%", ""))
+                return val if val > 0.02 else None
+            except:
+                return None
+
         chrono_sessions = sorted(
-            [s for s in driver_sessions if s.get("cv_display") != "N/A"],
+            [s for s in driver_sessions if s.get("cv_display") != "N/A" and get_valid_cv_float(s) is not None],
             key=lambda s: s["session_id"]
         )
         trend_text = "N/A"
