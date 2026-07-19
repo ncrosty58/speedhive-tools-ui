@@ -12,10 +12,10 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: Pull latest code
-        run: git -C /opt/speedhive-tools-ui pull
+        run: git -C /home/nathan/projects/speedhive-tools-ui pull
 
       - name: Rebuild and restart web container
-        run: docker compose -f /opt/speedhive-tools-ui/docker-compose.yml up --build -d
+        run: docker compose -f /home/nathan/projects/speedhive-tools-ui/docker-compose.yml up --build -d
 
       - name: Clean up Docker Builder Cache
         run: |
